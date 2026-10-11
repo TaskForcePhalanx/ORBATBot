@@ -390,6 +390,17 @@ def test_a_gzip_file_reads_from_disk(tmp_path):
           rows_of(_big_doc()))
 
 
+def test_a_file_is_read_by_what_it_is_not_by_what_it_is_called(tmp_path):
+    """A client that honours Content-Encoding stores plain JSON as `.json.gz`."""
+    plain_named_gz = tmp_path / 'a.json.gz'
+    plain_named_gz.write_text(json.dumps(_big_doc()))
+    zipped_named_json = tmp_path / 'b.json'
+    zipped_named_json.write_bytes(gzip.compress(json.dumps(_big_doc()).encode()))
+    want = rows_of(_big_doc())
+    for path in (plain_named_gz, zipped_named_json):
+        _same(kt.compute(kt.open_recording(str(path)), '2026_03_14__20_27_Test.json.gz'), want)
+
+
 def test_a_truncated_file_raises_instead_of_returning_half_a_mission():
     text = json.dumps(_big_doc())
     try:

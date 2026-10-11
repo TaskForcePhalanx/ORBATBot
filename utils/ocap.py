@@ -20,8 +20,10 @@ from urllib.parse import quote
 
 DEFAULT_BASE = 'https://ocap.taskforcephalanx.com'
 
-# A recording is 2–3 MB zipped. Something ten times that is not one.
-MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
+# What may be downloaded for one recording, counted in bytes *as sent*. A big
+# mission is 10 MB zipped, and 200+ MB as plain JSON; this is a ceiling against a
+# runaway response, not an expectation.
+MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024
 
 USER_AGENT = 'ORBATBot-killtracker (+https://github.com/armatfp/ORBATBot)'
 
@@ -102,11 +104,18 @@ async def fetch_operations(base: str, *, timeout: int = 30) -> list:
 
 
 async def download_recording(base: str, filename: str, dest: str, *,
-                             timeout: int = 300, max_bytes: int = MAX_DOWNLOAD_BYTES) -> str:
+                             timeout: int = 900, max_bytes: int = MAX_DOWNLOAD_BYTES) -> str:
     """Stream one recording to `dest` and return its SHA-256.
 
     To disk and not to memory: the file is read back as a stream by
     `utils/killtracker.open_recording()`, so nothing ever holds it whole.
+
+    **The bytes are stored as the server sent them.** The server answers a
+    `.json.gz` with `Content-Encoding: gzip`, and `aiohttp` would quietly unzip
+    that — storing plain JSON under a `.json.gz` name and counting the size of
+    the *unzipped* file against `max_bytes`. `auto_decompress=False` keeps the
+    file as it is and the limit honest; `open_recording()` copes with either.
+    Only gzip is asked for, because it is the only encoding that is undone here.
     """
     import aiohttp
 
@@ -116,7 +125,8 @@ async def download_recording(base: str, filename: str, dest: str, *,
     try:
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=timeout),
-            headers={'User-Agent': USER_AGENT},
+            headers={'User-Agent': USER_AGENT, 'Accept-Encoding': 'gzip'},
+            auto_decompress=False,
         ) as session:
             async with session.get(url) as response:
                 if response.status != 200:
