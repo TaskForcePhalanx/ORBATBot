@@ -4,7 +4,7 @@
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-11";
-const VERSION      = "1.031";
+const VERSION      = "1.033";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -336,7 +336,10 @@ function buildAggregates() {
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
-    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = topWeaponRow; }
+    // The weapon the longest kill was made with (a column the bot records), without the
+    // magazine in brackets; empty for a mission counted before that column existed.
+    const lkWeapon = (r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "").replace(/\s*\[[^\]]+\]$/, '');
+    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = lkWeapon; }
     if (kof > 0 && aof > 0) { p.avgDistFootSum += aof * kof; p.avgDistFootN += kof; }
 
     p.killsInVeh  += kiv;
@@ -869,7 +872,10 @@ function applyFilters() {
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
-    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = topWeaponRow; }
+    // The weapon the longest kill was made with (a column the bot records), without the
+    // magazine in brackets; empty for a mission counted before that column existed.
+    const lkWeapon = (r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "").replace(/\s*\[[^\]]+\]$/, '');
+    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = lkWeapon; }
     if (kof > 0 && aof > 0) { p.avgDistFootSum += aof * kof; p.avgDistFootN += kof; }
 
     p.killsInVeh  += kiv; p.deathsInVeh += div2; p.tkInVeh += tkiv;

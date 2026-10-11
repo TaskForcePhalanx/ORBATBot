@@ -2,7 +2,7 @@
 
 A static web dashboard that shows the unit's kill statistics in a sortable, filterable leaderboard.
 
-**Where the numbers come from.** The bot in this repository counts the OCAP recordings itself (`utils/killtracker.py`) and serves the result as a 35-column CSV, and the campaigns, linked names and unit corrections managed on its *📊 Kill Tracker* admin pages. The dashboard reads all of it from `https://bot.taskforcephalanx.com/kt/api/`. **Nothing reads a Google Sheet any more.** The JSON files in this directory are only a fallback for when the bot cannot be reached.
+**Where the numbers come from.** The bot in this repository counts the OCAP recordings itself (`utils/killtracker.py`) and serves the result as a 37-column CSV, and the campaigns, linked names and unit corrections managed on its *📊 Kill Tracker* admin pages. The dashboard reads all of it from `https://bot.taskforcephalanx.com/kt/api/`. **Nothing reads a Google Sheet any more.** The JSON files in this directory are only a fallback for when the bot cannot be reached.
 
 This directory was the `TFP_KillTracker` repository until it was moved here; the old repository only redirects here.
 
@@ -107,7 +107,7 @@ Missions can be grouped into named campaigns in `campaigns.json`. Each campaign 
 
 ## Data Source
 
-Stats come from the bot's `/kt/api/stats.csv`: one row per player per mission with the following columns (the same ones the old sheet had, produced by `utils/killtracker.py`):
+Stats come from the bot's `/kt/api/stats.csv`: one row per player per mission with the following columns (the old sheet's 35 plus two weapon columns of the longest kills, produced by `utils/killtracker.py`):
 
 | # | Column | Notes |
 |---|--------|-------|
@@ -145,6 +145,8 @@ Stats come from the bot's `/kt/api/stats.csv`: one row per player per mission wi
 | 31 | Suicides | |
 | 32 | Time Played (s) | Seconds present in the mission |
 | 33 | Distance Run (km) | Total distance run; teleport steps (>100 m) excluded |
+| 36 | Longest Kill Weapon (On Foot) | The weapon the longest on-foot kill was made with; empty for a mission not yet counted with this column |
+| 37 | Longest Kill Weapon (In Vehicle) | Likewise for the longest kill from a vehicle |
 
 To point the tracker at a different bot, change `BOT_API` near the top of `tracker.js`.
 
