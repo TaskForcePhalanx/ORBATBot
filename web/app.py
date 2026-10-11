@@ -29,6 +29,7 @@ from web import (
     nav as nav_service,
     embeds as embed_service,
     invites as invite_service,
+    killtracker as killtracker_service,
     operations as operation_service,
     orbat as orbat_service,
     reddit as reddit_service,
@@ -1868,5 +1869,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     @app.get('/healthz', response_class=PlainTextResponse)
     async def healthz():
         return 'ok' if bot.is_ready() else 'starting'
+
+    # The Kill Tracker's numbers: public, read-only, no session. See web/killtracker.py.
+    killtracker_service.install(app)
 
     return app

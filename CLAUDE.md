@@ -38,6 +38,7 @@ cogs/
   voicelog.py           # Time spent in voice channels, counted in intervals
   purge.py              # /purge — bulk message deletion, by count or back to a date
   redditfeed.py         # Watches a Reddit user or subreddit and announces new posts
+  killtracker.py        # Polls the OCAP server and counts new recordings — no commands
 utils/
   database.py           # All PostgreSQL queries (asyncpg)
   sheets.py             # Google Sheets read/write (gspread)
@@ -45,6 +46,8 @@ utils/
   orbat.py              # DB-held ORBATs: the text format, the safe edit, the board
   embeds.py             # Builder-made rich messages → discord.Embed, post and edit
   reddit.py             # One Reddit feed, read and rendered — no Discord, no database
+  killtracker.py        # One OCAP recording → the Kill Tracker's per-player rows. Stdlib only
+  ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
   tiles.py              # A terrain's tile pyramid, read out of an uploaded archive
   help.py               # Every feature as a how-to — the site's wiki and the README's
@@ -61,6 +64,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   slots.py              # The approval queue, on top of cogs/slots.py
   operations.py         # Starting and steering an operation, on top of cogs/admin.py
   reddit.py             # The Reddit watches, on top of cogs/redditfeed.py
+  killtracker.py        # The Kill Tracker's public CSV/JSON — no login, GET only
   tacmap.py             # Tactical maps, share links and posting, on top of utils/tacmap.py
   terrain.py            # Uploaded terrains, on top of utils/tiles.py
   nav.py                # The two-level tab bar, built once rather than per template
@@ -86,7 +90,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(345 cases), and every one of them covers a module that imports nothing beyond
+(427 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -98,6 +102,8 @@ all:
 | `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, the tile layout, and the place-name parser and geometry |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
+| `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
+| `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -121,6 +127,8 @@ obvious next thing to cover.
 | `WEB_HOST` / `WEB_PORT` | **Optional.** Listen address. `PORT` (injected by Railway) wins over `WEB_PORT` |
 | `WEB_ENABLED` | **Optional.** `0` keeps the site off even when everything else is set |
 | `WEB_BRAND` | **Optional.** Site name in the header, tab title and footer. Defaults to `TFP BOT` |
+| `OCAP_BASE_URL` | **Optional.** The unit's OCAP server, no trailing slash. Defaults to `https://ocap.taskforcephalanx.com`. The Kill Tracker reads `/api/v1/operations` and `/data/<file>.json.gz` from it — both public — see [the Kill Tracker](#the-kill-tracker-utilskilltrackerpy--utilsocappy--cogskilltrackerpy--webkilltrackerpy) |
+| `KT_SYNC` | **Optional.** `0` stops the Kill Tracker polling the OCAP server. Everything already counted keeps being served |
 | `REDDIT_USER_AGENT` | **Optional.** How the bot identifies itself to Reddit when reading a watched feed. Reddit answers 429 to a client that doesn't say who it is, so a descriptive value naming your own Reddit account is best; empty falls back to `utils/reddit.DEFAULT_USER_AGENT`. There is nothing else to configure — the feeds are public RSS, so no API registration, OAuth or client secret is involved |
 | `MEMBER_EVENTS` | **Optional.** `1` requests the privileged members intent, which `cogs/memberlog.py` needs for joins and leaves. **Only set it once "Server Members Intent" is ticked in the Developer Portal** — requesting an ungranted privileged intent makes login fail, taking the whole bot down. Bans and unbans need no intent |
 
@@ -321,6 +329,24 @@ see [place names](#place-names-the-terrain-knows-its-own-towns-the-tiles-do-not)
 | `source` | TEXT | `ocap`, `upload`, `paste` or `terrain` — where this set came from, so a re-import can say what it replaced |
 | `updated_by_name` | TEXT | |
 | `updated_at` | TIMESTAMP | |
+
+### `kt_missions`
+One row per OCAP recording — see [the Kill Tracker](#the-kill-tracker-utilskilltrackerpy--utilsocappy--cogskilltrackerpy--webkilltrackerpy). **Not scoped to a guild:** the OCAP server is the unit's, not a Discord server's.
+
+| Column | Type | Notes |
+|---|---|---|
+| `ocap_id` | INTEGER PK | The OCAP server's own id for the recording. It only grows, so it is what "new" means |
+| `filename` | TEXT UNIQUE | Without `.json.gz`; the file is `{base}/data/{filename}.json.gz` |
+| `mission` / `world` / `tag` / `played_on` / `duration` | | From the OCAP list. `tag` is `Weekly OP` or `JointOP` |
+| `label` | TEXT | `Mission (YYYY-MM-DD)` — what the dashboard's Mission column holds |
+| `ocap_kills` / `ocap_player_kills` | INTEGER | The server's own counts, kept to hold ours against |
+| `counted_kills` | INTEGER | Enemy kills by non-Zeus players, as counted here |
+| `rows` | TEXT | **JSON array of the mission's per-player rows**, in `killtracker.HEADER` order. `'[]'` until counted. Replaced wholesale on every re-count, the same reasoning as `orbat_nets` |
+| `rules_version` | INTEGER | `killtracker.RULES_VERSION` it was counted with. **0 = never counted.** A mission below the current version is counted again by itself |
+| `status` | TEXT | `ok` or `failed` |
+| `error` / `attempts` / `retry_at` | | Why the last read failed, how many have, and not-before — doubling from 10 minutes to a day (`ocap.retry_delay_minutes`). A failed *re*-count leaves the old rows in place |
+| `sha256` | TEXT | Of the downloaded file |
+| `imported_at` | TIMESTAMP | Naive UTC. Part of the cache key `kt_generation()` |
 
 ### `guild_settings`
 | Column | Type | Notes |
@@ -983,6 +1009,51 @@ On fire: sets `reminder_fired = 1`, DMs all approved members, posts mention in `
 5. `_start_web()` — starts the web UI when it is configured. Every failure here is non-fatal and only printed: missing dependencies, missing variables, `WEB_ENABLED=0` or a crash in `WebServer.start()` all leave the bot running normally. `close()` stops the server before the Discord connection goes down
 6. `on_ready`: `copy_global_to` + guild sync for each guild (instant, vs up-to-1-hour global sync)
 7. `on_guild_join`: sync immediately when bot joins a new server
+
+---
+
+## The Kill Tracker (`utils/killtracker.py`, `utils/ocap.py`, `cogs/killtracker.py`, `web/killtracker.py`)
+
+The Kill Tracker is the unit's public scoreboard: per-player kills, deaths, distance, shots and so on per Arma mission, read out of **OCAP** recordings. It began as a static dashboard (`TFP_KillTracker`, GitHub Pages) over a Google Sheet that a Google Apps Script (`ImportScript`) filled by hand. It now runs here, and **`utils/killtracker.py` is a port of that script that produces the same rows in the same columns** (`HEADER`, 35 of them) so the dashboard reads this bot's CSV exactly as it read the sheet.
+
+**Nobody uploads anything.** `cogs/killtracker.py` asks the OCAP server `GET /api/v1/operations` every 10 minutes. Each entry has an `id` that only grows, a `filename`, a `conversionStatus` (`completed` = finished and exported), a `tag` and the server's own kill counts. `ocap.plan()` picks the recordings that are due — finished, and never seen / counted under older rules / failed and past their back-off — at most 8 per pass, so the first pass over sixty recordings takes a few polls. Each is streamed to a temp file from `GET /data/<filename>.json.gz`, counted in a thread, stored in `kt_missions`, and the file deleted.
+
+| Piece | What it does |
+|---|---|
+| `utils/killtracker.py` | `read_recording()` streams the file and `compute()` counts it. Pure; imports only the standard library, so it is what the tests pin |
+| `utils/ocap.py` | The list entry, the URL, the download, `plan()` and the back-off. `aiohttp` only where the network is touched |
+| `cogs/killtracker.py` | The loop and `check()`. No slash commands — there is nothing for a member to type |
+| `web/killtracker.py` | `GET /kt/api/stats.csv` and `GET /kt/api/missions`. **No session, `Access-Control-Allow-Origin: *`, cached a minute** — the dashboard is a static page on another origin |
+
+### Why it streams
+
+A recording is 50–90 MB of JSON once unzipped, nearly all of it one `positions` entry per entity per frame. `json.loads` on it peaks at **0.5–1 GB**. `read_recording()` instead reads the top-level object member by member and the `entities` array **one entity at a time** (`_Reader`: `raw_decode` on a growing buffer, in C), reducing each to an `Entity` of a few `array` columns — `veh` (vehicle id per frame, for every unit, because a *victim* may be an AI crewman), and `alive`/`x`/`y` for players only. Vehicles keep no positions. Peak memory is about 40 MB. `events` is kept whole (a few thousand rows). The reader doesn't care about key order and treats a number touching the buffer edge as unfinished; a truncated file raises, it never returns half a mission.
+
+### The rules
+
+They are the Apps Script's, unchanged, and `compute()` documents each in place. The ones that have been wrong before:
+
+* **Crew kills are kills, not distances.** When a player downs a helicopter, OCAP logs each crewman as an infantry kill at the helicopter's distance — 1944 m with a Stinger. Such a kill still counts, but doesn't feed longest/avg kill distance when the victim sat in a vehicle (this frame or the one before — the Stinger can kill a passenger a moment before the helicopter is logged as destroyed) or died in the same frame as a vehicle kill by the same player. The 1500 m on-foot ceiling stays as a net for launchers logged with the wrong weapon.
+* **End-of-mission teamkills** (the last 5 minutes, close-range ones in the last 7, bursts of three in the last 10) aren't counted: players celebrate by shooting each other.
+* **A crash isn't a suicide.** A self-kill within a frame of the player's `disconnected` event is the engine's, looked up by *name* because a reconnect gets a new entity id.
+* **Phantom shots**: OCAP v5 logs shots whose target is thousands of metres away; on-foot shots beyond 800 m are dropped, in-vehicle ones never are. Shots are deduplicated by `(frame, target)` and hits by `(shooter, victim, frame)`.
+* **Names**: an entity without a name takes the first per-frame name; one still unnamed takes the name of the **only** named player sharing its group and role; an unnamed one with under an hour of playtime is dropped. Zeus (group or role containing "zeus") has every combat stat zeroed.
+
+JavaScript rounds halves **up** (`toFixed`, `Math.round`); Python rounds them to even. `to_fixed()` and `js_round()` do what the script did, because the rows are compared against the sheet's.
+
+### Changing a rule
+
+**Bump `RULES_VERSION`.** Every stored mission carries the version it was counted with, and the loop counts again — from the file, which stays on the OCAP server — any mission below the current one. That replaces "re-import every mission by hand". A re-count that fails leaves the old rows in place.
+
+### Checked against the original
+
+The port was run cell by cell against the original `ImportScript` (under Node with the Apps Script services stubbed) on three real recordings — 10, 8 and 8 rows, **0 differences** — and the dashboard's own CSV parser reads the output. That needs the recordings, which are 2–3 MB each and not committed, so it is not a test; do it again when a rule changes, since the script is the reference for everything the tests don't cover.
+
+### Not done yet
+
+* The dashboard still reads the Google Sheet. Point `CSV_URL` in `TFP_KillTracker/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
+* `unit_overrides.json`, `player_aliases.json` and `campaigns.json` still live in the dashboard's repo.
+* The dashboard itself could be served from here (one origin, one deploy). It is a static page, so it is a copy, not a rewrite.
 
 ---
 
