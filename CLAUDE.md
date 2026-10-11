@@ -75,8 +75,13 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   helpers.py            # Guild-timezone formatting and datetime-local parsing
   templates/ static/    # Jinja2 templates, one stylesheet, one script (the map editor)
 lab/                    # Standalone ORBAT-editor playground — no Discord, no Postgres
+  # (inside scripts/ below)
+dashboard/              # The Kill Tracker's public page — static, hosted on GitHub Pages, not by the bot
+  index.html tracker.js # Reads /kt/api/* from the bot (?source=bot) or the old Google Sheet
+  *.json                # campaigns / player_aliases / unit_overrides — the fallback the bot's API replaces
 scripts/
   gen_help.py           # utils/help.py → the README's help:start/help:end section
+  legacy/ImportScript   # The Apps Script utils/killtracker.py was ported from — the reference, not run
 tests/                  # pytest — reddit, tacmap, tiles, web/config.py, check_feed(), help
 requirements.txt
 Dockerfile
@@ -1002,6 +1007,15 @@ On fire: sets `reminder_fired = 1`, DMs all approved members, posts mention in `
   twice, so switch Railway's own source off when the workflow takes over.
   Without the token the workflow's deploy job is skipped and only the tests run.
 
+### GitHub Pages (the Kill Tracker page)
+- `dashboard/` is a static page; `.github/workflows/dashboard.yml` publishes it to the
+  `gh-pages` branch (`main` → root, `claude/**` → `dev/`). Pages must be switched on once:
+  Settings → Pages → Deploy from a branch → `gh-pages` / root. URL: `https://armatfp.github.io/ORBATBot/`.
+- `deploy.yml` has `paths-ignore: ['dashboard/**']` on push, so a page-only change does
+  **not** redeploy (and restart) the bot. Keep it that way.
+- The page lives on another origin than the bot, which is why `/kt/api/*` answers with
+  `Access-Control-Allow-Origin: *`.
+
 ### Docker (self-hosted)
 - `docker-compose.yml`: bot + postgres:16-alpine containers
 - Named volume `postgres_data` persists DB across restarts
@@ -1086,9 +1100,10 @@ The public side serves them in the shape of the dashboard's own files — `/kt/a
 
 ### Not done yet
 
-* The dashboard still reads the Google Sheet. Point `CSV_URL` in `TFP_KillTracker/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
-* The dashboard reads the aliases, units and campaigns from here only with `?source=bot`; its own JSON files stay in its repo until the switch.
-* The dashboard itself could be served from here (one origin, one deploy). It is a static page, so it is a copy, not a rewrite.
+* The dashboard still reads the Google Sheet. Point `CSV_URL` in `dashboard/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
+* The dashboard reads the aliases, units and campaigns from here only with `?source=bot`; its own JSON files stay in `dashboard/` until the switch.
+* The dashboard now lives in `dashboard/` of this repo and is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
+* The old `armatfp/TFP_KillTracker` repo is left as it was until the new Pages URL is confirmed working; then it should redirect here and be archived.
 
 ---
 

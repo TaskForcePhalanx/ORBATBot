@@ -1,0 +1,581 @@
+function reimportOCAP() {
+  const parentFolder = DriveApp.getFoldersByName("Kill Tracker").next();
+  const folders = parentFolder.getFolders();
+  let inputFolder;
+  let archiveFolder;
+  while (folders.hasNext()) {
+    const f = folders.next();
+    if (f.getName() === "OCAP_Logs") inputFolder = f;
+    if (f.getName() === "OCAP_Logs_Archive") archiveFolder = f;
+  }
+  if (!inputFolder || !archiveFolder) {
+    throw new Error("Folders OCAP_Logs or OCAP_Logs_Archive not found");
+  }
+  const files = inputFolder.getFiles();
+  if (!files.hasNext()) {
+    Logger.log("No new files found.");
+    return;
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let statsSheet = ss.getSheetByName("player_stats");
+  if (!statsSheet) {
+    statsSheet = ss.insertSheet("player_stats");
+  }
+  // Column schema
+  const header = [
+    // Mission info
+    "Source File", "Mission", "World",
+    // Player info
+    "Username", "Side", "Group", "Role",
+    // Infantry (on-foot) stats
+    "Kills (On Foot)", "Deaths (On Foot)", "K/D (On Foot)",
+    "Teamkills (On Foot)", "Shots (On Foot)", "Hits Taken (On Foot)", "Hits Dealt (On Foot)",
+    "Shots/Kill (On Foot)", "Avg Kill Dist On Foot (m)", "Longest Kill On Foot (m)",
+    // Vehicle stats
+    "Kills (In Vehicle)", "Deaths (In Vehicle)", "K/D (In Vehicle)",
+    "Teamkills (In Vehicle)", "Vehicle Kills (On Foot)", "Vehicle Kills (In Vehicle)",
+    "Shots (In Vehicle)", "Hits Taken (In Vehicle)", "Hits Dealt (In Vehicle)",
+    "Shots/Kill (In Vehicle)", "Avg Kill Dist In Vehicle (m)", "Longest Kill In Vehicle (m)",
+    // Weapon stats
+    "Top Weapon", "Weapon Kills (JSON)",
+    // Misc
+    "Suicides",
+    "Time Played (s)",
+    "Distance Run (km)",
+    // Vehicle kill detail list
+    "Vehicle Kills (JSON)"
+  ];
+  // Always write the canonical header so the column order is guaranteed correct.
+  // Data rows are always deleted and rewritten on each import, so there's no
+  // risk of misalignment with existing rows.
+  statsSheet.getRange(1, 1, 1, header.length).setValues([header]);
+  // Build set of already-imported filenames from column A
+  const importedFiles = new Set();
+  if (statsSheet.getLastRow() > 1) {
+    const existing = statsSheet.getRange(2, 1, statsSheet.getLastRow() - 1, 1).getValues();
+    existing.forEach(row => {
+      if (row[0]) importedFiles.add(String(row[0]).trim());
+    });
+    Logger.log(`Found ${importedFiles.size} already-imported filename(s) in sheet.`);
+  }
+  function deleteExistingRowsForFile(sheet, sourceFileName) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return 0;
+    const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues(); // column A = Source File
+    const rowsToDelete = [];
+    values.forEach((row, i) => {
+      if (String(row[0]).trim() === sourceFileName) {
+        rowsToDelete.push(i + 2); // actual sheet row number
+      }
+    });
+    // Delete bottom-up so row indexes don't shift
+    for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+      sheet.deleteRow(rowsToDelete[i]);
+    }
+    return rowsToDelete.length;
+  }
+  const file = files.next();
+  const name = file.getName();
+  if (!name.endsWith(".json.gz")) {
+    Logger.log(`Skipped (not .json.gz): ${name}`);
+    return;
+  }
+
+  try {
+    Logger.log(`Processing: ${name}`);
+    const blob = file.getBlob();
+    const unzippedBlob = Utilities.ungzip(blob);
+    const text = unzippedBlob.getDataAsString();
+    const data = JSON.parse(text);
+    // Entity lookup
+    const entities = {};
+    (data.entities || []).forEach(e => {
+      entities[e.id] = e;
+    });
+    // Helper: get a player's inVehicle status at a specific frame
+    // Old OCAP (≤v4): positions entry: [[x,y,z], bearing, alive, inVehicle(0/1), name, isPlayer, role]
+    // New OCAP (v5+): positions entry: [[x,y,z], bearing, alive, vehicleId(0=foot), name, isPlayer, role, group, side]
+    // In both formats pos[3] === 0 means on foot; old format uses 1 for in-vehicle,
+    // new format uses the vehicle entity ID (always > 1).
+    function isInVehicleAtFrame(entity, frame) {
+      if (!entity || !Array.isArray(entity.positions)) return false;
+      const start = entity.startFrameNum || 0;
+      const idx = frame - start;
+      if (idx < 0 || idx >= entity.positions.length) return false;
+      const pos = entity.positions[idx];
+      return Array.isArray(pos) && pos[3] !== 0;
+    }
+    // Zeus detection
+    function isZeus(entity) {
+      if (!entity) return false;
+      const group = (entity.group || "").toLowerCase();
+      // entity.role is populated by newer OCAP versions; older versions only
+      // store the role inside each positions frame at index 6. Fall back to
+      // reading the first non-empty frame role so both formats are covered.
+      let roleRaw = entity.role || "";
+      if (!roleRaw && Array.isArray(entity.positions)) {
+        for (const pos of entity.positions) {
+          if (Array.isArray(pos) && pos[6]) { roleRaw = pos[6]; break; }
+        }
+      }
+      const role = roleRaw.toLowerCase();
+      // Use includes() so "Co Zeus", "Zeus@Zeus", "Command@Zeus", "Rifleman@Zeus"
+      // and any other compound role containing the word are all caught.
+      return group === "zeus" || role.includes("zeus");
+    }
+    // Build player stats
+    const players = {};
+    (data.entities || []).forEach(e => {
+      if (e.isPlayer === 1 || (e.isPlayer === 0 && !e.name)) {
+        let resolvedName = e.name;
+        if (!resolvedName && Array.isArray(e.positions)) {
+          for (const pos of e.positions) {
+            if (Array.isArray(pos) && pos[4]) { resolvedName = pos[4]; break; }
+          }
+        }
+        players[e.id] = {
+          name: resolvedName || `Unknown ${e.id}`,
+          side: e.side,
+          role: e.role || "",
+          group: e.group || "",
+          // Infantry (on-foot) stats
+          killsOnFoot: 0,
+          deathsOnFoot: 0,
+          teamkillsOnFoot: 0,
+          shotsOnFoot: 0,
+          hitsTakenOnFoot: 0,
+          hitsDealtOnFoot: 0,
+          killDistOnFoot: [],
+          // Vehicle stats
+          killsInVehicle: 0,
+          deathsInVehicle: 0,
+          teamkillsInVehicle: 0,
+          vehicleKillsOnFoot: 0,
+          vehicleKillsInVehicle: 0,
+          shotsInVehicle: 0,
+          hitsTakenInVehicle: 0,
+          hitsDealtInVehicle: 0,
+          killDistInVehicle: [],
+          // Shot frames
+          framesFired: Array.isArray(e.framesFired) ? e.framesFired : [],
+          // Weapon stats
+          weaponKills: {},
+          // Vehicle kill detail list (for per-mission vehicle overview)
+          vehicleKillList: [],
+          // Misc
+          suicides: 0,
+          isUnknown: !resolvedName,
+          isZeus: isZeus(e),
+          timePlayed: (Array.isArray(e.positions) ? e.positions.length : 0) * (data.captureDelay || 1),
+          distanceRun: 0,
+        };
+      }
+    });
+    // Rename unknown entities that share group+role with exactly one named player.
+    // This recovers stats for players whose name was missing in OCAP data but whose
+    // squad slot (group + role) matches a known player in the same mission.
+    const namedByGroupRole = {};
+    Object.values(players).forEach(p => {
+      if (!p.isUnknown && p.group && p.role) {
+        const key = `${p.group.trim()}|${p.role.trim()}`;
+        if (!namedByGroupRole[key]) namedByGroupRole[key] = [];
+        namedByGroupRole[key].push(p.name);
+      }
+    });
+    Object.values(players).forEach(p => {
+      if (p.isUnknown && p.group && p.role) {
+        const key = `${p.group.trim()}|${p.role.trim()}`;
+        const candidates = namedByGroupRole[key];
+        const unique = candidates ? [...new Set(candidates)] : [];
+        if (unique.length === 1) {
+          Logger.log(`Renaming unknown → ${unique[0]} [group=${p.group}, role=${p.role}]`);
+          p.name = unique[0];
+          p.isUnknown = false;
+        }
+      }
+    });
+    // Pre-compute distance run on foot (sum of 2D distance between consecutive frames
+    // where the player is alive and not in a vehicle).
+    // Steps larger than maxStepMeters are treated as teleports and ignored.
+    // Max sprint speed in Arma is ~7 m/s; 25 m/s * captureDelay gives a generous ceiling.
+    const maxStepMeters = 25 * (data.captureDelay || 1);
+    Object.keys(players).forEach(id => {
+      const entity = entities[id];
+      if (!entity || !Array.isArray(entity.positions)) return;
+      const pos = entity.positions;
+      let dist = 0;
+      for (let i = 1; i < pos.length; i++) {
+        const prev = pos[i - 1];
+        const cur = pos[i];
+        // pos entry: [[x,y,z], bearing, alive, inVehicle, ...]
+        if (!Array.isArray(prev) || !Array.isArray(cur)) continue;
+        const prevAlive = prev[2] === 1, curAlive = cur[2] === 1;
+        const prevOnFoot = prev[3] === 0, curOnFoot = cur[3] === 0;
+        if (!prevAlive || !curAlive || !prevOnFoot || !curOnFoot) continue;
+        const [px, py] = prev[0];
+        const [cx, cy] = cur[0];
+        const step = Math.sqrt((cx - px) ** 2 + (cy - py) ** 2);
+        if (step <= maxStepMeters) dist += step;
+      }
+      players[id].distanceRun = Math.round(dist);
+    });
+
+    // Pre-compute shots fired per context.
+    // OCAP v5+ has a known bug where framesFired entries include phantom shots with
+    // target positions thousands of metres from the shooter. Filter them out by
+    // skipping any entry whose target is more than MAX_SHOT_DIST from the player.
+    const MAX_SHOT_DIST = 800;
+    Object.keys(players).forEach(id => {
+      const p = players[id];
+      const entity = entities[id];
+      if (!entity) return;
+      const seenShots = new Set();
+      p.framesFired.forEach(entry => {
+        const frame = Array.isArray(entry) ? entry[0] : entry;
+        const target = Array.isArray(entry) && entry.length > 1 ? entry[1] : null;
+        const shotKey = target && Array.isArray(target)
+          ? `${frame}:${target[0]}:${target[1]}`
+          : String(frame);
+        if (seenShots.has(shotKey)) return;
+        seenShots.add(shotKey);
+        const inVehicle = isInVehicleAtFrame(entity, frame);
+        if (!inVehicle) {
+          if (target && Array.isArray(target)) {
+            const start = entity.startFrameNum || 0;
+            const idx = frame - start;
+            const pos = Array.isArray(entity.positions) ? entity.positions[idx] : null;
+            if (pos && Array.isArray(pos[0])) {
+              const dx = target[0] - pos[0][0];
+              const dy = target[1] - pos[0][1];
+              if (Math.sqrt(dx * dx + dy * dy) > MAX_SHOT_DIST) return;
+            }
+          }
+          p.shotsOnFoot++;
+        } else {
+          p.shotsInVehicle++;
+        }
+      });
+    });
+    // Pre-build a set of "name:frame" for disconnect events so we can
+    // detect crash/disconnect-induced self-kills and exclude them from suicides.
+    // "disconnected" events store the player name (not entity ID), and a player can
+    // reconnect mid-mission and get a new entity ID — so we key by name to correctly
+    // cover all of a player's entities across reconnects.
+    const disconnectFrames = new Set();
+    (data.events || []).forEach(event => {
+      if (event[1] === "disconnected") disconnectFrames.add(`${event[2]}:${event[0]}`);
+    });
+
+    // ── End-of-mission TK suppression ─────────────────────────────────────
+    // At the end of many missions players celebrate by shooting each other or
+    // dropping grenades — these should not count as teamkills in the stats.
+    // Three overlapping heuristics are used:
+    //   1. WINDOW  — any TK in the last EOM_WINDOW_S seconds before mission end.
+    //   2. RANGE   — any close-range TK (≤ EOM_CLOSE_M) in the last
+    //                EOM_RANGE_WINDOW_S seconds (catches grenade drops a bit earlier).
+    //   3. BURST   — any TK that is part of a cluster of ≥ EOM_BURST_COUNT TKs
+    //                within a EOM_BURST_WINDOW-second rolling window, but ONLY
+    //                when the TK itself is within EOM_BURST_MAX_FROMEND_S of mission
+    //                end (prevents mid-mission bad-luck TK clusters from being ignored).
+    const EOM_WINDOW_S           = 300; // hard cutoff: last 5 min
+    const EOM_RANGE_WINDOW_S     = 420; // extended cutoff for close-range kills (7 min)
+    const EOM_CLOSE_M            = 15;  // grenade / pistol range threshold (metres)
+    const EOM_BURST_WINDOW       = 60;  // rolling window for burst detection (seconds)
+    const EOM_BURST_COUNT        = 3;   // min TKs in window to flag as a burst
+    const EOM_BURST_MAX_FROMEND_S = 600; // burst heuristic only active in last 10 min
+
+    // Find the frame at which the mission officially ended.
+    const endMissionFrame = (() => {
+      for (const ev of (data.events || [])) {
+        if (ev[1] === "endMission") return ev[0];
+      }
+      return data.endFrame != null ? data.endFrame : Infinity;
+    })();
+
+    // Pre-collect all same-side unit kills (by frame) for burst detection.
+    const tkFrameList = [];
+    (data.events || []).forEach(ev => {
+      if (ev[1] !== "killed") return;
+      const vId  = ev[2];
+      const kId  = ev[3] ? ev[3][0] : null;
+      if (!kId || kId === vId) return;
+      const v = entities[vId], k = entities[kId];
+      if (v && k && v.type === "unit" && v.side === k.side) tkFrameList.push(ev[0]);
+    });
+    tkFrameList.sort((a, b) => a - b);
+
+    // Binary-search helper: count TKs within [frame-half, frame+half].
+    function tkBurstCount(frame) {
+      const half = EOM_BURST_WINDOW / 2;
+      const lo   = frame - half;
+      const hi   = frame + half;
+      let left = 0, right = tkFrameList.length;
+      while (left < right) { const m = (left + right) >> 1; if (tkFrameList[m] < lo) left = m + 1; else right = m; }
+      const start = left;
+      left = 0; right = tkFrameList.length;
+      while (left < right) { const m = (left + right) >> 1; if (tkFrameList[m] <= hi) left = m + 1; else right = m; }
+      return left - start;
+    }
+
+    function isEomTk(frame, distance) {
+      const fromEnd = endMissionFrame - frame;
+      if (fromEnd < 0)                                        return true;
+      if (fromEnd <= EOM_WINDOW_S)                            return true;
+      if (fromEnd <= EOM_RANGE_WINDOW_S && distance <= EOM_CLOSE_M) return true;
+      if (fromEnd <= EOM_BURST_MAX_FROMEND_S && tkBurstCount(frame) >= EOM_BURST_COUNT) return true;
+      return false;
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
+    // Process events
+    const MAX_FOOT_KILL_DIST = 1500; // on-foot kills beyond this don't count for distance stats
+    const seenHits = new Set();
+    // Frames in which a player destroyed an enemy vehicle. Crew members killed in that
+    // same frame are logged as infantry kills with the vehicle's distance, so they
+    // still count as kills but are excluded from avg/longest distance stats.
+    const vehicleKillFrames = new Set();
+    (data.events || []).forEach(event => {
+      if (event[1] !== "killed") return;
+      const v = entities[event[2]];
+      const k = event[3] ? event[3][0] : null;
+      if (v && v.type === "vehicle" && k != null && k !== event[2] && entities[k] && v.side !== entities[k].side) {
+        vehicleKillFrames.add(`${k}:${event[0]}`);
+      }
+    });
+    (data.events || []).forEach(event => {
+      const frame = event[0];
+      const type = event[1];
+      const victimId = event[2];
+      const killerInfo = event[3];
+      const distance = event[4] || 0;
+      if (type === "killed") {
+        const victim = entities[victimId];
+        const killerId = killerInfo ? killerInfo[0] : null;
+        const killer = killerId != null ? entities[killerId] : null;
+        const victimType = victim ? victim.type : null;
+        // Deaths
+        if (victimType === "unit" && players[victimId] !== undefined) {
+          const victimInVehicle = isInVehicleAtFrame(entities[victimId], frame);
+          if (victimInVehicle) {
+            players[victimId].deathsInVehicle++;
+          } else {
+            players[victimId].deathsOnFoot++;
+          }
+        }
+        // Killer must be a known player
+        if (killerId === null || players[killerId] === undefined) return;
+        if (killerId === victimId) {
+          // Skip if the player disconnected within 1 frame of the self-kill —
+          // the game engine generates a self-kill as a side-effect of a crash/DC,
+          // and the disconnect event can land on the same frame or an adjacent one.
+          // Use the victim's name for the lookup because: (a) disconnect events store
+          // the name, not the entity ID, and (b) a reconnected player gets a new entity
+          // ID, so keying by name correctly covers all entities across reconnects.
+          const victimName = victim ? victim.name : null;
+          const isDisconnectKill = victimName && (
+            disconnectFrames.has(`${victimName}:${frame - 1}`) ||
+            disconnectFrames.has(`${victimName}:${frame}`) ||
+            disconnectFrames.has(`${victimName}:${frame + 1}`)
+          );
+          if (!isDisconnectKill) {
+            players[victimId].suicides++;
+          }
+          return;
+        }
+        const isSameSide = victim && killer && victim.side === killer.side;
+        const killerInVehicle = isInVehicleAtFrame(entities[killerId], frame);
+        if (victimType === "vehicle") {
+          if (!isSameSide) {
+            if (killerInVehicle) {
+              players[killerId].vehicleKillsInVehicle++;
+            } else {
+              players[killerId].vehicleKillsOnFoot++;
+            }
+            const vehicleName = victim ? (victim.name || "Unknown Vehicle") : "Unknown Vehicle";
+            const vehicleWeapon = (killerInfo && killerInfo[1]) ? killerInfo[1] : "Unknown";
+            players[killerId].vehicleKillList.push({ v: vehicleName, w: vehicleWeapon });
+          }
+        } else if (victimType === "unit") {
+          if (isSameSide) {
+            if (!isEomTk(frame, distance)) {
+              if (killerInVehicle) {
+                players[killerId].teamkillsInVehicle++;
+              } else {
+                players[killerId].teamkillsOnFoot++;
+              }
+            }
+          } else {
+            // Crew of a shot-down vehicle: victim sat in a vehicle (this or previous frame), or
+            // died in the same frame as a vehicle kill by the same player.
+            const isCrewKill = vehicleKillFrames.has(`${killerId}:${frame}`) ||
+              isInVehicleAtFrame(victim, frame) || isInVehicleAtFrame(victim, frame - 1);
+            if (killerInVehicle) {
+              players[killerId].killsInVehicle++;
+              if (!isCrewKill) players[killerId].killDistInVehicle.push(distance);
+            } else {
+              players[killerId].killsOnFoot++;
+              // Implausible on-foot kill distances (e.g. launcher/vehicle kills logged
+              // with the wrong weapon, OCAP artifacts) still count as kills but are
+              // excluded from avg/longest distance stats.
+              if (!isCrewKill && distance <= MAX_FOOT_KILL_DIST) players[killerId].killDistOnFoot.push(distance);
+              const weapon = (killerInfo && killerInfo[1]) ? killerInfo[1] : "Unknown";
+              players[killerId].weaponKills[weapon] = (players[killerId].weaponKills[weapon] || 0) + 1;
+            }
+          }
+        }
+      }
+      if (type === "hit") {
+        const shooterId = killerInfo ? killerInfo[0] : null;
+        const hitKey = `${shooterId}:${victimId}:${frame}`;
+        if (seenHits.has(hitKey)) return;
+        seenHits.add(hitKey);
+        if (players[victimId] !== undefined) {
+          const victimInVehicle = isInVehicleAtFrame(entities[victimId], frame);
+          if (victimInVehicle) {
+            players[victimId].hitsTakenInVehicle++;
+          } else {
+            players[victimId].hitsTakenOnFoot++;
+          }
+        }
+        if (shooterId != null && players[shooterId] !== undefined) {
+          const shooterInVehicle = isInVehicleAtFrame(entities[shooterId], frame);
+          if (shooterInVehicle) {
+            players[shooterId].hitsDealtInVehicle++;
+          } else {
+            players[shooterId].hitsDealtOnFoot++;
+          }
+        }
+      }
+    });
+    const missionName = (() => {
+      const base = data.missionName || "";
+      // Old filename format: 2026_03_14__20_27_MissionName.json.gz  → YYYY_MM_DD
+      // New filename format: guid-MissionName_20260530_222136.json.gz → _YYYYMMDD_
+      const m = name.match(/(\d{4})_(\d{2})_(\d{2})/) || name.match(/_(\d{4})(\d{2})(\d{2})_/);
+      if (!m) return base;
+      return base + " (" + m[1] + "-" + m[2] + "-" + m[3] + ")";
+    })();
+    const worldName = data.worldName || "";
+    const rows = [];
+    Object.values(players).forEach(p => {
+      // Skip unknowns (no name in OCAP data) with less than 1 hour of playtime
+      if (p.isUnknown && Math.round(p.timePlayed) < 3600) return;
+      // Zeus: zero all combat stats
+      if (p.isZeus) {
+        p.killsOnFoot = 0;
+        p.deathsOnFoot = 0;
+        p.teamkillsOnFoot = 0;
+        p.shotsOnFoot = 0;
+        p.hitsTakenOnFoot = 0;
+        p.hitsDealtOnFoot = 0;
+        p.killsInVehicle = 0;
+        p.deathsInVehicle = 0;
+        p.teamkillsInVehicle = 0;
+        p.vehicleKillsOnFoot = 0;
+        p.vehicleKillsInVehicle = 0;
+        p.shotsInVehicle = 0;
+        p.hitsTakenInVehicle = 0;
+        p.hitsDealtInVehicle = 0;
+        p.suicides = 0;
+        p.distanceRun = 0;
+        p.killDistOnFoot = [];
+        p.killDistInVehicle = [];
+        p.weaponKills = {};
+        p.vehicleKillList = [];
+      }
+      const kdFoot = p.deathsOnFoot > 0 ? (p.killsOnFoot / p.deathsOnFoot).toFixed(2) : p.killsOnFoot.toFixed(2);
+      const kdVeh = p.deathsInVehicle > 0 ? (p.killsInVehicle / p.deathsInVehicle).toFixed(2) : p.killsInVehicle.toFixed(2);
+      const spkFoot = p.killsOnFoot > 0 ? (p.shotsOnFoot / p.killsOnFoot).toFixed(1) : "";
+      const spkVeh = p.killsInVehicle > 0 ? (p.shotsInVehicle / p.killsInVehicle).toFixed(1) : "";
+      const avgFoot = p.killDistOnFoot.length > 0
+        ? (p.killDistOnFoot.reduce((a, b) => a + b, 0) / p.killDistOnFoot.length).toFixed(0)
+        : "";
+      const avgVeh = p.killDistInVehicle.length > 0
+        ? (p.killDistInVehicle.reduce((a, b) => a + b, 0) / p.killDistInVehicle.length).toFixed(0)
+        : "";
+      const lkFoot = p.killDistOnFoot.length > 0 ? Math.max(...p.killDistOnFoot) : "";
+      const lkVeh = p.killDistInVehicle.length > 0 ? Math.max(...p.killDistInVehicle) : "";
+      const weaponEntries = Object.entries(p.weaponKills).sort((a, b) => b[1] - a[1]);
+      const topWeapon = weaponEntries.length > 0 ? weaponEntries[0][0] : "";
+      const weaponJson = weaponEntries.length > 0 ? JSON.stringify(Object.fromEntries(weaponEntries)) : "";
+      rows.push([
+        name,
+        missionName,
+        worldName,
+        p.name,
+        p.side,
+        p.group,
+        p.role,
+        p.killsOnFoot,
+        p.deathsOnFoot,
+        parseFloat(kdFoot),
+        p.teamkillsOnFoot,
+        p.shotsOnFoot,
+        p.hitsTakenOnFoot,
+        p.hitsDealtOnFoot,
+        spkFoot !== "" ? parseFloat(spkFoot) : "",
+        avgFoot !== "" ? parseFloat(avgFoot) : "",
+        lkFoot !== "" ? lkFoot : "",
+        p.killsInVehicle,
+        p.deathsInVehicle,
+        parseFloat(kdVeh),
+        p.teamkillsInVehicle,
+        p.vehicleKillsOnFoot,
+        p.vehicleKillsInVehicle,
+        p.shotsInVehicle,
+        p.hitsTakenInVehicle,
+        p.hitsDealtInVehicle,
+        spkVeh !== "" ? parseFloat(spkVeh) : "",
+        avgVeh !== "" ? parseFloat(avgVeh) : "",
+        lkVeh !== "" ? lkVeh : "",
+        topWeapon,
+        weaponJson,
+        p.suicides,
+        Math.round(p.timePlayed),
+        parseFloat((p.distanceRun / 1000).toFixed(1)),
+        p.vehicleKillList.length > 0 ? JSON.stringify(p.vehicleKillList) : "",
+      ]);
+    });
+    // Sort by on-foot kills descending
+    rows.sort((a, b) => b[7] - a[7]);
+    // Remove existing rows for this source file before writing
+    {
+      const deletedCount = deleteExistingRowsForFile(statsSheet, name);
+      if (deletedCount > 0) {
+        Logger.log(`Removed ${deletedCount} existing row(s) for ${name}`);
+      }
+    }
+    if (rows.length > 0) {
+      statsSheet.getRange(
+        statsSheet.getLastRow() + 1,
+        1,
+        rows.length,
+        rows[0].length
+      ).setValues(rows);
+    }
+    // Format as table
+    const lastRow = statsSheet.getLastRow();
+    const numCols = header.length;
+    // Freeze header row
+    statsSheet.setFrozenRows(1);
+    // Header style: bold, dark background, white text
+    const headerRange = statsSheet.getRange(1, 1, 1, numCols);
+    headerRange.setFontWeight("bold");
+    headerRange.setBackground("#424242");
+    headerRange.setFontColor("#ffffff");
+    headerRange.setHorizontalAlignment("center");
+    // Banded rows on the full data range
+    if (lastRow > 1) {
+      statsSheet.getBandings().forEach(b => b.remove());
+      statsSheet.getRange(1, 1, lastRow, numCols)
+        .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+    }
+    // Archive processed file
+    archiveFolder.addFile(file);
+    inputFolder.removeFile(file);
+    Logger.log(`Import complete: ${name} — ${rows.length} players written`);
+  } catch (err) {
+    Logger.log(`Error processing ${name}: ${err}`);
+    throw err;
+  }
+}
