@@ -1207,16 +1207,22 @@ _KILLTRACKER: tuple[Topic, ...] = (
         summary='Look through the farthest kills of all missions and strike the ones that '
                 'cannot be true.',
         steps=(
-            'Open **Longest kills**. The farthest kills of all missions are listed, farthest '
-            'first, with who made them, with which weapon, on whom and in which mission.',
-            'Tick **Strike** on a kill that is not believable, and press **Save changes**.',
+            'Open **Longest kills**. The farthest infantry kills of all missions are listed, '
+            'farthest first, with who made them, with which weapon, on whom and in which mission. '
+            'Choose a mission or type a player to see all of theirs.',
+            'Tick **Strike** on a kill that is not believable, and press **Save changes**. It leaves '
+            'the list at once and appears under **Struck kills**; once the mission is counted again '
+            'the next-farthest kill takes its place.',
             'The mission is counted again within a few minutes, and the public numbers change '
             'when that is done.',
-            'To put a kill back, untick it and save.',
+            'To put a kill back, untick it under **Struck kills** and save.',
         ),
         notes=(
             'A struck kill **still counts as a kill**; only its distance leaves the longest and '
             'average kill distance.',
+            'Kills from a vehicle are not listed: a vehicle’s weapons reach that far. Each '
+            'player’s own longest kill is always on offer, so the number on the dashboard can be '
+            'checked.',
             'Mortars and other indirect fire, pistols beyond 300 m, the crew of a destroyed '
             'vehicle and on-foot kills beyond 1500 m are left out automatically and are not '
             'listed.',

@@ -36,7 +36,9 @@ from decimal import ROUND_HALF_UP, Decimal
 # kills on a vehicle's occupants don't feed longest/avg kill distance.
 # 2 = indirect fire (mortars, artillery) and pistols no longer feed the distance
 # statistics, and a kill an admin has struck from the list doesn't either.
-RULES_VERSION = 2
+# 3 = the list of kills to check holds on-foot kills only (a vehicle's long shots
+# are real) and every player's own longest one, not just the mission's farthest.
+RULES_VERSION = 3
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -698,7 +700,9 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
                                  and (killer_in_vehicle or distance <= MAX_FOOT_KILL_DIST))
                     key = kill_key(frame, killer_id, victim_id)
                     struck = key in exclude
-                    if plausible and distance >= FAR_KILL_MIN_M:
+                    # Only an infantryman's shot is worth checking: a vehicle's
+                    # weapons really do reach that far.
+                    if plausible and not killer_in_vehicle and distance >= FAR_KILL_MIN_M:
                         far.append({'f': frame, 'ki': killer_id, 'vi': victim_id,
                                     'killer': killer_p.name,
                                     'victim': (victim.name if victim and victim.name else 'Unknown'),
@@ -800,7 +804,19 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
     # not offered for checking either.
     listed = {p.ent.id for p in players.values()
               if not p.is_zeus and not (p.is_unknown and js_round(p.time_played) < MIN_UNKNOWN_PLAYTIME_S)}
-    far = sorted((k for k in far if k['ki'] in listed), key=lambda k: -k['d'])[:FAR_KILL_KEEP]
+    far = sorted((k for k in far if k['ki'] in listed), key=lambda k: -k['d'])
+    # The mission's farthest kills, and also each player's own longest: the number
+    # that stands next to their name on the dashboard is that one, and it must
+    # be checkable even when the mission had farther kills than a short list holds.
+    # Struck kills do not take a place: striking the farthest lets the next one
+    # fill up. They are all kept, flagged, so they can be put back.
+    live = [k for k in far if not k['x']]
+    keep, seen = live[:FAR_KILL_KEEP], set()
+    for k in live[FAR_KILL_KEEP:]:
+        if k['ki'] not in seen and not any(j['ki'] == k['ki'] for j in keep):
+            keep.append(k)
+        seen.add(k['ki'])
+    far = keep + [k for k in far if k['x']]
     return {'mission': label, 'world': rec.world_name, 'rows': rows, 'kills': kills, 'far': far}
 
 
@@ -1230,7 +1246,7 @@ def unit_overrides_document(overrides: dict) -> dict:
 # Checking the farthest kills
 # ---------------------------------------------------------------------------
 
-def far_listing(missions, limit: int = 100) -> list:
+def far_listing(missions, limit: int = None) -> list:
     """The farthest kills across all missions, farthest first, for the admin page.
 
     `missions` is `[(ocap_id, shown mission name, far list)]` — the far list as
@@ -1249,7 +1265,7 @@ def far_listing(missions, limit: int = 100) -> list:
             out.append({**k, 'id': f'{ocap_id}|{key}', 'ocap_id': ocap_id, 'key': key,
                         'd': distance, 'mission': mission, 'x': bool(k.get('x'))})
     out.sort(key=lambda k: (-k['d'], k['ocap_id'], k['f']))
-    return out[:limit]
+    return out if limit is None else out[:limit]
 
 
 def plan_strikes(listed, checked, entries) -> list:

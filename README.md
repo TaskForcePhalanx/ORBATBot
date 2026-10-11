@@ -899,12 +899,14 @@ See also: [Link a player’s names](#link-a-players-names)
 
 Look through the farthest kills of all missions and strike the ones that cannot be true.
 
-1. Open **Longest kills**. The farthest kills of all missions are listed, farthest first, with who made them, with which weapon, on whom and in which mission.
-2. Tick **Strike** on a kill that is not believable, and press **Save changes**.
+1. Open **Longest kills**. The farthest infantry kills of all missions are listed, farthest first, with who made them, with which weapon, on whom and in which mission. Choose a mission or type a player to see all of theirs.
+2. Tick **Strike** on a kill that is not believable, and press **Save changes**. It leaves the list at once and appears under **Struck kills**; once the mission is counted again the next-farthest kill takes its place.
 3. The mission is counted again within a few minutes, and the public numbers change when that is done.
-4. To put a kill back, untick it and save.
+4. To put a kill back, untick it under **Struck kills** and save.
 
 > A struck kill **still counts as a kill**; only its distance leaves the longest and average kill distance.
+>
+> Kills from a vehicle are not listed: a vehicle’s weapons reach that far. Each player’s own longest kill is always on offer, so the number on the dashboard can be checked.
 >
 > Mortars and other indirect fire, pistols beyond 300 m, the crew of a destroyed vehicle and on-foot kills beyond 1500 m are left out automatically and are not listed.
 >
@@ -1867,7 +1869,7 @@ The unit's public scoreboard. The bot reads the OCAP server's recording list eve
 
 | `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` | The campaigns, the names that belong together and the units set by hand, in the shape of the dashboard's own JSON files |
 
-The page that reads them is in [`dashboard/`](dashboard/) and is published to GitHub Pages (`https://armatfp.github.io/ORBATBot/`) by `.github/workflows/dashboard.yml`; open it with `?source=bot` to read this bot instead of the Google Sheet.
+The page that reads them is in [`dashboard/`](dashboard/) and is published to GitHub Pages (`https://armatfp.github.io/ORBATBot/`) by `.github/workflows/dashboard.yml`. It reads only this bot — nothing reads a Google Sheet any more.
 
 All of them are open to everyone and need no login.
 
@@ -1879,7 +1881,7 @@ All of them are open to everyone and need no login.
 - **Campaigns** — group missions into campaigns.
 - **Players** — link a player's several names and pick the one shown.
 - **Units** — correct the unit the Kill Tracker guessed for a player.
-- **Longest kills** — the farthest kills of all missions; tick the ones that cannot be true and their distance leaves the longest/average kill distance (the kill still counts).
+- **Longest kills** — the farthest infantry kills of all missions (filter by mission or player); tick the ones that cannot be true and their distance leaves the longest/average kill distance (the kill still counts).
 - **Import** — take over the mission names from the old sheet and the dashboard's `campaigns.json`, `player_aliases.json` and `unit_overrides.json`, once.
 
 How-tos for each are under [How-tos](#how-tos) → Kill Tracker.

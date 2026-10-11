@@ -1,14 +1,10 @@
-// Where the numbers come from. The Google Sheet is the default; `?source=bot` reads
-// the same rows from the bot's database (counted straight from the OCAP server) so
-// the two can be compared side by side. Both are the same 35 columns.
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPdSKTP3NyYXXMON52HCpNv8bEmM9ElmCgKHeGbYIVAtMv9ADAwBaniA8dqIyEHyOe3q6gbA1PEdZb/pub?gid=267117435&single=true&output=csv";
+// Where the numbers come from: the ORBATBot, which counts the OCAP recordings itself
+// and serves the 35-column rows plus the campaigns, linked names and unit corrections
+// that are managed on its admin pages. Nothing here reads a Google Sheet.
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
-const BOT_CSV_URL = BOT_API + "stats.csv";
-const DATA_SOURCE = new URLSearchParams(location.search).get("source") === "bot" ? "bot" : "sheet";
-const CSV_URL = DATA_SOURCE === "bot" ? BOT_CSV_URL : SHEET_CSV_URL;
-if (DATA_SOURCE === "bot") document.title = "[BOT DATA] " + document.title;
+const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-11";
-const VERSION      = "1.029";
+const VERSION      = "1.031";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -196,13 +192,19 @@ function buildNameMap(rows, aliases) {
 let nameAliases = {}; // canonical → [alias, ...]
 
 // ── FETCH & PARSE ────────────────────────────────────────────────────────
+function botJson(name) {
+  return fetch(BOT_API + name)
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .catch(() => fetch(name).then(r => r.ok ? r.json() : {}).catch(() => ({})));
+}
 Promise.all([
   fetch(CSV_URL).then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); }),
-  // With ?source=bot these three come from the bot too (managed on its admin pages);
-  // otherwise from the JSON files in this repo, as always.
-  fetch(DATA_SOURCE === "bot" ? BOT_API + 'unit_overrides.json' : 'unit_overrides.json').then(r => r.ok ? r.json() : {}).catch(() => ({})),
-  fetch(DATA_SOURCE === "bot" ? BOT_API + 'player_aliases.json' : 'player_aliases.json').then(r => r.ok ? r.json() : {}).catch(() => ({})),
-  fetch(DATA_SOURCE === "bot" ? BOT_API + 'campaigns.json' : 'campaigns.json').then(r => r.ok ? r.json() : {}).catch(() => ({}))
+  // Managed on the bot's admin pages. The JSON files next to this page are only a
+  // fallback for when the bot cannot be reached — an answer that is merely empty is
+  // an answer, so deleting every link there does not bring the old file back.
+  botJson('unit_overrides.json'),
+  botJson('player_aliases.json'),
+  botJson('campaigns.json')
 ])
   .then(([csv, overrides, aliases, campaigns]) => {
     const lines = csv.trim().split("\n");

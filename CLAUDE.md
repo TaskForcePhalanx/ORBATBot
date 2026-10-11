@@ -77,7 +77,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
 lab/                    # Standalone ORBAT-editor playground — no Discord, no Postgres
   # (inside scripts/ below)
 dashboard/              # The Kill Tracker's public page — static, hosted on GitHub Pages, not by the bot
-  index.html tracker.js # Reads /kt/api/* from the bot (?source=bot) or the old Google Sheet
+  index.html tracker.js # Reads everything from the bot's /kt/api/* — no Google Sheet
   *.json                # campaigns / player_aliases / unit_overrides — the fallback the bot's API replaces
 scripts/
   gen_help.py           # utils/help.py → the README's help:start/help:end section
@@ -351,7 +351,7 @@ One row per OCAP recording — see [the Kill Tracker](#the-kill-tracker-utilskil
 | `rules_version` | INTEGER | `killtracker.RULES_VERSION` it was counted with. **0 = never counted.** A mission below the current version is counted again by itself |
 | `status` | TEXT | `ok` or `failed` |
 | `error` / `attempts` / `retry_at` | | Why the last read failed, how many have, and not-before — doubling from 10 minutes to a day (`ocap.retry_delay_minutes`). A failed *re*-count leaves the old rows in place |
-| `far_kills` | TEXT | **JSON list of the mission's farthest kills that feed the distance statistics** (at least 200 m, 25 at most, struck ones flagged `x`) — what the *Longest kills* page shows without opening the recording. Replaced on every re-count |
+| `far_kills` | TEXT | **JSON list of the mission's farthest kills that feed the distance statistics** (infantry only — a vehicle's long shots are real; the 25 farthest at least 200 m, **plus every player's own longest**; struck ones are kept besides, flagged `x`, and do not take a place — striking the farthest lets the next one fill up at the next count) — what the *Longest kills* page shows without opening the recording. Replaced on every re-count |
 | `sha256` | TEXT | Of the downloaded file |
 | `imported_at` | TIMESTAMP | Naive UTC. Part of the cache key `kt_generation()` |
 
@@ -1096,7 +1096,7 @@ The port was run cell by cell against the original `ImportScript` (under Node wi
 | Missions | Give missions clean names (`kt_missions.name_override`) — **every name on the page in one form, saved with one press** (`plan_name_edits()`: only changed rows are written, and none if one name is invalid). Empty = OCAP's name again |
 | Campaigns | Create, edit, delete campaigns; pick missions by recording, optionally add name patterns |
 | Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink |
-| Longest kills | The farthest kills of all missions, farthest first, with a tick to **strike** the unbelievable ones (`kt_kill_exclusions`). A struck kill still counts, only its distance leaves the statistics; the mission is counted again by the import loop within minutes (`rules_version = 0`) and the decision survives every later re-count. `compute()` hands back `far` for this; `far_listing()` / `plan_strikes()` are the pure parts (a form cannot strike a kill it was not shown) |
+| Longest kills | The farthest **infantry** kills of all missions (100 of them; a mission or player filter shows all of theirs), farthest first, with a tick to **strike** the unbelievable ones; a struck kill leaves the list at once (the page overlays `kt_kill_exclusions` on the stored list) and shows under *Struck kills*, where unticking puts it back (`kt_kill_exclusions`). A struck kill still counts, only its distance leaves the statistics; the mission is counted again by the import loop within minutes (`rules_version = 0`) and the decision survives every later re-count. `compute()` hands back `far` for this; `far_listing()` / `plan_strikes()` are the pure parts (a form cannot strike a kill it was not shown) |
 | Units | Set a player's unit where the dashboard's guess is wrong (`kt_unit_overrides`), one form, only changed rows written |
 | Import | Take over the old work once: mission names from the sheet's CSV, `campaigns.json`, `player_aliases.json`, `unit_overrides.json` |
 
@@ -1104,11 +1104,13 @@ Each of them is a function in `web/killtracker.py` (what it does, in one place) 
 
 The public side serves them in the shape of the dashboard's own files — `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` — cached under `kt_generation()`, which includes names, campaigns, aliases and units, so an edit shows within the cache window rather than at the next import. **The CSV keeps the recorded player names**: the dashboard applies the aliases itself, as it always has.
 
-### Not done yet
+### The dashboard reads only the bot
 
-* The dashboard still reads the Google Sheet. Point `CSV_URL` in `dashboard/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
-* The dashboard reads the aliases, units and campaigns from here only with `?source=bot`; its own JSON files stay in `dashboard/` until the switch.
-* The dashboard now lives in `dashboard/` of this repo and is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
+`dashboard/tracker.js` reads `/kt/api/stats.csv` and the three JSON files from the bot and **nothing from a Google Sheet**. The JSON files in `dashboard/` are only a fallback when the bot cannot be reached (`botJson()`): an *empty* answer is an answer, so deleting every link on the admin page does not bring the old file back. Old links with `?source=bot` still work; the parameter is ignored.
+
+Rules versions 2 and 3 deliberately **differ from the ImportScript** (indirect fire, pistols and struck kills no longer feed the distance), so the cell-by-cell comparison in *Checked against the original* only holds for a rule the script also has.
+
+* The dashboard is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
 * The old `armatfp/TFP_KillTracker` repo redirects here and is archived; release number and date live in `dashboard/tracker.js` (`VERSION`, `RELEASE_DATE`) and must be bumped together with `dashboard/CHANGELOG.md`.
 
 ---
