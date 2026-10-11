@@ -900,9 +900,9 @@ See also: [Link a player’s names](#link-a-players-names)
 Look through the farthest kills of all missions and strike the ones that cannot be true.
 
 1. Open **Longest kills**. The farthest infantry kills of all missions are listed, farthest first, with who made them, with which weapon, on whom and in which mission. Choose a mission or type a player to see all of theirs.
-2. Tick **Strike** on a kill that is not believable, and press **Save changes**.
+2. Tick **Strike** on a kill that is not believable, and press **Save changes**. It leaves the list at once and appears under **Struck kills**; once the mission is counted again the next-farthest kill takes its place.
 3. The mission is counted again within a few minutes, and the public numbers change when that is done.
-4. To put a kill back, untick it and save.
+4. To put a kill back, untick it under **Struck kills** and save.
 
 > A struck kill **still counts as a kill**; only its distance leaves the longest and average kill distance.
 >
