@@ -4,10 +4,10 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.032 — 2026-10-11 (latest)
+## v1.033 — 2026-10-11 (latest)
 
 ### Fixed
-- **Misleading weapon next to the longest kill** — the Pro Sniper card and the player page showed the player's most-used weapon of that mission as if it were the weapon of the longest kill (a rifle at 1216 m). It is now labelled *main weapon*; the statistics do not record the weapon of the longest kill
+- **Wrong weapon next to the longest kill** — the Pro Sniper card and the player page showed the player's most-used weapon of that mission (a rifle at 1216 m). The bot now records the weapon the longest kill was made with (two new CSV columns, *Longest Kill Weapon*), and that is what is shown. Missions the bot has not counted again yet show no weapon rather than a wrong one
 
 ---
 
