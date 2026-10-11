@@ -8,7 +8,7 @@ const DATA_SOURCE = new URLSearchParams(location.search).get("source") === "bot"
 const CSV_URL = DATA_SOURCE === "bot" ? BOT_CSV_URL : SHEET_CSV_URL;
 if (DATA_SOURCE === "bot") document.title = "[BOT DATA] " + document.title;
 const RELEASE_DATE = "2026-10-11";
-const VERSION      = "1.029";
+const VERSION      = "1.030";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {

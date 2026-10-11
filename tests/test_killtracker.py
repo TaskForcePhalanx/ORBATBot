@@ -717,3 +717,21 @@ def test_a_strike_form_changes_only_what_differs_from_what_is_stored():
 def test_a_strike_form_cannot_touch_a_kill_it_was_not_shown():
     entries = kt.far_listing([(5, 'A', [far(1, 800)])])
     assert kt.plan_strikes(['5|9:9:9', '7|1:1:2'], ['5|9:9:9', '7|1:1:2'], entries) == []
+
+
+def test_a_kill_from_a_vehicle_is_never_offered_for_checking():
+    # a vehicle's weapons reach that far; it still feeds the distance, it is just not on the list
+    result = long_shot('M2 HMG', 1400, in_vehicle=True)
+    assert result['far'] == []
+    assert row(result, 'Ann')[H['Longest Kill In Vehicle (m)']] == 1400
+
+
+def test_every_players_own_longest_kill_is_offered_even_when_the_mission_had_farther_ones():
+    ann, cat = unit(1, 'Ann'), unit(3, 'Cat')
+    victims = [unit(10 + i, f'V{i}', 'EAST', player=0) for i in range(kt.FAR_KILL_KEEP + 5)]
+    events = [killed(1 + i, 10 + i, 1, 'M4', 900 - i) for i in range(kt.FAR_KILL_KEEP + 5)]
+    events.append(killed(40, 10, 3, 'HK416', 250))          # Cat's best is far down the list
+    result = kt.compute(kt.reduce_document(doc([ann, cat] + victims, events, end=5000)), 'x.json.gz')
+    killers = [k['killer'] for k in result['far']]
+    assert killers.count('Ann') == kt.FAR_KILL_KEEP
+    assert killers.count('Cat') == 1

@@ -351,7 +351,7 @@ One row per OCAP recording — see [the Kill Tracker](#the-kill-tracker-utilskil
 | `rules_version` | INTEGER | `killtracker.RULES_VERSION` it was counted with. **0 = never counted.** A mission below the current version is counted again by itself |
 | `status` | TEXT | `ok` or `failed` |
 | `error` / `attempts` / `retry_at` | | Why the last read failed, how many have, and not-before — doubling from 10 minutes to a day (`ocap.retry_delay_minutes`). A failed *re*-count leaves the old rows in place |
-| `far_kills` | TEXT | **JSON list of the mission's farthest kills that feed the distance statistics** (at least 200 m, 25 at most, struck ones flagged `x`) — what the *Longest kills* page shows without opening the recording. Replaced on every re-count |
+| `far_kills` | TEXT | **JSON list of the mission's farthest kills that feed the distance statistics** (infantry only — a vehicle's long shots are real; the 25 farthest at least 200 m, **plus every player's own longest**, struck ones flagged `x`) — what the *Longest kills* page shows without opening the recording. Replaced on every re-count |
 | `sha256` | TEXT | Of the downloaded file |
 | `imported_at` | TIMESTAMP | Naive UTC. Part of the cache key `kt_generation()` |
 
@@ -1096,7 +1096,7 @@ The port was run cell by cell against the original `ImportScript` (under Node wi
 | Missions | Give missions clean names (`kt_missions.name_override`) — **every name on the page in one form, saved with one press** (`plan_name_edits()`: only changed rows are written, and none if one name is invalid). Empty = OCAP's name again |
 | Campaigns | Create, edit, delete campaigns; pick missions by recording, optionally add name patterns |
 | Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink |
-| Longest kills | The farthest kills of all missions, farthest first, with a tick to **strike** the unbelievable ones (`kt_kill_exclusions`). A struck kill still counts, only its distance leaves the statistics; the mission is counted again by the import loop within minutes (`rules_version = 0`) and the decision survives every later re-count. `compute()` hands back `far` for this; `far_listing()` / `plan_strikes()` are the pure parts (a form cannot strike a kill it was not shown) |
+| Longest kills | The farthest **infantry** kills of all missions (100 of them; a mission or player filter shows all of theirs), farthest first, with a tick to **strike** the unbelievable ones (`kt_kill_exclusions`). A struck kill still counts, only its distance leaves the statistics; the mission is counted again by the import loop within minutes (`rules_version = 0`) and the decision survives every later re-count. `compute()` hands back `far` for this; `far_listing()` / `plan_strikes()` are the pure parts (a form cannot strike a kill it was not shown) |
 | Units | Set a player's unit where the dashboard's guess is wrong (`kt_unit_overrides`), one form, only changed rows written |
 | Import | Take over the old work once: mission names from the sheet's CSV, `campaigns.json`, `player_aliases.json`, `unit_overrides.json` |
 

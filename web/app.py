@@ -6,6 +6,7 @@ no polling, no second deployment, no outbox table. `web/server.py` starts it.
 """
 
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (
@@ -2053,20 +2054,24 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     # the farthest kills
 
     @app.get('/g/{guild_id}/killtracker/kills', response_class=HTMLResponse)
-    async def kt_kills_page(request: Request, guild_id: str):
+    async def kt_kills_page(request: Request, guild_id: str, mission: str = '', q: str = ''):
         context = await kt_context(request, guild_id)
         return render(request, 'kt_kills.html', {
-            **context, **await killtracker_service.kills_view(),
+            **context, **await killtracker_service.kills_view(mission.strip(), q.strip()),
         })
 
     @app.post('/g/{guild_id}/killtracker/kills')
     async def kt_kills_save(request: Request, guild_id: str):
         context, form = await kt_post(request, guild_id)
+        # Back to the same filter: somebody checking one mission strikes several
+        # kills in a row and should not land on the unfiltered list each time.
+        keep = urlencode({k: v for k, v in (('mission', form.get('mission')), ('q', form.get('q'))) if v})
+        path = '/kills' + (f'?{keep}' if keep else '')
         try:
             note = await killtracker_service.save_strikes(form, context['member'].display_name)
         except ValueError as e:
-            return kt_back(request, guild_id, '/kills', 'warn', str(e))
-        return kt_back(request, guild_id, '/kills', 'ok', note)
+            return kt_back(request, guild_id, path, 'warn', str(e))
+        return kt_back(request, guild_id, path, 'ok', note)
 
     # import from the old files
 

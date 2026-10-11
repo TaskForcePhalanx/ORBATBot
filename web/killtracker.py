@@ -354,26 +354,36 @@ SHOWN_KILLS = 100
 
 
 async def _far_entries() -> list:
+    """Every kill on offer, farthest first. Vehicle kills are not on offer: a
+    vehicle's weapons really do reach that far, and entries stored before that was
+    decided are skipped here as well."""
     missions = []
     for r in await database.kt_far_kills():
         try:
             far = json.loads(r['far_kills'] or '[]')
         except ValueError:
             far = []
-        missions.append((r['ocap_id'], killtracker.effective_label(r['label'], r['name_override']),
-                         far if isinstance(far, list) else []))
-    return killtracker.far_listing(missions, SHOWN_KILLS)
+        far = [k for k in far if isinstance(k, dict) and not k.get('veh')] if isinstance(far, list) else []
+        missions.append((r['ocap_id'], killtracker.effective_label(r['label'], r['name_override']), far))
+    return killtracker.far_listing(missions)
 
 
-async def kills_view() -> dict:
-    """The farthest kills of every mission, farthest first, to be checked by eye."""
+async def kills_view(mission: str = '', query: str = '') -> dict:
+    """The kills to check: the farthest of all missions, or one mission's, or one
+    player's. Without a filter the list is cut at `SHOWN_KILLS`; with one it is
+    not, because the point of a filter is to find a particular kill."""
     entries = await _far_entries()
     records = await database.kt_missions()
+    missions = sorted({(e['ocap_id'], e['mission']) for e in entries}, key=lambda m: m[1].lower())
+    chosen = int(mission) if str(mission).isdigit() else None
+    shown = [e for e in entries
+             if (chosen is None or e['ocap_id'] == chosen) and _matches(e['killer'], query)]
+    filtered = chosen is not None or bool(query)
     waiting = sum(1 for m in records
                   if m['status'] == 'ok' and m['rules_version'] < killtracker.RULES_VERSION)
-    struck = await database.kt_struck_kills()
-    return {'kills': entries, 'waiting': waiting, 'struck_total': len(struck),
-            'limit': SHOWN_KILLS}
+    return {'kills': shown if filtered else shown[:SHOWN_KILLS], 'cut': (not filtered) and len(shown) > SHOWN_KILLS,
+            'total': len(entries), 'waiting': waiting, 'limit': SHOWN_KILLS, 'missions': missions,
+            'mission': chosen, 'query': query, 'struck_total': sum(1 for e in entries if e['x'])}
 
 
 async def save_strikes(form, by_name: str) -> str:

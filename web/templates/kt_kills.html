@@ -13,21 +13,43 @@
 
 <h2>The longest kills, to be checked</h2>
 <p class="hint">
-  The {{ limit }} farthest kills of all missions, as they count towards the longest and
-  average kill distance. <strong>Tick a kill that is not believable</strong> — a weapon
-  OCAP got wrong, a shot that cannot have happened — and save: it still counts as a kill,
-  but its distance leaves the statistics. Untick a struck kill to put it back. Mortars and
-  other indirect fire, pistols beyond {{ 300 }} m, crew of a destroyed vehicle and on-foot
-  kills beyond 1500 m are left out already and are not listed.
+  The farthest <strong>infantry</strong> kills, as they count towards the longest and average
+  kill distance — including every player’s own longest, which is the number next to their
+  name on the dashboard. <strong>Tick a kill that is not believable</strong> — a weapon OCAP
+  got wrong, a shot that cannot have happened — and save: it still counts as a kill, but its
+  distance leaves the statistics. Untick a struck kill to put it back. Kills from a vehicle
+  are not listed (a vehicle’s weapons reach that far), and mortars and other indirect fire,
+  pistols beyond 300 m, crew of a destroyed vehicle and on-foot kills beyond 1500 m are left
+  out already.
 </p>
 {% if waiting %}
   <p class="flash warn">{{ waiting }} mission(s) are still waiting to be counted under the
     current rules; their kills appear here once that is done.</p>
 {% endif %}
+
+<form class="form" method="get" action="/g/{{ guild.id }}/killtracker/kills">
+  <label class="field">
+    <span>Mission</span>
+    <select name="mission">
+      <option value="">All missions (the {{ limit }} farthest)</option>
+      {% for id, name in missions %}
+        <option value="{{ id }}" {% if mission == id %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span>Player</span>
+    <input name="q" value="{{ query }}" placeholder="part of a name">
+  </label>
+  <div class="actions"><button class="button" type="submit">Show</button></div>
+</form>
 {% if struck_total %}<p class="hint">{{ struck_total }} kill(s) are struck in total.</p>{% endif %}
+{% if cut %}<p class="hint">Showing the {{ limit }} farthest of {{ total }}; choose a mission or a player to see the rest.</p>{% endif %}
 
 <form method="post" action="/g/{{ guild.id }}/killtracker/kills">
   <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="mission" value="{{ mission or '' }}">
+  <input type="hidden" name="q" value="{{ query }}">
   <table class="rolelist">
     <thead>
       <tr><th>Strike</th><th>Distance</th><th>Killer</th><th>Weapon</th><th>Victim</th>
@@ -42,7 +64,7 @@
                    aria-label="Strike this kill">
           </td>
           <td>{% if k.x %}<s>{{ k.d|round|int }} m</s>{% else %}<strong>{{ k.d|round|int }} m</strong>{% endif %}</td>
-          <td>{{ k.killer }}{% if k.veh %} <span class="muted">(in vehicle)</span>{% endif %}</td>
+          <td>{{ k.killer }}</td>
           <td>{{ k.w }}</td>
           <td>{{ k.victim }}</td>
           <td>{{ k.mission }}</td>
@@ -54,7 +76,7 @@
   {% if kills %}
     <div class="actions"><button class="button primary" type="submit">Save changes</button></div>
   {% else %}
-    <p class="empty">No long kills yet.</p>
+    <p class="empty">No kills to check{% if mission or query %} for this filter{% endif %}.</p>
   {% endif %}
 </form>
 {% endblock %}
