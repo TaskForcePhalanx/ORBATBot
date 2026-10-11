@@ -1,0 +1,68 @@
+# Tests on every push and pull request; on main, then deploys to Railway.
+#
+# The deploy uses the Railway CLI and a project token, so it does not depend on
+# Railway being able to see this repository (the Railway GitHub App). If the
+# service is also connected to this repo in Railway, switch that connection off
+# first — otherwise every push deploys twice.
+#
+# Needs, under Settings → Secrets and variables → Actions:
+#   secret   RAILWAY_TOKEN     a *project* token (Railway: project → Settings → Tokens),
+#                              created for the environment that runs the bot
+#   variable RAILWAY_SERVICE   the bot service's name or id, as Railway shows it
+# Without the token the deploy job is skipped, and the tests still run.
+
+name: Test and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest tests lab/tests -q
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # One deploy at a time, and a newer push waits rather than cancelling a
+    # deploy that is already uploading.
+    concurrency:
+      group: railway-deploy
+      cancel-in-progress: false
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+    steps:
+      - name: Check the deploy is configured
+        id: configured
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_SERVICE" ]; then
+            echo "RAILWAY_TOKEN or RAILWAY_SERVICE is not set — skipping the deploy."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.configured.outputs.ok == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.configured.outputs.ok == 'true'
+        with:
+          node-version: 20
+      - name: Deploy to Railway
+        if: steps.configured.outputs.ok == 'true'
+        run: |
+          npm install --global @railway/cli
+          railway up --ci --service "$RAILWAY_SERVICE"

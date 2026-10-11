@@ -958,6 +958,13 @@ On fire: sets `reminder_fired = 1`, DMs all approved members, posts mention in `
 - Auto-deploys on push to `main` — the single deployment branch. There is no
   `master`; an earlier one was folded into `main` and deleted, so never
   recreate it or target a PR at it.
+- Deploys happen one of two ways, never both. Either Railway watches this repo
+  (its GitHub App, **which needs access to the account that owns the repo**), or
+  `.github/workflows/deploy.yml` runs the tests and then `railway up` with a
+  project token — needing the secret `RAILWAY_TOKEN` and the variable
+  `RAILWAY_SERVICE`, and no GitHub App at all. With both on, every push deploys
+  twice, so switch Railway's own source off when the workflow takes over.
+  Without the token the workflow's deploy job is skipped and only the tests run.
 
 ### Docker (self-hosted)
 - `docker-compose.yml`: bot + postgres:16-alpine containers
