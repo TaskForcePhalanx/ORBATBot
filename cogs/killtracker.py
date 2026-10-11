@@ -48,12 +48,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _count(path: str, source_name: str) -> tuple:
+def _count(path: str, source_name: str, exclude=frozenset()) -> tuple:
     """Read and count one downloaded recording. CPU-bound, so it runs in a thread."""
     import json
 
-    result = killtracker.compute(killtracker.open_recording(path), source_name)
-    return result['mission'], json.dumps(result['rows'], ensure_ascii=False), result['kills']
+    result = killtracker.compute(killtracker.open_recording(path), source_name, exclude)
+    return (result['mission'], json.dumps(result['rows'], ensure_ascii=False),
+            result['kills'], json.dumps(result['far'], ensure_ascii=False))
 
 
 async def import_one(base: str, op: dict) -> dict:
@@ -63,8 +64,11 @@ async def import_one(base: str, op: dict) -> dict:
     os.close(fd)
     try:
         sha = await ocap.download_recording(base, op['filename'], path)
-        label, rows_json, kills = await asyncio.to_thread(
-            _count, path, f"{op['filename']}.json.gz")
+        # Kills an admin struck from the distance statistics are applied here, so
+        # a re-count never undoes a decision.
+        exclude = (await database.kt_exclusions(op['id'])).get(op['id'], set())
+        label, rows_json, kills, far_json = await asyncio.to_thread(
+            _count, path, f"{op['filename']}.json.gz", exclude)
     finally:
         try:
             os.unlink(path)
@@ -72,7 +76,7 @@ async def import_one(base: str, op: dict) -> dict:
             pass
     await database.kt_save_mission(
         op, label=label, rows_json=rows_json, counted_kills=kills,
-        rules_version=killtracker.RULES_VERSION, sha256=sha)
+        rules_version=killtracker.RULES_VERSION, sha256=sha, far_json=far_json)
     return {'label': label, 'kills': kills}
 
 

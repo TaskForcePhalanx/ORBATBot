@@ -1199,6 +1199,33 @@ _KILLTRACKER: tuple[Topic, ...] = (
         related=('killtracker-link-names',),
     ),
     Topic(
+        key='killtracker-kills',
+        title='Check the longest kills',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Longest kills**',
+        summary='Look through the farthest kills of all missions and strike the ones that '
+                'cannot be true.',
+        steps=(
+            'Open **Longest kills**. The farthest kills of all missions are listed, farthest '
+            'first, with who made them, with which weapon, on whom and in which mission.',
+            'Tick **Strike** on a kill that is not believable, and press **Save changes**.',
+            'The mission is counted again within a few minutes, and the public numbers change '
+            'when that is done.',
+            'To put a kill back, untick it and save.',
+        ),
+        notes=(
+            'A struck kill **still counts as a kill**; only its distance leaves the longest and '
+            'average kill distance.',
+            'Mortars and other indirect fire, pistols beyond 300 m, the crew of a destroyed '
+            'vehicle and on-foot kills beyond 1500 m are left out automatically and are not '
+            'listed.',
+            'The decision is kept with the recording, so a later re-count does not undo it.',
+        ),
+        page='ktkills',
+        related=('killtracker-units',),
+    ),
+    Topic(
         key='killtracker-import',
         title='Take over the old sheet and JSON files',
         group='killtracker',

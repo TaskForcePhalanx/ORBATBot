@@ -34,7 +34,9 @@ from decimal import ROUND_HALF_UP, Decimal
 
 # Version of the counting rules. 1 = the ImportScript as of the crew-kill fix:
 # kills on a vehicle's occupants don't feed longest/avg kill distance.
-RULES_VERSION = 1
+# 2 = indirect fire (mortars, artillery) and pistols no longer feed the distance
+# statistics, and a kill an admin has struck from the list doesn't either.
+RULES_VERSION = 2
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -65,6 +67,21 @@ HEADER = [
 
 # On-foot kills beyond this still count as kills but not for distance stats.
 MAX_FOOT_KILL_DIST = 1500
+# A pistol does not kill at more than this; a longer "pistol" kill is a weapon
+# OCAP attributed wrongly, usually a vehicle's.
+MAX_PISTOL_KILL_DIST = 300
+# Weapons that are fired at a map reference rather than at what the shooter sees.
+# Their kills count as kills, not as distance: 1.5 km with a mortar is the
+# weapon working, not a long shot.
+_INDIRECT = re.compile(
+    r'mortar|howitzer|artillery|\bmk6\b|sochor|sholef|scorcher|\bmlrs\b|rocket pod'
+    r'|cruise missile|\bgrad\b|2s9|m119', re.I)
+_PISTOL = re.compile(
+    r'pistol|diplomat|\bp07\b|rook-?40|\bacp-?c2\b|4-?five|zubr|\bhandgun\b'
+    r'|\bm1911\b|\bglock\b|\bmakarov\b', re.I)
+# The kills worth showing an admin for checking: the farthest ones of each mission.
+FAR_KILL_MIN_M = 200
+FAR_KILL_KEEP = 25
 # OCAP v5+ logs phantom shots whose target is thousands of metres away.
 MAX_SHOT_DIST = 800
 # End-of-mission teamkill suppression: players celebrate by shooting each other.
@@ -452,12 +469,30 @@ def mission_label(base: str, source_name: str) -> str:
     return f'{base} ({m.group(1)}-{m.group(2)}-{m.group(3)})'
 
 
-def compute(rec: Recording, source_name: str) -> dict:
-    """Count one recording. Returns `{'mission', 'world', 'rows', 'kills'}`.
+def kill_key(frame, killer_id, victim_id) -> str:
+    """How one kill is named when an admin strikes it from the distance statistics."""
+    return f'{frame}:{killer_id}:{victim_id}'
+
+
+def is_indirect_fire(weapon) -> bool:
+    return bool(weapon) and bool(_INDIRECT.search(weapon))
+
+
+def is_pistol(weapon) -> bool:
+    return bool(weapon) and bool(_PISTOL.search(weapon))
+
+
+def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
+    """Count one recording. Returns `{'mission', 'world', 'rows', 'kills', 'far'}`.
 
     `rows` follow `HEADER`, sorted by on-foot kills. `kills` is every counted
     enemy kill by a (non-Zeus) player — the number to hold against the OCAP
     server's own `player_kill_count`.
+
+    `exclude` holds `kill_key()`s an admin has struck: such a kill still counts
+    as a kill and is left out of the distance statistics. `far` lists the
+    farthest kills that *would* feed those statistics — struck ones included,
+    flagged `x`, so they can be put back — for the admin page to show.
     """
     entities = rec.entities
     capture = rec.capture_delay or 1
@@ -594,6 +629,7 @@ def compute(rec: Recording, source_name: str) -> dict:
 
     # -- events -------------------------------------------------------------
     seen_hits = set()
+    far = []
     for ev in rec.events:
         frame = _event(ev, 0)
         kind = _event(ev, 1)
@@ -653,18 +689,32 @@ def compute(rec: Recording, source_name: str) -> dict:
                     crew = ((killer_id, frame) in vehicle_kill_frames
                             or victim.in_vehicle_at(frame)
                             or victim.in_vehicle_at(frame - 1))
+                    weapon_name = killer_info[1] if len(killer_info) > 1 and killer_info[1] else ''
+                    # Whether the distance can be believed at all. A kill that
+                    # fails is still a kill. On foot, 1500 m is the ceiling (a
+                    # launcher logged with the wrong weapon, OCAP artefacts).
+                    plausible = (not crew and not is_indirect_fire(weapon_name)
+                                 and not (is_pistol(weapon_name) and distance > MAX_PISTOL_KILL_DIST)
+                                 and (killer_in_vehicle or distance <= MAX_FOOT_KILL_DIST))
+                    key = kill_key(frame, killer_id, victim_id)
+                    struck = key in exclude
+                    if plausible and distance >= FAR_KILL_MIN_M:
+                        far.append({'f': frame, 'ki': killer_id, 'vi': victim_id,
+                                    'killer': killer_p.name,
+                                    'victim': (victim.name if victim and victim.name else 'Unknown'),
+                                    'w': weapon_name or 'Unknown', 'd': distance,
+                                    'veh': killer_in_vehicle, 't': js_round(frame * capture),
+                                    'x': struck})
+                    feeds = plausible and not struck
                     if killer_in_vehicle:
                         killer_p.kills_veh += 1
-                        if not crew:
+                        if feeds:
                             killer_p.kill_dist_veh.append(distance)
                     else:
                         killer_p.kills_foot += 1
-                        # Implausible on-foot distances (a launcher logged with
-                        # the wrong weapon, OCAP artefacts) are kills without a
-                        # distance.
-                        if not crew and distance <= MAX_FOOT_KILL_DIST:
+                        if feeds:
                             killer_p.kill_dist_foot.append(distance)
-                        weapon = killer_info[1] if len(killer_info) > 1 and killer_info[1] else 'Unknown'
+                        weapon = weapon_name or 'Unknown'
                         killer_p.weapon_kills[weapon] = killer_p.weapon_kills.get(weapon, 0) + 1
 
         elif kind == 'hit':
@@ -746,7 +796,12 @@ def compute(rec: Recording, source_name: str) -> dict:
         ])
 
     rows.sort(key=lambda r: r[7], reverse=True)  # stable, like the script's sort
-    return {'mission': label, 'world': rec.world_name, 'rows': rows, 'kills': kills}
+    # A Zeus's kills and an unnamed noise entity's are not on any row, so they are
+    # not offered for checking either.
+    listed = {p.ent.id for p in players.values()
+              if not p.is_zeus and not (p.is_unknown and js_round(p.time_played) < MIN_UNKNOWN_PLAYTIME_S)}
+    far = sorted((k for k in far if k['ki'] in listed), key=lambda k: -k['d'])[:FAR_KILL_KEEP]
+    return {'mission': label, 'world': rec.world_name, 'rows': rows, 'kills': kills, 'far': far}
 
 
 def _json(value) -> str:
@@ -1169,3 +1224,49 @@ def parse_unit_overrides_json(text: str) -> dict:
 def unit_overrides_document(overrides: dict) -> dict:
     """The dashboard's `unit_overrides.json`: Unknown is `null`."""
     return {player: (unit or None) for player, unit in sorted(overrides.items(), key=lambda kv: kv[0].lower())}
+
+
+# ---------------------------------------------------------------------------
+# Checking the farthest kills
+# ---------------------------------------------------------------------------
+
+def far_listing(missions, limit: int = 100) -> list:
+    """The farthest kills across all missions, farthest first, for the admin page.
+
+    `missions` is `[(ocap_id, shown mission name, far list)]` — the far list as
+    `compute()` returns it. Each entry gets an `id` (`"<ocap id>|<kill key>"`),
+    the one thing the form sends back, and the mission it was in. Struck kills
+    stay in the list, flagged, because that is where they are put back.
+    """
+    out = []
+    for ocap_id, mission, far in missions:
+        for k in far or ():
+            try:
+                key = kill_key(k['f'], k['ki'], k['vi'])
+                distance = float(k['d'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            out.append({**k, 'id': f'{ocap_id}|{key}', 'ocap_id': ocap_id, 'key': key,
+                        'd': distance, 'mission': mission, 'x': bool(k.get('x'))})
+    out.sort(key=lambda k: (-k['d'], k['ocap_id'], k['f']))
+    return out[:limit]
+
+
+def plan_strikes(listed, checked, entries) -> list:
+    """What the strike form changes: `[(ocap_id, kill_key, struck, entry)]`.
+
+    `listed` are the ids the page showed, `checked` the ones left ticked as
+    *struck*, `entries` the listing the page was built from (by id). A kill is
+    changed only if its tick differs from what is stored, and only if it was on the
+    page: a hand-edited form cannot strike a kill nobody was shown.
+    """
+    by_id = {e['id']: e for e in entries}
+    checked = set(checked)
+    changes = []
+    for kill_id in dict.fromkeys(listed):
+        entry = by_id.get(kill_id)
+        if entry is None:
+            continue
+        if (kill_id in checked) != entry['x']:
+            changes.append((entry['ocap_id'], entry['key'], kill_id in checked, entry))
+    return changes

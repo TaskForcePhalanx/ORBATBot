@@ -25,6 +25,7 @@ the functions they call are here, so that what they do can be read in one place.
 """
 
 import hashlib
+import json
 
 from utils import database, killtracker
 
@@ -345,6 +346,51 @@ async def save_units(form) -> str:
             changes[player] = wanted
     await database.kt_set_unit_overrides(changes)
     return f'Saved {len(changes)} change(s).' if changes else 'Nothing changed.'
+
+
+# -- the farthest kills -------------------------------------------------------
+
+SHOWN_KILLS = 100
+
+
+async def _far_entries() -> list:
+    missions = []
+    for r in await database.kt_far_kills():
+        try:
+            far = json.loads(r['far_kills'] or '[]')
+        except ValueError:
+            far = []
+        missions.append((r['ocap_id'], killtracker.effective_label(r['label'], r['name_override']),
+                         far if isinstance(far, list) else []))
+    return killtracker.far_listing(missions, SHOWN_KILLS)
+
+
+async def kills_view() -> dict:
+    """The farthest kills of every mission, farthest first, to be checked by eye."""
+    entries = await _far_entries()
+    records = await database.kt_missions()
+    waiting = sum(1 for m in records
+                  if m['status'] == 'ok' and m['rules_version'] < killtracker.RULES_VERSION)
+    struck = await database.kt_struck_kills()
+    return {'kills': entries, 'waiting': waiting, 'struck_total': len(struck),
+            'limit': SHOWN_KILLS}
+
+
+async def save_strikes(form, by_name: str) -> str:
+    """Apply the strike form: ticked kills leave the distance statistics, unticked
+    ones come back. Only what differs from what is stored is written, and every
+    mission touched is counted again by the next pass of the import loop."""
+    changes = killtracker.plan_strikes(form.getlist('listed'), form.getlist('struck'),
+                                       await _far_entries())
+    if not changes:
+        return 'Nothing changed.'
+    missions = await database.kt_set_exclusions(
+        [(ocap_id, key, struck, entry) for ocap_id, key, struck, entry in changes], by_name)
+    struck = sum(1 for c in changes if c[2])
+    restored = len(changes) - struck
+    parts = ([f'{struck} kill(s) struck'] if struck else []) + ([f'{restored} put back'] if restored else [])
+    return (f"{', '.join(parts)}. {missions} mission(s) will be counted again within a few "
+            f"minutes; the public numbers change when that is done.")
 
 
 # -- the old files -----------------------------------------------------------

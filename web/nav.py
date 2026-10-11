@@ -69,6 +69,7 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool) -> dict:
             _item('ktcampaigns', 'Campaigns', f"{base}/killtracker/campaigns"),
             _item('ktplayers', 'Players', f"{base}/killtracker/players"),
             _item('ktunits', 'Units', f"{base}/killtracker/units"),
+            _item('ktkills', 'Longest kills', f"{base}/killtracker/kills"),
             _item('ktimport', 'Import', f"{base}/killtracker/import"),
         ]
         groups.append({'key': 'kt', 'label': '📊 Kill Tracker',

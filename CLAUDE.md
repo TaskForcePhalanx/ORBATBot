@@ -351,11 +351,15 @@ One row per OCAP recording — see [the Kill Tracker](#the-kill-tracker-utilskil
 | `rules_version` | INTEGER | `killtracker.RULES_VERSION` it was counted with. **0 = never counted.** A mission below the current version is counted again by itself |
 | `status` | TEXT | `ok` or `failed` |
 | `error` / `attempts` / `retry_at` | | Why the last read failed, how many have, and not-before — doubling from 10 minutes to a day (`ocap.retry_delay_minutes`). A failed *re*-count leaves the old rows in place |
+| `far_kills` | TEXT | **JSON list of the mission's farthest kills that feed the distance statistics** (at least 200 m, 25 at most, struck ones flagged `x`) — what the *Longest kills* page shows without opening the recording. Replaced on every re-count |
 | `sha256` | TEXT | Of the downloaded file |
 | `imported_at` | TIMESTAMP | Naive UTC. Part of the cache key `kt_generation()` |
 
 ### `kt_campaigns`, `kt_campaign_missions`
 A named group of missions. `kt_campaign_missions (campaign_id, ocap_id)` is by **recording**, ON DELETE CASCADE on both sides, so a renamed mission stays in its campaigns; `/kt/api/campaigns.json` writes each campaign's missions out under the names they are shown with now. In `kt_campaigns`: `name` (unique, case-insensitive), `patterns` (JSON list — the old substring matching), `extra_missions` (JSON list of labels imported from `campaigns.json` that matched no recording; passed through unchanged) and who last saved it.
+
+### `kt_kill_exclusions`
+`(ocap_id, kill_key)` → a kill an admin struck from the distance statistics. `kill_key` is `killtracker.kill_key()`: `frame:killer_id:victim_id`, ids as the recording has them, which is why it is kept beside the mission and applied by `compute(…, exclude)` on every re-count. The killer, victim, weapon and distance are copied in so a list can say what was struck. ON DELETE CASCADE with the mission. Striking or restoring one sets `kt_missions.rules_version = 0`, which is all it takes for the import loop to count that mission again.
 
 ### `kt_aliases`
 `alias` (PK) → `canonical`: names that belong to one player and the one shown. The shape of the dashboard's `player_aliases.json`, which the dashboard applies on top of its own automatic merging. **Never a chain** — `killtracker.link_names()` pulls in everything already tied to any of the names, in either direction, because the dashboard doesn't follow one.
@@ -1069,6 +1073,7 @@ They are the Apps Script's, unchanged, and `compute()` documents each in place. 
 * **Crew kills are kills, not distances.** When a player downs a helicopter, OCAP logs each crewman as an infantry kill at the helicopter's distance — 1944 m with a Stinger. Such a kill still counts, but doesn't feed longest/avg kill distance when the victim sat in a vehicle (this frame or the one before — the Stinger can kill a passenger a moment before the helicopter is logged as destroyed) or died in the same frame as a vehicle kill by the same player. The 1500 m on-foot ceiling stays as a net for launchers logged with the wrong weapon.
 * **End-of-mission teamkills** (the last 5 minutes, close-range ones in the last 7, bursts of three in the last 10) aren't counted: players celebrate by shooting each other.
 * **A crash isn't a suicide.** A self-kill within a frame of the player's `disconnected` event is the engine's, looked up by *name* because a reconnect gets a new entity id.
+* **Distances nobody believes** (rules version 2). A kill still counts, and its distance does not feed longest/avg: **indirect fire** (`_INDIRECT`: mortars, howitzers, Mk6, Sochor, Sholef, Scorcher, MLRS…) because 1.5 km with a mortar is the weapon working; a **pistol** (`_PISTOL`) beyond `MAX_PISTOL_KILL_DIST` (300 m), which is a weapon OCAP attributed wrongly; and anything an admin struck on the *Longest kills* page. These names are guesses at how Arma spells its weapons — extend the two patterns when a new one slips through, and bump `RULES_VERSION`. In a vehicle, nothing else caps the distance: an in-vehicle kill was the one path with no ceiling at all before this.
 * **Phantom shots**: OCAP v5 logs shots whose target is thousands of metres away; on-foot shots beyond 800 m are dropped, in-vehicle ones never are. Shots are deduplicated by `(frame, target)` and hits by `(shooter, victim, frame)`.
 * **Names**: an entity without a name takes the first per-frame name; one still unnamed takes the name of the **only** named player sharing its group and role; an unnamed one with under an hour of playtime is dropped. Zeus (group or role containing "zeus") has every combat stat zeroed.
 
@@ -1091,6 +1096,7 @@ The port was run cell by cell against the original `ImportScript` (under Node wi
 | Missions | Give missions clean names (`kt_missions.name_override`) — **every name on the page in one form, saved with one press** (`plan_name_edits()`: only changed rows are written, and none if one name is invalid). Empty = OCAP's name again |
 | Campaigns | Create, edit, delete campaigns; pick missions by recording, optionally add name patterns |
 | Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink |
+| Longest kills | The farthest kills of all missions, farthest first, with a tick to **strike** the unbelievable ones (`kt_kill_exclusions`). A struck kill still counts, only its distance leaves the statistics; the mission is counted again by the import loop within minutes (`rules_version = 0`) and the decision survives every later re-count. `compute()` hands back `far` for this; `far_listing()` / `plan_strikes()` are the pure parts (a form cannot strike a kill it was not shown) |
 | Units | Set a player's unit where the dashboard's guess is wrong (`kt_unit_overrides`), one form, only changed rows written |
 | Import | Take over the old work once: mission names from the sheet's CSV, `campaigns.json`, `player_aliases.json`, `unit_overrides.json` |
 

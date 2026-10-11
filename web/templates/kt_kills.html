@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Longest kills{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+</div>
+
+{% with active = 'ktkills' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>The longest kills, to be checked</h2>
+<p class="hint">
+  The {{ limit }} farthest kills of all missions, as they count towards the longest and
+  average kill distance. <strong>Tick a kill that is not believable</strong> — a weapon
+  OCAP got wrong, a shot that cannot have happened — and save: it still counts as a kill,
+  but its distance leaves the statistics. Untick a struck kill to put it back. Mortars and
+  other indirect fire, pistols beyond {{ 300 }} m, crew of a destroyed vehicle and on-foot
+  kills beyond 1500 m are left out already and are not listed.
+</p>
+{% if waiting %}
+  <p class="flash warn">{{ waiting }} mission(s) are still waiting to be counted under the
+    current rules; their kills appear here once that is done.</p>
+{% endif %}
+{% if struck_total %}<p class="hint">{{ struck_total }} kill(s) are struck in total.</p>{% endif %}
+
+<form method="post" action="/g/{{ guild.id }}/killtracker/kills">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <table class="rolelist">
+    <thead>
+      <tr><th>Strike</th><th>Distance</th><th>Killer</th><th>Weapon</th><th>Victim</th>
+          <th>Mission</th><th>At</th></tr>
+    </thead>
+    <tbody>
+      {% for k in kills %}
+        <tr {% if k.x %}style="opacity:.6"{% endif %}>
+          <td>
+            <input type="hidden" name="listed" value="{{ k.id }}">
+            <input type="checkbox" name="struck" value="{{ k.id }}" {% if k.x %}checked{% endif %}
+                   aria-label="Strike this kill">
+          </td>
+          <td>{% if k.x %}<s>{{ k.d|round|int }} m</s>{% else %}<strong>{{ k.d|round|int }} m</strong>{% endif %}</td>
+          <td>{{ k.killer }}{% if k.veh %} <span class="muted">(in vehicle)</span>{% endif %}</td>
+          <td>{{ k.w }}</td>
+          <td>{{ k.victim }}</td>
+          <td>{{ k.mission }}</td>
+          <td>{{ (k.t // 60) }}:{{ '%02d'|format(k.t % 60) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if kills %}
+    <div class="actions"><button class="button primary" type="submit">Save changes</button></div>
+  {% else %}
+    <p class="empty">No long kills yet.</p>
+  {% endif %}
+</form>
+{% endblock %}

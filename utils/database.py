@@ -631,6 +631,27 @@ async def init_db():
         await db.execute('''
             ALTER TABLE kt_missions ADD COLUMN IF NOT EXISTS name_override TEXT
         ''')
+        # The farthest kills of the mission that feed the distance statistics, as
+        # JSON (`killtracker.compute()['far']`), so an admin can check them without
+        # the recording. Replaced on every re-count, like `rows`.
+        await db.execute('''
+            ALTER TABLE kt_missions ADD COLUMN IF NOT EXISTS far_kills TEXT NOT NULL DEFAULT '[]'
+        ''')
+        # Kills an admin struck from the distance statistics: the kill still counts,
+        # its distance does not. Keyed by the kill inside the recording
+        # (`killtracker.kill_key()`), kept beside the mission so a re-count applies it.
+        # The description is stored too, so the list can say what was struck even
+        # after a re-count has moved on.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS kt_kill_exclusions (
+                ocap_id INTEGER NOT NULL REFERENCES kt_missions(ocap_id) ON DELETE CASCADE,
+                kill_key TEXT NOT NULL,
+                killer TEXT, victim TEXT, weapon TEXT, distance DOUBLE PRECISION,
+                struck_by_name TEXT,
+                struck_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                PRIMARY KEY (ocap_id, kill_key)
+            )
+        ''')
         # Campaigns: a named group of missions. Membership is by recording id, so
         # renaming a mission moves it in every campaign; `extra_missions` holds
         # labels imported from the old campaigns.json that matched no recording
@@ -2611,7 +2632,7 @@ async def kt_known() -> dict:
 
 
 async def kt_save_mission(op: dict, *, label: str, rows_json: str, counted_kills: int,
-                          rules_version: int, sha256: str):
+                          rules_version: int, sha256: str, far_json: str = '[]'):
     """Store one counted recording, replacing whatever an earlier count left."""
     pool = await get_pool()
     async with pool.acquire() as db:
@@ -2619,9 +2640,9 @@ async def kt_save_mission(op: dict, *, label: str, rows_json: str, counted_kills
             '''INSERT INTO kt_missions
                    (ocap_id, filename, mission, label, world, tag, played_on, duration,
                     ocap_kills, ocap_player_kills, counted_kills, rows, rules_version,
-                    status, error, attempts, retry_at, sha256, imported_at)
+                    status, error, attempts, retry_at, sha256, imported_at, far_kills)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       'ok', NULL, 0, NULL, $14, (NOW() AT TIME ZONE 'UTC'))
+                       'ok', NULL, 0, NULL, $14, (NOW() AT TIME ZONE 'UTC'), $15)
                ON CONFLICT (ocap_id) DO UPDATE SET
                    filename = EXCLUDED.filename, mission = EXCLUDED.mission,
                    label = EXCLUDED.label, world = EXCLUDED.world, tag = EXCLUDED.tag,
@@ -2631,10 +2652,10 @@ async def kt_save_mission(op: dict, *, label: str, rows_json: str, counted_kills
                    counted_kills = EXCLUDED.counted_kills, rows = EXCLUDED.rows,
                    rules_version = EXCLUDED.rules_version, status = 'ok', error = NULL,
                    attempts = 0, retry_at = NULL, sha256 = EXCLUDED.sha256,
-                   imported_at = EXCLUDED.imported_at''',
+                   imported_at = EXCLUDED.imported_at, far_kills = EXCLUDED.far_kills''',
             op['id'], op['filename'], op['mission'], label, op['world'], op['tag'],
             op['date'], op['duration'], op['kills'], op['player_kills'], counted_kills,
-            rows_json, rules_version, sha256,
+            rows_json, rules_version, sha256, far_json,
         )
 
 
@@ -2673,6 +2694,75 @@ async def kt_missions() -> list:
                       retry_at, imported_at
                  FROM kt_missions ORDER BY ocap_id DESC'''
         )
+
+
+async def kt_far_kills() -> list:
+    """`(ocap_id, label, name_override, far_kills JSON)` for every counted mission."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetch(
+            "SELECT ocap_id, label, name_override, far_kills FROM kt_missions "
+            "WHERE rows <> '[]' ORDER BY ocap_id"
+        )
+
+
+async def kt_exclusions(ocap_id: int = None) -> dict:
+    """`{ocap_id: {kill_key, …}}` — the kills struck from the distance statistics,
+    for one recording or for all."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        if ocap_id is None:
+            found = await db.fetch('SELECT ocap_id, kill_key FROM kt_kill_exclusions')
+        else:
+            found = await db.fetch(
+                'SELECT ocap_id, kill_key FROM kt_kill_exclusions WHERE ocap_id = $1', ocap_id)
+    out = {}
+    for r in found:
+        out.setdefault(r['ocap_id'], set()).add(r['kill_key'])
+    return out
+
+
+async def kt_struck_kills() -> list:
+    """Everything struck so far, newest first, with what it was."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetch(
+            '''SELECT e.ocap_id, e.kill_key, e.killer, e.victim, e.weapon, e.distance,
+                      e.struck_by_name, e.struck_at, m.label, m.name_override
+                 FROM kt_kill_exclusions e JOIN kt_missions m USING (ocap_id)
+                ORDER BY e.struck_at DESC'''
+        )
+
+
+async def kt_set_exclusions(changes, by_name: str) -> int:
+    """Strike or restore kills. `changes` is `[(ocap_id, kill_key, struck, info)]`.
+
+    Every mission touched is marked for a re-count (`rules_version = 0`): the
+    stored rows were counted with the old list, and the next pass over the
+    recording applies the new one. Returns how many missions that is.
+    """
+    touched = set()
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            for ocap_id, key, struck, info in changes:
+                if struck:
+                    await db.execute(
+                        '''INSERT INTO kt_kill_exclusions
+                               (ocap_id, kill_key, killer, victim, weapon, distance, struck_by_name)
+                           SELECT $1, $2, $3, $4, $5, $6, $7
+                            WHERE EXISTS (SELECT 1 FROM kt_missions WHERE ocap_id = $1)
+                           ON CONFLICT (ocap_id, kill_key) DO NOTHING''',
+                        ocap_id, key, info.get('killer'), info.get('victim'),
+                        info.get('w'), info.get('d'), by_name)
+                else:
+                    await db.execute(
+                        'DELETE FROM kt_kill_exclusions WHERE ocap_id = $1 AND kill_key = $2',
+                        ocap_id, key)
+                touched.add(ocap_id)
+            for ocap_id in touched:
+                await db.execute('UPDATE kt_missions SET rules_version = 0 WHERE ocap_id = $1', ocap_id)
+    return len(touched)
 
 
 async def kt_rows() -> list:
