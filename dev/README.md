@@ -7,7 +7,7 @@ A static web dashboard that shows the unit's kill statistics in a sortable, filt
 | Address | Reads |
 |---|---|
 | `…/ORBATBot/` | the **Google Sheet** (still the default while the two are compared) |
-| `…/ORBATBot/?source=bot` | the **bot** — the numbers, and also the campaigns, linked names and unit overrides that are managed on the bot's *📊 Kill Tracker* admin pages. An orange badge says which source is showing |
+| `…/ORBATBot/?source=bot` | the **bot** — the numbers, and also the campaigns, linked names and unit overrides that are managed on the bot's *📊 Kill Tracker* admin pages. The tab title starts with `[BOT DATA]` when the bot is the source |
 
 This directory was the `TFP_KillTracker` repository until it was moved here; the old repository only redirects here.
 
