@@ -2050,6 +2050,24 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             return kt_back(request, guild_id, '/units', 'warn', str(e))
         return kt_back(request, guild_id, '/units', 'ok', note)
 
+    # the farthest kills
+
+    @app.get('/g/{guild_id}/killtracker/kills', response_class=HTMLResponse)
+    async def kt_kills_page(request: Request, guild_id: str):
+        context = await kt_context(request, guild_id)
+        return render(request, 'kt_kills.html', {
+            **context, **await killtracker_service.kills_view(),
+        })
+
+    @app.post('/g/{guild_id}/killtracker/kills')
+    async def kt_kills_save(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        try:
+            note = await killtracker_service.save_strikes(form, context['member'].display_name)
+        except ValueError as e:
+            return kt_back(request, guild_id, '/kills', 'warn', str(e))
+        return kt_back(request, guild_id, '/kills', 'ok', note)
+
     # import from the old files
 
     @app.get('/g/{guild_id}/killtracker/import', response_class=HTMLResponse)

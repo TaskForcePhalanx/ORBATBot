@@ -638,3 +638,82 @@ def test_one_invalid_name_means_the_form_writes_nothing():
 
 def test_ids_a_form_carries_that_no_recording_has_are_ignored():
     assert kt.plan_name_edits({1: None}, [(1, 'A'), (99, 'B')]) == {1: 'A'}
+
+
+# ---------------------------------------------------------------------------
+# Distances nobody believes (rules version 2) and the admin's strike list
+# ---------------------------------------------------------------------------
+
+def long_shot(weapon, dist, *, in_vehicle=False, exclude=frozenset()):
+    ann = unit(1, 'Ann', positions=[pos(veh=7 if in_vehicle else 0) for _ in range(10)])
+    ents = [ann, unit(2, 'Bob', 'EAST', player=0)] + ([vehicle(7, side='WEST')] if in_vehicle else [])
+    return kt.compute(kt.reduce_document(doc(ents, [killed(5, 2, 1, weapon, dist)])),
+                      '2026_03_14__20_27_Test.json.gz', exclude)
+
+
+def test_indirect_fire_counts_as_a_kill_but_not_as_distance():
+    r = row(long_shot('Gyra Mortar', 1500, in_vehicle=True), 'Ann')
+    assert r[H['Kills (In Vehicle)']] == 1
+    assert r[H['Longest Kill In Vehicle (m)']] == ''
+    assert row(long_shot('M4', 1500, in_vehicle=True), 'Ann')[H['Longest Kill In Vehicle (m)']] == 1500
+
+
+def test_a_pistol_does_not_kill_at_a_kilometre_and_a_half():
+    r = row(long_shot('Diplomat 9 mm (Hex)', 1621, in_vehicle=True), 'Ann')
+    assert r[H['Kills (In Vehicle)']] == 1
+    assert r[H['Longest Kill In Vehicle (m)']] == ''
+    assert row(long_shot('Rook-40 9 mm', 120), 'Ann')[H['Longest Kill On Foot (m)']] == 120
+
+
+def test_a_struck_kill_still_counts_but_is_left_out_of_the_distance():
+    key = kt.kill_key(5, 1, 2)
+    result = long_shot('M4', 900, exclude={key})
+    r = row(result, 'Ann')
+    assert r[H['Kills (On Foot)']] == 1
+    assert r[H['Longest Kill On Foot (m)']] == ''
+    # …and it is still offered, flagged, so it can be put back
+    assert [(k['d'], k['x']) for k in result['far']] == [(900, True)]
+
+
+def test_the_far_list_holds_only_kills_that_would_feed_the_statistics():
+    assert [k['d'] for k in long_shot('M4', 900)['far']] == [900]
+    assert long_shot('M4', 100)['far'] == []            # too close to be worth checking
+    assert long_shot('M4', 1600)['far'] == []           # already left out on foot
+    assert long_shot('Gyra Mortar', 1500, in_vehicle=True)['far'] == []
+    far = long_shot('M4', 900)['far'][0]
+    assert (far['killer'], far['victim'], far['w'], far['ki'], far['vi'], far['f']) == (
+        'Ann', 'Bob', 'M4', 1, 2, 5)
+
+
+def test_a_zeus_kill_is_not_offered_for_checking():
+    ann = unit(1, 'Ann', group='Zeus')
+    result = kt.compute(kt.reduce_document(
+        doc([ann, unit(2, 'Bob', 'EAST', player=0)], [killed(5, 2, 1, 'M4', 900)])), 'x.json.gz')
+    assert result['far'] == []
+
+
+def far(f, d, x=False, ki=1, vi=2):
+    return {'f': f, 'ki': ki, 'vi': vi, 'killer': 'Ann', 'victim': 'Bob', 'w': 'M4', 'd': d, 'x': x}
+
+
+def test_the_far_listing_is_farthest_first_across_missions_and_keeps_struck_ones():
+    listing = kt.far_listing([(5, 'Op A', [far(1, 800), far(2, 1200, x=True)]),
+                              (6, 'Op B', [far(3, 950)])])
+    assert [(e['ocap_id'], e['d'], e['x']) for e in listing] == [(5, 1200, True), (6, 950, False), (5, 800, False)]
+    assert listing[0]['id'] == '5|2:1:2' and listing[0]['mission'] == 'Op A'
+    assert len(kt.far_listing([(5, 'A', [far(i, i) for i in range(1, 50)])], limit=10)) == 10
+    assert kt.far_listing([(5, 'A', [{'f': 1}])]) == []          # a malformed entry is skipped
+
+
+def test_a_strike_form_changes_only_what_differs_from_what_is_stored():
+    entries = kt.far_listing([(5, 'A', [far(1, 800), far(2, 900, x=True), far(3, 700)])])
+    ids = {e['f']: e['id'] for e in entries}
+    changes = kt.plan_strikes(listed=list(ids.values()), checked=[ids[1], ids[2]], entries=entries)
+    assert [(c[0], c[1], c[2]) for c in changes] == [(5, '1:1:2', True)]   # 1 newly struck; 2 stays; 3 untouched
+    restore = kt.plan_strikes(list(ids.values()), checked=[], entries=entries)
+    assert [(c[1], c[2]) for c in restore] == [('2:1:2', False)]
+
+
+def test_a_strike_form_cannot_touch_a_kill_it_was_not_shown():
+    entries = kt.far_listing([(5, 'A', [far(1, 800)])])
+    assert kt.plan_strikes(['5|9:9:9', '7|1:1:2'], ['5|9:9:9', '7|1:1:2'], entries) == []

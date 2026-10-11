@@ -172,7 +172,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
-**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
 
 **Server and members** — [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
 
@@ -892,6 +892,25 @@ Correct the unit the Kill Tracker guessed for a player.
 > Players are listed under the name that is shown, after linking.
 
 See also: [Link a player’s names](#link-a-players-names)
+
+#### Check the longest kills
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Longest kills**
+
+Look through the farthest kills of all missions and strike the ones that cannot be true.
+
+1. Open **Longest kills**. The farthest kills of all missions are listed, farthest first, with who made them, with which weapon, on whom and in which mission.
+2. Tick **Strike** on a kill that is not believable, and press **Save changes**.
+3. The mission is counted again within a few minutes, and the public numbers change when that is done.
+4. To put a kill back, untick it and save.
+
+> A struck kill **still counts as a kill**; only its distance leaves the longest and average kill distance.
+>
+> Mortars and other indirect fire, pistols beyond 300 m, the crew of a destroyed vehicle and on-foot kills beyond 1500 m are left out automatically and are not listed.
+>
+> The decision is kept with the recording, so a later re-count does not undo it.
+
+See also: [Set a player’s unit](#set-a-players-unit)
 
 #### Take over the old sheet and JSON files
 
@@ -1860,6 +1879,7 @@ All of them are open to everyone and need no login.
 - **Campaigns** — group missions into campaigns.
 - **Players** — link a player's several names and pick the one shown.
 - **Units** — correct the unit the Kill Tracker guessed for a player.
+- **Longest kills** — the farthest kills of all missions; tick the ones that cannot be true and their distance leaves the longest/average kill distance (the kill still counts).
 - **Import** — take over the mission names from the old sheet and the dashboard's `campaigns.json`, `player_aliases.json` and `unit_overrides.json`, once.
 
 How-tos for each are under [How-tos](#how-tos) → Kill Tracker.
