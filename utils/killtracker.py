@@ -363,10 +363,18 @@ def read_recording(stream, *, chunk: int = 1 << 20) -> Recording:
 
 
 def open_recording(path: str) -> Recording:
-    """Read a `.json.gz` (or plain `.json`) file from disk."""
+    """Read a recording from disk, zipped or not.
+
+    **Looks at the first two bytes, not at the name.** The OCAP server serves
+    `.json.gz` files, and whether what lands on disk is still zipped depends on
+    how it was fetched — an HTTP client that honours `Content-Encoding: gzip`
+    hands over plain JSON under a `.json.gz` name.
+    """
     import gzip
 
-    opener = gzip.open if path.endswith('.gz') else open
+    with open(path, 'rb') as probe:
+        zipped = probe.read(2) == b'\x1f\x8b'
+    opener = gzip.open if zipped else open
     with opener(path, 'rb') as raw:
         return read_recording(io.TextIOWrapper(raw, encoding='utf-8'))
 

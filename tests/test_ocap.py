@@ -116,3 +116,118 @@ def test_back_off_doubles_up_to_a_day():
     assert [ocap.retry_delay_minutes(n) for n in (1, 2, 3, 4)] == [10, 20, 40, 80]
     assert ocap.retry_delay_minutes(50) == 24 * 60
     assert ocap.retry_delay_minutes(0) == 10
+
+
+# -- the download ---------------------------------------------------------------
+#
+# The OCAP server answers a `.json.gz` with `Content-Encoding: gzip`, and an HTTP
+# client that honours that stores plain JSON under a `.json.gz` name — which is
+# exactly what the first deploy did to 6 of its first 8 recordings ("Not a
+# gzipped file"). These run a real server on a free port.
+
+import asyncio
+import gzip
+import hashlib
+import json
+
+from utils import killtracker
+
+_DOC = {
+    'missionName': 'Op', 'worldName': 'altis', 'captureDelay': 1, 'endFrame': 10,
+    'entities': [
+        {'id': 1, 'name': 'Ann', 'side': 'WEST', 'isPlayer': 1, 'type': 'unit',
+         'group': 'A', 'role': 'R', 'startFrameNum': 0,
+         'positions': [[[0, 0, 0], 0, 1, 0, 'Ann', 1, 'R', 'A', 'WEST']] * 5,
+         'framesFired': []},
+        {'id': 2, 'name': 'Bob', 'side': 'EAST', 'isPlayer': 0, 'type': 'unit',
+         'startFrameNum': 0, 'positions': []},
+    ],
+    'events': [[3, 'killed', 2, [1, 'M4'], 120]],
+}
+_RAW = json.dumps(_DOC).encode()
+_GZ = gzip.compress(_RAW)
+
+
+def _serve(handler_body, then):
+    """Run `then(base_url)` against a one-route server whose body is `handler_body`."""
+    from aiohttp import web
+
+    async def main():
+        app = web.Application()
+        app.router.add_get('/data/{name}.json.gz', handler_body)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '127.0.0.1', 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            return await then(f'http://127.0.0.1:{port}')
+        finally:
+            await runner.cleanup()
+
+    return asyncio.run(main())
+
+
+def _rows(path):
+    return killtracker.compute(killtracker.open_recording(path), 'x.json.gz')['rows']
+
+
+@pytest.mark.parametrize('headers,body', [
+    ({'Content-Encoding': 'gzip', 'Content-Type': 'application/json'}, _GZ),  # what the server does
+    ({'Content-Type': 'application/gzip'}, _GZ),                              # zipped, not declared
+    ({'Content-Type': 'application/json'}, _RAW),                             # not zipped at all
+], ids=['declared-gzip', 'undeclared-gzip', 'plain'])
+def test_every_way_a_server_can_send_a_recording_ends_up_countable(tmp_path, headers, body):
+    from aiohttp import web
+
+    async def handler(request):
+        return web.Response(body=body, headers=headers)
+
+    dest = tmp_path / 'r.json.gz'
+
+    async def then(base):
+        return await ocap.download_recording(base, 'Op', str(dest))
+
+    sha = _serve(handler, then)
+    assert sha == hashlib.sha256(dest.read_bytes()).hexdigest()
+    rows = _rows(str(dest))
+    assert [r[3] for r in rows] == ['Ann'] and rows[0][7] == 1
+
+
+def test_the_file_is_kept_as_the_server_sent_it(tmp_path):
+    """Not unzipped on the way in: the size limit is on what crossed the wire."""
+    from aiohttp import web
+
+    async def handler(request):
+        return web.Response(body=_GZ, headers={'Content-Encoding': 'gzip'})
+
+    dest = tmp_path / 'r.json.gz'
+    _serve(handler, lambda base: ocap.download_recording(base, 'Op', str(dest)))
+    assert dest.read_bytes() == _GZ
+
+
+def test_the_size_limit_counts_bytes_as_sent_not_as_unzipped(tmp_path):
+    from aiohttp import web
+
+    big = gzip.compress(b'{"x":"' + b'a' * 5_000_000 + b'"}')   # ~5 KB zipped, 5 MB unzipped
+    assert len(big) < 100_000
+
+    async def handler(request):
+        return web.Response(body=big, headers={'Content-Encoding': 'gzip'})
+
+    dest = tmp_path / 'r.json.gz'
+    # a limit far below the unzipped size but above the zipped size is not hit
+    _serve(handler, lambda base: ocap.download_recording(base, 'Op', str(dest), max_bytes=1_000_000))
+    # …while one below the zipped size is
+    with pytest.raises(ocap.OcapError, match='larger than'):
+        _serve(handler, lambda base: ocap.download_recording(base, 'Op', str(dest), max_bytes=1000))
+
+
+def test_a_missing_recording_is_an_error_with_the_status(tmp_path):
+    from aiohttp import web
+
+    async def handler(request):
+        return web.Response(status=404)
+
+    with pytest.raises(ocap.OcapError, match='404'):
+        _serve(handler, lambda base: ocap.download_recording(base, 'Op', str(tmp_path / 'x')))

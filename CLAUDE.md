@@ -1025,6 +1025,8 @@ The Kill Tracker is the unit's public scoreboard: per-player kills, deaths, dist
 
 **Nobody uploads anything.** `cogs/killtracker.py` asks the OCAP server `GET /api/v1/operations` every 10 minutes. Each entry has an `id` that only grows, a `filename`, a `conversionStatus` (`completed` = finished and exported), a `tag` and the server's own kill counts. `ocap.plan()` picks the recordings that are due — finished, and never seen / counted under older rules / failed and past their back-off — at most 8 per pass, so the first pass over sixty recordings takes a few polls. Each is streamed to a temp file from `GET /data/<filename>.json.gz`, counted in a thread, stored in `kt_missions`, and the file deleted.
 
+**The download keeps the bytes as the server sent them** (`aiohttp` with `auto_decompress=False`, `Accept-Encoding: gzip`). The OCAP server answers a `.json.gz` with `Content-Encoding: gzip`, which is why a browser shows plain JSON; a client that honours it stores *unzipped* JSON under a `.json.gz` name and counts the unzipped size against the limit — the first deploy failed 8 of 8 recordings that way (`Not a gzipped file`, and `larger than 200 MB` for the two biggest). `open_recording()` therefore reads the first two bytes (`1f 8b`) rather than trusting the file name, and the limit (1 GB) is on bytes as sent.
+
 | Piece | What it does |
 |---|---|
 | `utils/killtracker.py` | `read_recording()` streams the file and `compute()` counts it. Pure; imports only the standard library, so it is what the tests pin |
