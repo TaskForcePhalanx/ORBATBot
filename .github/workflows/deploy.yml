@@ -16,6 +16,10 @@ name: Test and deploy
 on:
   push:
     branches: [main]
+    # A change that is only the dashboard is published by dashboard.yml and must not
+    # restart the bot. (A push that also touches anything else still deploys.)
+    paths-ignore:
+      - 'dashboard/**'
   pull_request:
 
 permissions:

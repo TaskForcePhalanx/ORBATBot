@@ -1,0 +1,71 @@
+# Publishes dashboard/ (the Kill Tracker's static page) to GitHub Pages.
+#
+# main          → the site's root
+# claude/**     → /dev/, a preview that does not touch the root
+#
+# GitHub Pages must serve the gh-pages branch (Settings → Pages). Only runs when
+# something under dashboard/ changes; deploy.yml ignores such changes in turn, so
+# editing the page never restarts the bot.
+
+name: Dashboard
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'dashboard/**'
+      - '.github/workflows/dashboard.yml'
+  pull_request:
+    paths:
+      - 'dashboard/**'
+
+permissions:
+  contents: write
+
+# Two deploys writing the gh-pages branch at once make one of them fail.
+concurrency:
+  group: dashboard-pages
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: tracker.js parses
+        run: node --check dashboard/tracker.js
+      - name: the JSON files parse
+        run: |
+          for f in dashboard/*.json; do node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" && echo "ok $f"; done
+
+  deploy-prod:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to the site root
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dashboard
+          clean: true
+          clean-exclude: |
+            dev/
+
+  deploy-dev:
+    needs: check
+    if: startsWith(github.ref, 'refs/heads/claude/') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the preview to /dev/
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dashboard
+          target-folder: dev
+          clean: true
