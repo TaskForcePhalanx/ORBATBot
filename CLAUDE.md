@@ -77,7 +77,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
 lab/                    # Standalone ORBAT-editor playground — no Discord, no Postgres
   # (inside scripts/ below)
 dashboard/              # The Kill Tracker's public page — static, hosted on GitHub Pages, not by the bot
-  index.html tracker.js # Reads /kt/api/* from the bot (?source=bot) or the old Google Sheet
+  index.html tracker.js # Reads everything from the bot's /kt/api/* — no Google Sheet
   *.json                # campaigns / player_aliases / unit_overrides — the fallback the bot's API replaces
 scripts/
   gen_help.py           # utils/help.py → the README's help:start/help:end section
@@ -1104,11 +1104,13 @@ Each of them is a function in `web/killtracker.py` (what it does, in one place) 
 
 The public side serves them in the shape of the dashboard's own files — `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` — cached under `kt_generation()`, which includes names, campaigns, aliases and units, so an edit shows within the cache window rather than at the next import. **The CSV keeps the recorded player names**: the dashboard applies the aliases itself, as it always has.
 
-### Not done yet
+### The dashboard reads only the bot
 
-* The dashboard still reads the Google Sheet. Point `CSV_URL` in `dashboard/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
-* The dashboard reads the aliases, units and campaigns from here only with `?source=bot`; its own JSON files stay in `dashboard/` until the switch.
-* The dashboard now lives in `dashboard/` of this repo and is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
+`dashboard/tracker.js` reads `/kt/api/stats.csv` and the three JSON files from the bot and **nothing from a Google Sheet**. The JSON files in `dashboard/` are only a fallback when the bot cannot be reached (`botJson()`): an *empty* answer is an answer, so deleting every link on the admin page does not bring the old file back. Old links with `?source=bot` still work; the parameter is ignored.
+
+Rules versions 2 and 3 deliberately **differ from the ImportScript** (indirect fire, pistols and struck kills no longer feed the distance), so the cell-by-cell comparison in *Checked against the original* only holds for a rule the script also has.
+
+* The dashboard is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
 * The old `armatfp/TFP_KillTracker` repo redirects here and is archived; release number and date live in `dashboard/tracker.js` (`VERSION`, `RELEASE_DATE`) and must be bumped together with `dashboard/CHANGELOG.md`.
 
 ---

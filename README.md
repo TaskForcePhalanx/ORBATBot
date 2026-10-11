@@ -1869,7 +1869,7 @@ The unit's public scoreboard. The bot reads the OCAP server's recording list eve
 
 | `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` | The campaigns, the names that belong together and the units set by hand, in the shape of the dashboard's own JSON files |
 
-The page that reads them is in [`dashboard/`](dashboard/) and is published to GitHub Pages (`https://armatfp.github.io/ORBATBot/`) by `.github/workflows/dashboard.yml`; open it with `?source=bot` to read this bot instead of the Google Sheet.
+The page that reads them is in [`dashboard/`](dashboard/) and is published to GitHub Pages (`https://armatfp.github.io/ORBATBot/`) by `.github/workflows/dashboard.yml`. It reads only this bot — nothing reads a Google Sheet any more.
 
 All of them are open to everyone and need no login.
 

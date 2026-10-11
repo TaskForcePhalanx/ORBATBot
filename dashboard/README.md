@@ -2,12 +2,7 @@
 
 A static web dashboard that shows the unit's kill statistics in a sortable, filterable leaderboard.
 
-**Where the numbers come from.** The bot in this repository counts the OCAP recordings itself (`utils/killtracker.py`) and serves the result as the same 35-column CSV the Google Sheet had. The dashboard reads either:
-
-| Address | Reads |
-|---|---|
-| `…/ORBATBot/` | the **Google Sheet** (still the default while the two are compared) |
-| `…/ORBATBot/?source=bot` | the **bot** — the numbers, and also the campaigns, linked names and unit overrides that are managed on the bot's *📊 Kill Tracker* admin pages. The tab title starts with `[BOT DATA]` when the bot is the source |
+**Where the numbers come from.** The bot in this repository counts the OCAP recordings itself (`utils/killtracker.py`) and serves the result as a 35-column CSV, and the campaigns, linked names and unit corrections managed on its *📊 Kill Tracker* admin pages. The dashboard reads all of it from `https://bot.taskforcephalanx.com/kt/api/`. **Nothing reads a Google Sheet any more.** The JSON files in this directory are only a fallback for when the bot cannot be reached.
 
 This directory was the `TFP_KillTracker` repository until it was moved here; the old repository only redirects here.
 
@@ -112,7 +107,7 @@ Missions can be grouped into named campaigns in `campaigns.json`. Each campaign 
 
 ## Data Source
 
-Stats are pulled from a public Google Sheets CSV. The sheet is expected to have one row per player per mission with the following columns (produced by the ImportScript):
+Stats come from the bot's `/kt/api/stats.csv`: one row per player per mission with the following columns (the same ones the old sheet had, produced by `utils/killtracker.py`):
 
 | # | Column | Notes |
 |---|--------|-------|
@@ -151,80 +146,11 @@ Stats are pulled from a public Google Sheets CSV. The sheet is expected to have 
 | 32 | Time Played (s) | Seconds present in the mission |
 | 33 | Distance Run (km) | Total distance run; teleport steps (>100 m) excluded |
 
-To point the tracker at a different sheet, update `CSV_URL` near the top of `tracker.js`.
+To point the tracker at a different bot, change `BOT_API` near the top of `tracker.js`.
 
-## ImportScript Setup
+## The old ImportScript
 
-> **Superseded.** The bot counts recordings itself now and nobody uploads anything by hand — see `CLAUDE.md` → *The Kill Tracker*. What follows describes the original script, which lives in `scripts/legacy/ImportScript`, for as long as the sheet is kept running next to the bot.
-
-`ImportScript` is a Google Apps Script that reads OCAP `.json.gz` mission logs from Google Drive and writes player stats into the `player_stats` sheet.
-
-### Required Google Drive folder structure
-
-```
-Kill Tracker/
-├── OCAP_Logs/          ← drop .json.gz files here before running
-└── OCAP_Logs_Archive/  ← processed files are moved here automatically
-```
-
-### Installation
-
-1. Open your Google Sheet.
-2. Go to **Extensions → Apps Script**.
-3. Paste the contents of `ImportScript` into the editor and save.
-4. Run `reimportOCAP` to process one file from `OCAP_Logs`.
-
-### Functions
-
-| Function | Description |
-|----------|-------------|
-| `reimportOCAP()` | Process (or re-process) the next file; deletes any existing rows for that file before writing, making every run idempotent |
-
-The script automatically creates the `player_stats` sheet and header row on first run, and migrates any missing columns when run against an existing sheet.
-
-### Friendly fire counting
-
-A kill is counted as a **teamkill** when `victim.side === killer.side` on a unit-kill event. It is never counted as a regular kill or weapon kill. Vehicle destructions are never counted as teamkills regardless of side.
-
-### End-of-mission TK suppression
-
-Teamkills that occur during end-of-mission celebrations are automatically excluded using three overlapping heuristics:
-
-| Heuristic | Condition | Rationale |
-|-----------|-----------|-----------|
-| Time window | TK in the last **5 min** (300 s) before `endMission` | Hard cutoff — mission is over |
-| Close-range extended | Distance ≤ **15 m** within last **7 min** (420 s) | Grenade drops slightly before official end |
-| Burst | **3+ TKs** in any **60 s** rolling window, within last **10 min** | Group grenade / celebration volley; time-gated to avoid suppressing mid-mission TK clusters |
-
-### Zeus detection
-
-A player is classified as Zeus if their **Group** or **Role** field (as recorded by OCAP) contains the word `zeus` (case-insensitive). This covers all known role formats:
-
-| Role string | Detected |
-|-------------|----------|
-| `Zeus` | ✓ |
-| `Co Zeus` | ✓ |
-| `Zeus@Zeus` | ✓ |
-| `Command@Zeus` | ✓ |
-| `Rifleman@Zeus` | ✓ |
-
-Zeus players have all combat stats zeroed in the sheet and are excluded from the Players filter (Hide Zeus / Zeus Only), squad co-occurrence, and shame cards.
-
-### OCAP v5 compatibility
-
-OCAP v5 (`extensionVersion: v5.0.0`) introduced several format changes that the ImportScript handles automatically:
-
-| Change | Handling |
-|--------|----------|
-| `entity.name` empty for some players | Name resolved from per-frame position data (`positions[i][4]`) |
-| `positions[3]` is vehicle entity ID (not 0/1) | `!== 0` check works for both old and new format |
-| Duplicate `framesFired` entries per frame | Deduplicated by `(frame, targetPosition)` — keeps different bullets on the same frame, removes OCAP raycast duplicates |
-| Duplicate `hit` events per frame | Deduplicated by `(shooter, victim, frame)` — removes penetration/ricochet/splash artifacts |
-| Filename format `_YYYYMMDD_HHMMSS` | Both `YYYY_MM_DD` and `_YYYYMMDD_` patterns supported for date extraction (mission name suffix, Joint Op detection) |
-
-### Shot distance filter
-
-On-foot shots from `framesFired` are filtered by a maximum distance of **800 m** between shooter and target position to remove OCAP v5 phantom shots (raycast artifacts with target positions thousands of metres away). This filter is **not applied** to in-vehicle shots, since vehicle weapons regularly engage beyond 800 m.
+The Google Apps Script that used to fill the sheet is kept as `../scripts/legacy/ImportScript`, only as the reference the bot's counting was checked against. It is not run any more: stop its trigger and nothing writes to the sheet.
 
 ## Deployment
 
