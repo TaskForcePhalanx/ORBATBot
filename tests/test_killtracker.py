@@ -619,3 +619,22 @@ def test_the_old_unit_file_maps_null_to_unknown_and_back():
     assert kt.unit_overrides_document(parsed) == {'Goose': '2nd USC', 'Nobody': None}
     with pytest.raises(ValueError):
         kt.parse_unit_overrides_json(json.dumps({'A': 'Marines'}))
+
+
+def test_a_names_form_changes_only_what_was_changed():
+    current = {1: None, 2: 'Set Before', 3: 'Keep Me'}
+    submitted = [(1, ' New   Name (2026-01-01) '), (2, ''), (3, 'Keep Me')]
+    assert kt.plan_name_edits(current, submitted) == {1: 'New Name', 2: None}
+
+
+def test_an_empty_box_where_there_was_no_name_is_not_a_change():
+    assert kt.plan_name_edits({1: None}, [(1, ''), (1, '   ')]) == {}
+
+
+def test_one_invalid_name_means_the_form_writes_nothing():
+    with pytest.raises(ValueError, match='at most'):
+        kt.plan_name_edits({1: None, 2: None}, [(1, 'Fine'), (2, 'x' * 200)])
+
+
+def test_ids_a_form_carries_that_no_recording_has_are_ignored():
+    assert kt.plan_name_edits({1: None}, [(1, 'A'), (99, 'B')]) == {1: 'A'}

@@ -156,12 +156,30 @@ async def missions_view() -> list:
     } for m in missions]
 
 
-async def rename(ocap_id: int, text) -> str:
-    """Give a mission a name, or — empty — take it back to OCAP's. Raises `ValueError`."""
-    name = killtracker.clean_name(text)
-    if not await database.kt_set_name_override(ocap_id, name):
-        raise ValueError('No such recording.')
-    return f'Now shown as “{name}”.' if name else 'Back to the name OCAP has.'
+async def save_names(form) -> str:
+    """Apply the missions form: every row's name, saved together.
+
+    Only the rows whose name changed are written, and none are if any name is not
+    valid, so a typo in one box does not leave the form half saved.
+    """
+    current = {m['ocap_id']: m['name_override'] for m in await database.kt_missions()}
+    submitted = []
+    for key in form.keys():
+        if not key.startswith('mission_'):
+            continue
+        index = key[len('mission_'):]
+        try:
+            ocap_id = int(form.get(key))
+        except (TypeError, ValueError):
+            continue
+        submitted.append((ocap_id, form.get(f'name_{index}')))
+    changes = killtracker.plan_name_edits(current, submitted)
+    await database.kt_set_name_overrides(list(changes.items()))
+    if not changes:
+        return 'Nothing changed.'
+    cleared = sum(1 for name in changes.values() if name is None)
+    text = f'Saved {len(changes)} name(s).'
+    return text + (f' {cleared} went back to the name OCAP has.' if cleared else '')
 
 
 async def import_names(text: str, *, overwrite: bool) -> dict:

@@ -1114,8 +1114,9 @@ _KILLTRACKER: tuple[Topic, ...] = (
         steps=(
             'Open **📊 Kill Tracker → Missions**. Every recording the bot has found on the '
             'OCAP server is listed, newest first, with the name OCAP has for it.',
-            'Type the name you want in the box on the right and press **Save**.',
-            'To go back to OCAP’s name, clear the box and press **Save**.',
+            'Type the name you want in the box on the right of each mission you want to change — as many as you like.',
+            'Press **Save all changes** once. Only the names you changed are written, and none are if one of them is not valid.',
+            'To go back to OCAP’s name, clear the box and save.',
         ),
         notes=(
             'The recording’s own date is added after the name, so type just the name; if you '

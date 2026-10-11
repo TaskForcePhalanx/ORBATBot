@@ -2710,17 +2710,6 @@ async def kt_generation() -> str:
     return f"{r['n']}:{r['last']}:{r['rules']}:{r['names']}:{c['n']}:{c['last']}:{m['n']}:{a}"
 
 
-async def kt_set_name_override(ocap_id: int, name) -> bool:
-    """Set (or, with an empty name, clear) a mission's shown name."""
-    pool = await get_pool()
-    async with pool.acquire() as db:
-        result = await db.execute(
-            'UPDATE kt_missions SET name_override = $2 WHERE ocap_id = $1',
-            ocap_id, name or None,
-        )
-    return int(result.split()[-1]) > 0
-
-
 async def kt_set_name_overrides(pairs) -> int:
     """Set many names at once — `(ocap_id, name)` pairs, in one transaction."""
     pool = await get_pool()

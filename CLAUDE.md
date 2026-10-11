@@ -1074,7 +1074,7 @@ The port was run cell by cell against the original `ImportScript` (under Node wi
 
 | Page | What it does |
 |---|---|
-| Missions | Give a mission a clean name (`kt_missions.name_override`). Empty = OCAP's name again |
+| Missions | Give missions clean names (`kt_missions.name_override`) — **every name on the page in one form, saved with one press** (`plan_name_edits()`: only changed rows are written, and none if one name is invalid). Empty = OCAP's name again |
 | Campaigns | Create, edit, delete campaigns; pick missions by recording, optionally add name patterns |
 | Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink |
 | Units | Set a player's unit where the dashboard's guess is wrong (`kt_unit_overrides`), one form, only changed rows written |

@@ -16,43 +16,50 @@
   Every recording the bot has found on the OCAP server. If a mission was not named
   cleanly, type the name you want in <strong>Shown as</strong>: the Kill Tracker
   shows that instead, with the recording’s own date after it. Clear the box to go
-  back to OCAP’s name. The statistics themselves are not touched, so this survives
-  every re-count.
+  back to OCAP’s name. <strong>Fill in as many as you like, then press Save once</strong> —
+  only the names you changed are written, and none are if one of them is not valid.
+  The statistics themselves are not touched, so this survives every re-count.
 </p>
 
 {% if rows %}
-  <table class="rolelist">
-    <tbody>
-      {% for row in rows %}
-        {% set m = row.m %}
-        <tr>
-          <td>
-            <strong>{{ m.played_on or '—' }}</strong>
-            {% if m.tag %}<span class="chip">{{ m.tag }}</span>{% endif %}
-            {% if m.status != 'ok' %}<span class="chip contested">not counted yet</span>{% endif %}
-            <div class="muted">OCAP: {{ row.own or m.mission }}
-              {% if m.counted_kills is not none %}
-                · {{ m.counted_kills }} kills counted{% if m.ocap_player_kills %} (server: {{ m.ocap_player_kills }}){% endif %}
-              {% endif %}
-            </div>
-            {% if row.campaigns %}
-              <div class="muted">in
-                {% for c in row.campaigns %}<a href="/g/{{ guild.id }}/killtracker/campaigns/{{ c.id }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+  <form method="post" action="/g/{{ guild.id }}/killtracker/missions/names">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="actions">
+      <button class="button primary" type="submit">Save all changes</button>
+    </div>
+    <table class="rolelist">
+      <tbody>
+        {% for row in rows %}
+          {% set m = row.m %}
+          <tr>
+            <td>
+              <strong>{{ m.played_on or '—' }}</strong>
+              {% if m.tag %}<span class="chip">{{ m.tag }}</span>{% endif %}
+              {% if m.status != 'ok' %}<span class="chip contested">not counted yet</span>{% endif %}
+              <div class="muted">OCAP: {{ row.own or m.mission }}
+                {% if m.counted_kills is not none %}
+                  · {{ m.counted_kills }} kills counted{% if m.ocap_player_kills %} (server: {{ m.ocap_player_kills }}){% endif %}
+                {% endif %}
               </div>
-            {% endif %}
-          </td>
-          <td class="rowactions">
-            <form method="post" action="/g/{{ guild.id }}/killtracker/missions/{{ m.ocap_id }}/name">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <input name="name" maxlength="120" value="{{ m.name_override or '' }}"
-                     placeholder="{{ row.own or m.mission }}" aria-label="Shown as">
-              <button class="button" type="submit">Save</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+              {% if row.campaigns %}
+                <div class="muted">in
+                  {% for c in row.campaigns %}<a href="/g/{{ guild.id }}/killtracker/campaigns/{{ c.id }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+                </div>
+              {% endif %}
+            </td>
+            <td class="rowactions">
+              <input type="hidden" name="mission_{{ loop.index0 }}" value="{{ m.ocap_id }}">
+              <input name="name_{{ loop.index0 }}" maxlength="120" value="{{ m.name_override or '' }}"
+                     placeholder="{{ row.own or m.mission }}" aria-label="Shown as, {{ row.own or m.mission }}">
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions">
+      <button class="button primary" type="submit">Save all changes</button>
+    </div>
+  </form>
 {% else %}
   <p class="empty">Nothing counted yet. The bot checks the OCAP server every ten minutes.</p>
 {% endif %}

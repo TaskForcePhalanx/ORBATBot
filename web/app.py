@@ -1910,11 +1910,12 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             **context, 'rows': await killtracker_service.missions_view(),
         })
 
-    @app.post('/g/{guild_id}/killtracker/missions/{ocap_id}/name')
-    async def kt_rename(request: Request, guild_id: str, ocap_id: int):
+    @app.post('/g/{guild_id}/killtracker/missions/names')
+    async def kt_rename(request: Request, guild_id: str):
+        """Every name on the page, saved at once."""
         context, form = await kt_post(request, guild_id)
         try:
-            note = await killtracker_service.rename(ocap_id, form.get('name'))
+            note = await killtracker_service.save_names(form)
         except ValueError as e:
             return kt_back(request, guild_id, '', 'warn', str(e))
         return kt_back(request, guild_id, '', 'ok', note)
