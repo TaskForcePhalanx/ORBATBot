@@ -1103,7 +1103,7 @@ The public side serves them in the shape of the dashboard's own files — `/kt/a
 * The dashboard still reads the Google Sheet. Point `CSV_URL` in `dashboard/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
 * The dashboard reads the aliases, units and campaigns from here only with `?source=bot`; its own JSON files stay in `dashboard/` until the switch.
 * The dashboard now lives in `dashboard/` of this repo and is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
-* The old `armatfp/TFP_KillTracker` repo is left as it was until the new Pages URL is confirmed working; then it should redirect here and be archived.
+* The old `armatfp/TFP_KillTracker` repo redirects here and is archived; release number and date live in `dashboard/tracker.js` (`VERSION`, `RELEASE_DATE`) and must be bumped together with `dashboard/CHANGELOG.md`.
 
 ---
 
