@@ -826,8 +826,9 @@ _The names and groupings the public statistics are shown under._
 Show a mission under a clean name when it was not named cleanly in game.
 
 1. Open **📊 Kill Tracker → Missions**. Every recording the bot has found on the OCAP server is listed, newest first, with the name OCAP has for it.
-2. Type the name you want in the box on the right and press **Save**.
-3. To go back to OCAP’s name, clear the box and press **Save**.
+2. Type the name you want in the box on the right of each mission you want to change — as many as you like.
+3. Press **Save all changes** once. Only the names you changed are written, and none are if one of them is not valid.
+4. To go back to OCAP’s name, clear the box and save.
 
 > The recording’s own date is added after the name, so type just the name; if you type the date as well it is taken off again.
 >

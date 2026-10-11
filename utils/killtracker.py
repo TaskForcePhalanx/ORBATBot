@@ -814,6 +814,29 @@ def clean_name(text, *, what: str = 'name') -> str:
     return name
 
 
+def plan_name_edits(current: dict, submitted) -> dict:
+    """What a submitted names form changes: `{recording id: new name or None}`.
+
+    `current` is `{recording id: the name set now, or None}`; `submitted` is
+    `(recording id, text)` for every row of the form. Only rows whose name really
+    changed are returned — an empty box where there was no name is not a change —
+    and a `None` means "back to OCAP's name". Ids the form carries that no recording
+    has are ignored. Raises `ValueError` for the first name that is not valid, before
+    anything is returned, so a form with one bad name writes none of them.
+    """
+    changes = {}
+    for ocap_id, text in submitted:
+        if ocap_id not in current:
+            continue
+        try:
+            name = clean_name(text) or None
+        except ValueError as e:
+            raise ValueError(f'“{" ".join((text or "").split())[:40]}…”: {e}')
+        if name != (current[ocap_id] or None):
+            changes[ocap_id] = name
+    return changes
+
+
 def apply_name(rows: list, override) -> list:
     """The mission's rows with the Mission column carrying the shown name."""
     if not override:
