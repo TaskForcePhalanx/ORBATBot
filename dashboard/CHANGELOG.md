@@ -4,7 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.027 — 2026-10-11 (latest)
+## v1.028 — 2026-10-11 (latest)
+
+### Removed
+- **Orange data-source badge** in the corner of `?source=bot`; the tab title still starts with `[BOT DATA]`
+
+---
+
+## v1.027 — 2026-10-11
 
 ### Changed
 - **Moved into the ORBATBot repository** (`dashboard/`), published from there by GitHub Pages at `https://armatfp.github.io/ORBATBot/`. The code is unchanged; the old `TFP_KillTracker` repository only redirects here. The `ImportScript` is now `scripts/legacy/ImportScript`

@@ -6,18 +6,9 @@ const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const BOT_CSV_URL = BOT_API + "stats.csv";
 const DATA_SOURCE = new URLSearchParams(location.search).get("source") === "bot" ? "bot" : "sheet";
 const CSV_URL = DATA_SOURCE === "bot" ? BOT_CSV_URL : SHEET_CSV_URL;
-if (DATA_SOURCE === "bot") {
-  document.title = "[BOT DATA] " + document.title;
-  document.addEventListener("DOMContentLoaded", () => {
-    const badge = document.createElement("div");
-    badge.textContent = "Data source: bot (?source=bot) — not the sheet";
-    badge.style.cssText = "position:fixed;bottom:8px;left:8px;z-index:9999;padding:4px 10px;" +
-      "background:#b45309;color:#fff;font:12px/1.4 sans-serif;border-radius:4px;opacity:.9;";
-    document.body.appendChild(badge);
-  });
-}
+if (DATA_SOURCE === "bot") document.title = "[BOT DATA] " + document.title;
 const RELEASE_DATE = "2026-10-11";
-const VERSION      = "1.027";
+const VERSION      = "1.028";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
