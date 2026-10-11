@@ -231,3 +231,12 @@ def test_a_missing_recording_is_an_error_with_the_status(tmp_path):
 
     with pytest.raises(ocap.OcapError, match='404'):
         _serve(handler, lambda base: ocap.download_recording(base, 'Op', str(tmp_path / 'x')))
+
+
+def test_new_recordings_come_before_ones_to_try_again():
+    """Stuck recordings come due over and over; oldest-first they would take every
+    place in the pass and the new ones would never get one."""
+    ops = [op(i) for i in range(1, 12)]
+    known = {i: stored(version=0, status='failed', retry_at=NOW - timedelta(minutes=1)) for i in range(1, 9)}
+    # 8 old ones are due to be retried; 9, 10, 11 were never seen
+    assert ids(ocap.plan(ops, known, NOW, 1, 4)) == [9, 10, 11, 1]

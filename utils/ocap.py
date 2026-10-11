@@ -160,7 +160,8 @@ def retry_delay_minutes(attempts: int) -> int:
 
 
 def plan(ops: list, known: dict, now, rules_version: int, limit: int) -> list:
-    """The recordings to read this time, oldest first, at most `limit`.
+    """The recordings to read this time, at most `limit`: new ones first, oldest first,
+    then the ones to try again.
 
     `known` maps a recording's id to what is stored for it (anything with
     `rules_version`, `status` and `retry_at`). A recording is due when
@@ -174,16 +175,19 @@ def plan(ops: list, known: dict, now, rules_version: int, limit: int) -> list:
     was counted under older rules but fails now keeps its old rows (see
     `database.kt_save_failure`) and is retried on the same back-off.
     """
-    due = []
+    fresh, again = [], []
     for op in ops:
         if not op['completed']:
             continue
         row = known.get(op['id'])
         if row is None:
-            due.append(op)
+            fresh.append(op)
             continue
         retry_at = row['retry_at']
         if row['status'] == 'failed' or row['rules_version'] < rules_version:
             if retry_at is None or retry_at <= now:
-                due.append(op)
-    return due[:limit]
+                again.append(op)
+    # Recordings never tried go first. A recording that keeps failing comes due
+    # again and again, and oldest-first it would take the places of the new ones
+    # every time its back-off ran out — eight stuck ones would hold up everything.
+    return (fresh + again)[:limit]

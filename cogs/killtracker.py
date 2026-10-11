@@ -26,6 +26,11 @@ from utils import database, killtracker, ocap
 # interval only decides how long after a mission the numbers show up.
 POLL_MINUTES = 10
 
+# The longest one recording may take, download and count together. Nothing should
+# need anywhere near this; it is what stops one stuck read from holding up the loop
+# for good (a loop does not start its next pass until the last one is over).
+IMPORT_TIMEOUT = 30 * 60
+
 # How many recordings one pass reads. The first pass over a server with sixty
 # recordings is the only one that comes near this; it simply takes a few polls.
 MAX_PER_PASS = 8
@@ -71,6 +76,13 @@ async def import_one(base: str, op: dict) -> dict:
     return {'label': label, 'kills': kills}
 
 
+def _describe(error: BaseException) -> str:
+    """What went wrong, in words: some exceptions (a timeout) have an empty message."""
+    if isinstance(error, asyncio.TimeoutError):
+        return f'took longer than {IMPORT_TIMEOUT // 60} minutes'
+    return str(error) or type(error).__name__
+
+
 async def check(base: str = None, limit: int = MAX_PER_PASS) -> dict:
     """One pass: list the server, read what is due. Returns what happened.
 
@@ -86,13 +98,14 @@ async def check(base: str = None, limit: int = MAX_PER_PASS) -> dict:
     done, failed = [], []
     for op in due:
         try:
-            result = await import_one(base, op)
+            result = await asyncio.wait_for(import_one(base, op), IMPORT_TIMEOUT)
         except Exception as e:  # one bad file must not stop the rest
             attempts = (known[op['id']]['attempts'] if op['id'] in known else 0) + 1
             delay = ocap.retry_delay_minutes(attempts)
+            why = _describe(e)
             await database.kt_save_failure(
-                op, error=str(e)[:500] or repr(e), retry_at=_now() + timedelta(minutes=delay))
-            failed.append((op['filename'], str(e) or repr(e)))
+                op, error=why[:500], retry_at=_now() + timedelta(minutes=delay))
+            failed.append((op['filename'], why))
             continue
         done.append((op['filename'], result))
         # The server counts kills its own way, so a difference is not an error —
@@ -100,8 +113,15 @@ async def check(base: str = None, limit: int = MAX_PER_PASS) -> dict:
         if op['player_kills'] and abs(result['kills'] - op['player_kills']) > max(5, op['player_kills'] // 10):
             print(f"⚠️ killtracker {op['filename']}: counted {result['kills']} kills, "
                   f"the OCAP server says {op['player_kills']}.")
-    return {'listed': len(ops), 'imported': done, 'failed': failed,
-            'pending': len(every_due) - len(due)}
+    now = _now()
+    return {
+        'listed': len(ops),
+        'finished': len([op for op in ops if op['completed']]),
+        'stored': len([r for r in known.values() if r['status'] == 'ok']),
+        'backing_off': len([r for r in known.values()
+                            if r['status'] == 'failed' and r['retry_at'] and r['retry_at'] > now]),
+        'imported': done, 'failed': failed, 'pending': len(every_due) - len(due),
+    }
 
 
 class KillTrackerCog(commands.Cog):
@@ -126,10 +146,23 @@ class KillTrackerCog(commands.Cog):
         except Exception as e:
             print(f"❌ killtracker failed: {e!r}")
             return
+        # One line per pass, whatever happened: a log with nothing in it for hours
+        # cannot be told from a loop that has stopped.
+        print(f"ℹ️ killtracker: {result['listed']} on the server, {result['finished']} finished, "
+              f"{result['stored']} stored before this pass; this pass counted "
+              f"{len(result['imported'])}, failed {len(result['failed'])}; "
+              f"{result['pending']} still waiting, {result['backing_off']} backing off.")
         for name, result_ in result['imported']:
             print(f"✅ killtracker: counted {name} → {result_['label']} ({result_['kills']} kills)")
         for name, error in result['failed']:
             print(f"⚠️ killtracker: could not read {name}: {error}")
+
+    @poll.error
+    async def _poll_error(self, error: BaseException):
+        """`poll()` catches what it expects; this is for what it did not. A loop
+        that raised is stopped for good by discord.py, so say so and start it again."""
+        print(f"❌ killtracker loop stopped on {error!r}; restarting it.")
+        self.poll.restart()
 
     @poll.before_loop
     async def _before_poll(self):

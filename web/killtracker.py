@@ -39,8 +39,12 @@ _cache = {'generation': None, 'csv': '', 'etag': '', 'campaigns': None,
 
 
 def _public(record) -> dict:
-    """One mission's bookkeeping as the API shows it. The error text stays in the
-    log: it names URLs and paths, and "failed" is all anyone outside needs."""
+    """One mission's bookkeeping as the API shows it.
+
+    A failed read says why, shortened: it is the first thing anyone looks for when a
+    mission is missing, and what it names is the OCAP server's public address and an
+    HTTP status — nothing that is not already public.
+    """
     return {
         'id': record['ocap_id'],
         'filename': record['filename'],
@@ -56,6 +60,9 @@ def _public(record) -> dict:
         'kills_per_ocap': record['ocap_player_kills'],
         'rules_version': record['rules_version'],
         'status': record['status'],
+        'error': (record['error'] or '')[:200] or None,
+        'attempts': record['attempts'],
+        'retry_at': record['retry_at'].isoformat() + 'Z' if record['retry_at'] else None,
         'imported_at': record['imported_at'].isoformat() + 'Z' if record['imported_at'] else None,
     }
 
