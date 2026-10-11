@@ -124,6 +124,10 @@ Watch a Reddit user or a subreddit and announce every new post in a Discord chan
 - Handles Reddit turning a cloud-hosted bot away: retries on `old.reddit.com`, then waits it out instead of hammering
 - **Announcements only** — the bot will not ask anyone to upvote, because [organised voting gets accounts banned](#a-word-on-upvotes)
 
+### 📊 Kill Tracker
+
+Per-player kills, deaths, kill distance, shots and more for every Arma mission, counted straight from the unit's OCAP server — **public, no Discord login.** There are no commands: the bot checks the OCAP server every 10 minutes and counts any finished recording it hasn't seen. See [Kill Tracker](#kill-tracker).
+
 ### ⚙️ Server & Maintenance
 
 | Command | Who | What |
@@ -1734,6 +1738,21 @@ The page also names **the exact address it read and how many entries came back**
 - **Repointing a watch resets it.** Change which user or subreddit it follows and it starts fresh from that feed's current posts, rather than announcing its back catalogue.
 - **A watch with no channel is simply idle** — untick *Check this feed* to park one without losing its text.
 - **Persistent `429`s are a hosting problem, not a settings problem** — see above. If a watch is refused from both hosts every single time, the public feed is not usable from that server's address, and the way through is Reddit's OAuth API with a registered script app rather than any change to how often it checks.
+
+---
+
+## Kill Tracker
+
+The unit's public scoreboard. The bot reads the OCAP server's recording list every 10 minutes, downloads each finished recording it hasn't counted yet, and stores the per-player rows. Nothing is uploaded by hand.
+
+| Address | What |
+|---|---|
+| `/kt/api/stats.csv` | Every counted mission as CSV — the same 35 columns the Google Sheet had, so the existing dashboard reads it unchanged |
+| `/kt/api/missions` | JSON: which recordings are counted, under which rules, and how our kill count compares with the OCAP server's own |
+
+Both are open to everyone and need no login.
+
+Set `OCAP_BASE_URL` if the OCAP server is not `https://ocap.taskforcephalanx.com`, and `KT_SYNC=0` to stop the polling. A rule change is a code change: bump `RULES_VERSION` in `utils/killtracker.py` and the bot counts every mission again by itself. How it counts, and why, is in `CLAUDE.md`.
 
 ---
 

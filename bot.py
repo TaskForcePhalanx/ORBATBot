@@ -112,6 +112,13 @@ class ORBATBot(commands.Bot):
             print("❌ Failed to load cogs.redditfeed:")
             traceback.print_exc()
 
+        try:
+            await self.load_extension('cogs.killtracker')
+            print("✅ Loaded cogs.killtracker")
+        except Exception:
+            print("❌ Failed to load cogs.killtracker:")
+            traceback.print_exc()
+
         registered = [c.name for c in self.tree.get_commands()]
         print(f"Commands registered in tree: {registered}")
 

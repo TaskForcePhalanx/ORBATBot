@@ -594,6 +594,37 @@ async def init_db():
                  WHERE places IS NOT NULL AND places <> ''
             ON CONFLICT (guild_id, scope) DO NOTHING
         ''')
+        # Kill Tracker: one row per OCAP recording, holding the per-player rows
+        # counted from it — see utils/killtracker.py. It is not scoped to a
+        # guild, because the OCAP server it reads is the unit's, not Discord's.
+        # `rows` is a JSON document replaced wholesale on every re-count, for the
+        # reason orbat_nets and tac_maps.doc are: nothing hangs off a row.
+        # `rules_version` is what lets a rule change re-count old missions by
+        # itself; `status` and `retry_at` stop one corrupt file being fetched
+        # every five minutes for ever.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS kt_missions (
+                ocap_id INTEGER PRIMARY KEY,
+                filename TEXT NOT NULL UNIQUE,
+                mission TEXT,
+                label TEXT,
+                world TEXT,
+                tag TEXT,
+                played_on TEXT,
+                duration INTEGER,
+                ocap_kills INTEGER,
+                ocap_player_kills INTEGER,
+                counted_kills INTEGER,
+                rows TEXT NOT NULL DEFAULT '[]',
+                rules_version INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'ok',
+                error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                retry_at TIMESTAMP,
+                sha256 TEXT,
+                imported_at TIMESTAMP
+            )
+        ''')
 
 
 async def get_active_operation(guild_id: str):
@@ -2512,3 +2543,105 @@ async def delete_tac_terrain(terrain_id: int) -> bool:
     async with pool.acquire() as db:
         result = await db.execute('DELETE FROM tac_terrains WHERE id = $1', terrain_id)
         return int(result.split()[-1]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Kill Tracker
+#
+# One row per OCAP recording. Naive UTC like every stored time here.
+# ---------------------------------------------------------------------------
+
+async def kt_known() -> dict:
+    """`{ocap_id: row}` for every recording seen, without the (large) rows."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch(
+            '''SELECT ocap_id, filename, rules_version, status, attempts, retry_at
+                 FROM kt_missions'''
+        )
+    return {r['ocap_id']: r for r in found}
+
+
+async def kt_save_mission(op: dict, *, label: str, rows_json: str, counted_kills: int,
+                          rules_version: int, sha256: str):
+    """Store one counted recording, replacing whatever an earlier count left."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            '''INSERT INTO kt_missions
+                   (ocap_id, filename, mission, label, world, tag, played_on, duration,
+                    ocap_kills, ocap_player_kills, counted_kills, rows, rules_version,
+                    status, error, attempts, retry_at, sha256, imported_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                       'ok', NULL, 0, NULL, $14, (NOW() AT TIME ZONE 'UTC'))
+               ON CONFLICT (ocap_id) DO UPDATE SET
+                   filename = EXCLUDED.filename, mission = EXCLUDED.mission,
+                   label = EXCLUDED.label, world = EXCLUDED.world, tag = EXCLUDED.tag,
+                   played_on = EXCLUDED.played_on, duration = EXCLUDED.duration,
+                   ocap_kills = EXCLUDED.ocap_kills,
+                   ocap_player_kills = EXCLUDED.ocap_player_kills,
+                   counted_kills = EXCLUDED.counted_kills, rows = EXCLUDED.rows,
+                   rules_version = EXCLUDED.rules_version, status = 'ok', error = NULL,
+                   attempts = 0, retry_at = NULL, sha256 = EXCLUDED.sha256,
+                   imported_at = EXCLUDED.imported_at''',
+            op['id'], op['filename'], op['mission'], label, op['world'], op['tag'],
+            op['date'], op['duration'], op['kills'], op['player_kills'], counted_kills,
+            rows_json, rules_version, sha256,
+        )
+
+
+async def kt_save_failure(op: dict, *, error: str, retry_at):
+    """Remember that a recording could not be read, and when to try it again.
+
+    A recording already counted keeps its rows: a failed *re*-count must not
+    blank a mission that was fine.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            '''INSERT INTO kt_missions
+                   (ocap_id, filename, mission, world, tag, played_on, duration,
+                    ocap_kills, ocap_player_kills, rules_version, status, error,
+                    attempts, retry_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'failed', $10, 1, $11)
+               ON CONFLICT (ocap_id) DO UPDATE SET
+                   error = EXCLUDED.error, attempts = kt_missions.attempts + 1,
+                   retry_at = EXCLUDED.retry_at,
+                   status = CASE WHEN kt_missions.rows <> '[]'
+                                 THEN kt_missions.status ELSE 'failed' END''',
+            op['id'], op['filename'], op['mission'], op['world'], op['tag'],
+            op['date'], op['duration'], op['kills'], op['player_kills'], error, retry_at,
+        )
+
+
+async def kt_missions() -> list:
+    """Every recording's bookkeeping, newest first, without the rows."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetch(
+            '''SELECT ocap_id, filename, mission, label, world, tag, played_on, duration,
+                      ocap_kills, ocap_player_kills, counted_kills, rules_version,
+                      status, error, attempts, imported_at
+                 FROM kt_missions ORDER BY ocap_id DESC'''
+        )
+
+
+async def kt_rows() -> list:
+    """The rows of every counted mission, oldest recording first."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch(
+            "SELECT rows FROM kt_missions WHERE rows <> '[]' ORDER BY ocap_id"
+        )
+    return [r['rows'] for r in found]
+
+
+async def kt_generation() -> str:
+    """A string that changes whenever any stored count does — the cache key."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        r = await db.fetchrow(
+            """SELECT COUNT(*) AS n, MAX(imported_at) AS last, MIN(rules_version) AS rules
+                 FROM kt_missions WHERE rows <> '[]'"""
+        )
+    return f"{r['n']}:{r['last']}:{r['rules']}"
