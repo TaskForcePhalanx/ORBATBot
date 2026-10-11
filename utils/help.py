@@ -84,6 +84,8 @@ GROUPS: tuple[Group, ...] = (
           'the mission.'),
     Group('reddit', 'Reddit announcements',
           'Watching a user or a subreddit and announcing new posts.'),
+    Group('killtracker', 'Kill Tracker',
+          'The names and groupings the public statistics are shown under.'),
     Group('server', 'Server and members',
           'The log, the welcome, voice time, embeds and the housekeeping.'),
 )
@@ -1101,6 +1103,130 @@ _REDDIT: tuple[Topic, ...] = (
 )
 
 
+_KILLTRACKER: tuple[Topic, ...] = (
+    Topic(
+        key='killtracker-rename-missions',
+        title='Rename a mission',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Missions**',
+        summary='Show a mission under a clean name when it was not named cleanly in game.',
+        steps=(
+            'Open **📊 Kill Tracker → Missions**. Every recording the bot has found on the '
+            'OCAP server is listed, newest first, with the name OCAP has for it.',
+            'Type the name you want in the box on the right and press **Save**.',
+            'To go back to OCAP’s name, clear the box and press **Save**.',
+        ),
+        notes=(
+            'The recording’s own date is added after the name, so type just the name; if you '
+            'type the date as well it is taken off again.',
+            'Only the shown name changes. The statistics are not touched, so the name survives '
+            'every re-count.',
+            'The public numbers pick the new name up within about a minute.',
+            'Missions are in a campaign by recording, not by name, so a renamed mission stays '
+            'in its campaigns.',
+        ),
+        page='ktmissions',
+        related=('killtracker-import',),
+    ),
+    Topic(
+        key='killtracker-campaigns',
+        title='Manage campaigns',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Campaigns**',
+        summary='Group missions into a campaign, which the Kill Tracker shows as a page of its own.',
+        steps=(
+            'Open **📊 Kill Tracker → Campaigns** and press **+ New campaign**.',
+            'Give it a name and tick the missions that belong to it.',
+            'Optionally add **names to match**, one per line: a mission whose name contains '
+            'one of them belongs to the campaign as well.',
+            'Press **Create**. To change it later, open it from the list; **Delete campaign** '
+            'removes the campaign and leaves the missions alone.',
+        ),
+        notes=(
+            'A mission can be in several campaigns.',
+            'Names that match no recording appear only after an import from the old '
+            'campaigns.json; keep them ticked and they are included as they were.',
+        ),
+        page='ktcampaigns',
+        related=('killtracker-import',),
+    ),
+    Topic(
+        key='killtracker-link-names',
+        title='Link a player’s names',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Players**',
+        summary='Count a player who played under several names as one, and pick the name shown.',
+        steps=(
+            'Open **📊 Kill Tracker → Players**. Use **Find a name** to narrow the list.',
+            'In **Link names**, tick every name that is the same person.',
+            'Choose which one to show in the **Show** column and press **Link the ticked names**.',
+            'To change the name shown later, press **Show “…”** beside the one you want in the '
+            'list of linked players above.',
+            'To split a name off again, press **Unlink “…”**.',
+        ),
+        notes=(
+            'The Kill Tracker also joins obvious variants of a name by itself. This is for the '
+            'ones it cannot know, such as a changed callsign.',
+            'Linking pulls in everything already linked to any of the names, so there are never '
+            'chains: they all end up under the name you picked.',
+        ),
+        page='ktplayers',
+        related=('killtracker-units', 'killtracker-import'),
+    ),
+    Topic(
+        key='killtracker-units',
+        title='Set a player’s unit',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Units**',
+        summary='Correct the unit the Kill Tracker guessed for a player.',
+        steps=(
+            'Open **📊 Kill Tracker → Units** and find the player.',
+            'Choose their unit in the list on their row.',
+            'Press **Save changes** at the bottom. Only the rows you changed are written.',
+        ),
+        notes=(
+            '**Automatic** leaves it to the Kill Tracker’s own guess, which uses the squads the '
+            'player plays in and a tag in the name such as `[2nd USC]`.',
+            '**Unknown** stops the guess and shows no unit.',
+            'Players are listed under the name that is shown, after linking.',
+        ),
+        page='ktunits',
+        related=('killtracker-link-names',),
+    ),
+    Topic(
+        key='killtracker-import',
+        title='Take over the old sheet and JSON files',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Import**',
+        summary='Bring the mission names, campaigns, linked names and units over from the '
+                'sheet and the dashboard’s JSON files.',
+        steps=(
+            'Export the sheet’s **player_stats** tab as CSV and choose it under **1 · Mission '
+            'names**. Press **Take over the names**: where the sheet’s name for a mission differs '
+            'from OCAP’s, the sheet’s is taken, and the page lists each one.',
+            'Choose **campaigns.json** under **2 · Campaigns** and press **Take over the '
+            'campaigns**. Do this after step 1, because the campaigns name their missions the '
+            'way the sheet did.',
+            'Do the same with **player_aliases.json** and **unit_overrides.json**.',
+        ),
+        notes=(
+            'Nothing is deleted. A mission, campaign, link or unit that is already set here is '
+            'left alone — except mission names, where **Replace names that were already set** '
+            'overrides that.',
+            'A recording the bot has not counted yet is not in the list; import again once it is.',
+            'A mission name in a campaign that matches no recording stays on the campaign and '
+            'is shown on its page, so it can be dropped by hand.',
+        ),
+        page='ktimport',
+    ),
+)
+
+
 _SERVER: tuple[Topic, ...] = (
     Topic(
         key='member-log',
@@ -1355,7 +1481,7 @@ _SERVER: tuple[Topic, ...] = (
 
 
 TOPICS: tuple[Topic, ...] = (
-    _SLOTS + _ORBATS + _EVENTS + _ROLES + _MAPS + _REDDIT + _SERVER
+    _SLOTS + _ORBATS + _EVENTS + _ROLES + _MAPS + _REDDIT + _KILLTRACKER + _SERVER
 )
 
 

@@ -60,7 +60,21 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool) -> dict:
         groups.append(_item('logs', '📋 Member log', f"{base}/logs"))
         groups.append(_item('reddit', '📣 Reddit', f"{base}/reddit"))
 
-    items = {'ops': operations}
+    # The Kill Tracker's own pages: the names and groupings its public numbers
+    # are shown under. Server admins only, for the whole group.
+    killtracker = []
+    if is_admin:
+        killtracker = [
+            _item('ktmissions', 'Missions', f"{base}/killtracker"),
+            _item('ktcampaigns', 'Campaigns', f"{base}/killtracker/campaigns"),
+            _item('ktplayers', 'Players', f"{base}/killtracker/players"),
+            _item('ktunits', 'Units', f"{base}/killtracker/units"),
+            _item('ktimport', 'Import', f"{base}/killtracker/import"),
+        ]
+        groups.append({'key': 'kt', 'label': '📊 Kill Tracker',
+                       'href': killtracker[0]['href']})
+
+    items = {'ops': operations, 'kt': killtracker}
     group_of = {
         item['key']: group_key
         for group_key, group_items in items.items()

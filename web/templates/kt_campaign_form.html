@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · {{ 'New campaign' if mode == 'create' else values.name }}{% endblock %}
+
+{% block content %}
+<p class="crumbs">
+  <a href="/g/{{ guild.id }}">{{ guild.name }}</a> ›
+  <a href="/g/{{ guild.id }}/killtracker/campaigns">Campaigns</a> ›
+  {{ 'New' if mode == 'create' else 'Edit' }}
+</p>
+
+<h1>{{ 'New campaign' if mode == 'create' else 'Edit campaign' }}</h1>
+
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+<form class="form" method="post"
+      action="{{ '/g/%s/killtracker/campaigns/new' % guild.id if mode == 'create' else '/g/%s/killtracker/campaigns/%s' % (guild.id, campaign.id) }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <label class="field">
+    <span>Name</span>
+    <input name="name" required maxlength="120" value="{{ values.name }}" placeholder="Operation Iron Triangle">
+  </label>
+
+  <fieldset class="field">
+    <legend>Missions</legend>
+    <div class="ktpick">
+      {% for m in missions %}
+        <label>
+          <input type="checkbox" name="mission" value="{{ m.id }}" {% if m.id in values.ids %}checked{% endif %}>
+          {{ m.label }}
+          {% if m.tag %}<span class="muted">· {{ m.tag }}</span>{% endif %}
+          {% if m.status != 'ok' %}<span class="muted">· not counted yet</span>{% endif %}
+        </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  {% if values.extra %}
+    <fieldset class="field">
+      <legend>Names that match no recording</legend>
+      <p class="hint">
+        These came from the old campaigns.json and no recording carries that name
+        (yet). Keep ticked to leave them as they are, untick to drop them.
+      </p>
+      <div class="ktpick">
+        {% for label in values.extra %}
+          <label><input type="checkbox" name="extra" value="{{ label }}" checked> {{ label }}</label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  {% endif %}
+
+  <label class="field">
+    <span>Also include missions whose name contains <span class="muted">— optional, one per line</span></span>
+    <textarea name="patterns" rows="3" placeholder="Iron Triangle">{{ values.patterns }}</textarea>
+  </label>
+  <p class="hint">
+    A mission whose name contains one of these lines belongs to the campaign as well —
+    handy for a campaign that keeps getting new missions.
+  </p>
+
+  <div class="actions">
+    <button class="button primary" type="submit">{{ 'Create' if mode == 'create' else 'Save' }}</button>
+    <a class="button" href="/g/{{ guild.id }}/killtracker/campaigns">Cancel</a>
+  </div>
+</form>
+
+{% if mode == 'edit' %}
+  <form method="post" action="/g/{{ guild.id }}/killtracker/campaigns/{{ campaign.id }}/delete"
+        onsubmit="return confirm('Delete this campaign? The missions are not touched.');">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button danger" type="submit">Delete campaign</button>
+  </form>
+{% endif %}
+{% endblock %}

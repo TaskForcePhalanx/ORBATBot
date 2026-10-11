@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Kill Tracker import{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+</div>
+
+{% with active = 'ktimport' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>Take over the old work</h2>
+<p class="hint">
+  Everything done by hand for the sheet and the dashboard’s JSON files can be brought
+  over once. Nothing is deleted, anything already set here is kept (unless you say
+  otherwise), and each step says exactly what it did.
+</p>
+
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+{% if report %}
+  <div class="flash ok">
+    {% if what == 'names' %}
+      <strong>{{ report.applied|length }} mission name(s) taken over.</strong>
+      {{ report.kept|length }} already had a name of their own and were left alone;
+      {{ report.unknown }} of the sheet’s recordings are not in the bot (yet).
+    {% elif what == 'campaigns' %}
+      <strong>{{ report.created|length }} campaign(s) created.</strong>
+      {% if report.skipped %}{{ report.skipped|length }} already existed and were left alone.{% endif %}
+      {% if report.unmatched %}{{ report.unmatched }} mission name(s) match no recording yet; they are kept on the campaign.{% endif %}
+    {% elif what == 'aliases' %}
+      <strong>{{ report.added|length }} name(s) linked.</strong>
+      {{ report.kept|length }} were already linked and left alone.
+    {% elif what == 'units' %}
+      <strong>{{ report.added|length }} unit(s) set.</strong>
+      {{ report.kept|length }} players already had one and were left alone.
+    {% endif %}
+  </div>
+
+  {% if what == 'names' and report.applied %}
+    <table class="rolelist">
+      <thead><tr><th>OCAP called it</th><th>Now shown as</th></tr></thead>
+      <tbody>
+        {% for c in report.applied %}
+          <tr><td>{{ c.ocap }}</td><td>{{ c.sheet }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  {% if what == 'campaigns' and report.created %}
+    <table class="rolelist">
+      <thead><tr><th>Campaign</th><th>Missions found</th><th>Not matched</th></tr></thead>
+      <tbody>
+        {% for c in report.created %}
+          <tr><td>{{ c.name }}</td><td>{{ c.matched }}</td><td>{{ c.unmatched|join(', ') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endif %}
+
+<h3>1 · Mission names, from the sheet</h3>
+<p class="hint">
+  Export the sheet’s <code>player_stats</code> tab as CSV (or open its published CSV
+  address and save it) and choose it here. Where a mission’s name in the sheet differs
+  from the one OCAP has, the sheet’s name is taken. <strong>Do this first</strong>:
+  the campaigns below refer to missions by those names.
+</p>
+<form class="form" method="post" enctype="multipart/form-data"
+      action="/g/{{ guild.id }}/killtracker/import/names">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field"><span>CSV file</span><input type="file" name="sheet" accept=".csv,text/csv,text/plain"></label>
+  <label class="field"><span>…or paste it</span><textarea name="sheet_text" rows="3"></textarea></label>
+  <label><input type="checkbox" name="overwrite"> Replace names that were already set here</label>
+  <div class="actions"><button class="button primary" type="submit">Take over the names</button></div>
+</form>
+
+<h3>2 · Campaigns, from campaigns.json</h3>
+<form class="form" method="post" enctype="multipart/form-data"
+      action="/g/{{ guild.id }}/killtracker/import/campaigns">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field"><span>campaigns.json</span><input type="file" name="campaigns" accept=".json,application/json"></label>
+  <label class="field"><span>…or paste it</span><textarea name="campaigns_text" rows="3"></textarea></label>
+  <div class="actions"><button class="button primary" type="submit">Take over the campaigns</button></div>
+</form>
+
+<h3>3 · Linked names, from player_aliases.json</h3>
+<form class="form" method="post" enctype="multipart/form-data"
+      action="/g/{{ guild.id }}/killtracker/import/aliases">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field"><span>player_aliases.json</span><input type="file" name="aliases" accept=".json,application/json"></label>
+  <label class="field"><span>…or paste it</span><textarea name="aliases_text" rows="3"></textarea></label>
+  <div class="actions"><button class="button primary" type="submit">Take over the names</button></div>
+</form>
+
+<h3>4 · Units, from unit_overrides.json</h3>
+<form class="form" method="post" enctype="multipart/form-data"
+      action="/g/{{ guild.id }}/killtracker/import/units">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field"><span>unit_overrides.json</span><input type="file" name="units" accept=".json,application/json"></label>
+  <label class="field"><span>…or paste it</span><textarea name="units_text" rows="3"></textarea></label>
+  <div class="actions"><button class="button primary" type="submit">Take over the units</button></div>
+</form>
+{% endblock %}
