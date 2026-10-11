@@ -16,8 +16,8 @@ if (DATA_SOURCE === "bot") {
     document.body.appendChild(badge);
   });
 }
-const RELEASE_DATE = "2026-06-27";
-const VERSION      = "1.026";
+const RELEASE_DATE = "2026-10-11";
+const VERSION      = "1.027";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {

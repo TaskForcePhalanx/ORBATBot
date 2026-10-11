@@ -4,12 +4,13 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## Unreleased
+## v1.027 — 2026-10-11 (latest)
 
 ### Changed
-- **Moved into the ORBATBot repository** (`dashboard/`), published from there by GitHub Pages at `https://armatfp.github.io/ORBATBot/`. The code is unchanged; the old `TFP_KillTracker` repository is kept as the archive of its history. The `ImportScript` is now `scripts/legacy/ImportScript`
+- **Moved into the ORBATBot repository** (`dashboard/`), published from there by GitHub Pages at `https://armatfp.github.io/ORBATBot/`. The code is unchanged; the old `TFP_KillTracker` repository only redirects here. The `ImportScript` is now `scripts/legacy/ImportScript`
 
 ### Added
+- **The numbers are now counted by the ORBATBot itself**: it reads every finished recording from the OCAP server automatically (no upload, no Google Drive) and serves the same 35-column CSV. Mission names, campaigns, linked names and unit corrections are edited on the bot's admin pages (Kill Tracker tab) and served as `campaigns.json`, `player_aliases.json` and `unit_overrides.json`
 - **`?source=bot`** — loads the same 35-column rows from the bot (`/kt/api/stats.csv`, counted straight from the OCAP server) instead of the Google Sheet, with a badge so the two can't be confused. For comparing the numbers side by side before the sheet is switched off
 
 ### Fixed
@@ -23,7 +24,7 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.026 — 2026-06-27 (latest)
+## v1.026 — 2026-06-27
 
 ### Fixed
 - **Implausible longest kill** — on-foot kills farther than 1500 m (e.g. launcher/vehicle kills logged with the wrong weapon) no longer count towards longest/avg kill distance. The ImportScript skips them on import (re-import to fix avg), and the dashboard ignores such longest-kill values in existing sheet data
