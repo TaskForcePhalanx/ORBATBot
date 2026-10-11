@@ -172,6 +172,8 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
+**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+
 **Server and members** — [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
 
 ### Slots and operations
@@ -812,6 +814,99 @@ Watch the subreddit instead, and keep only what that account wrote.
 > A very busy subreddit can push a post out of its own feed between two checks. Nothing can be done about that from here.
 >
 > Widening the filter later makes old posts look new. Use **Recent posts → Mark all** afterwards.
+
+### Kill Tracker
+
+_The names and groupings the public statistics are shown under._
+
+#### Rename a mission
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Missions**
+
+Show a mission under a clean name when it was not named cleanly in game.
+
+1. Open **📊 Kill Tracker → Missions**. Every recording the bot has found on the OCAP server is listed, newest first, with the name OCAP has for it.
+2. Type the name you want in the box on the right and press **Save**.
+3. To go back to OCAP’s name, clear the box and press **Save**.
+
+> The recording’s own date is added after the name, so type just the name; if you type the date as well it is taken off again.
+>
+> Only the shown name changes. The statistics are not touched, so the name survives every re-count.
+>
+> The public numbers pick the new name up within about a minute.
+>
+> Missions are in a campaign by recording, not by name, so a renamed mission stays in its campaigns.
+
+See also: [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+
+#### Manage campaigns
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Campaigns**
+
+Group missions into a campaign, which the Kill Tracker shows as a page of its own.
+
+1. Open **📊 Kill Tracker → Campaigns** and press **+ New campaign**.
+2. Give it a name and tick the missions that belong to it.
+3. Optionally add **names to match**, one per line: a mission whose name contains one of them belongs to the campaign as well.
+4. Press **Create**. To change it later, open it from the list; **Delete campaign** removes the campaign and leaves the missions alone.
+
+> A mission can be in several campaigns.
+>
+> Names that match no recording appear only after an import from the old campaigns.json; keep them ticked and they are included as they were.
+
+See also: [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+
+#### Link a player’s names
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Players**
+
+Count a player who played under several names as one, and pick the name shown.
+
+1. Open **📊 Kill Tracker → Players**. Use **Find a name** to narrow the list.
+2. In **Link names**, tick every name that is the same person.
+3. Choose which one to show in the **Show** column and press **Link the ticked names**.
+4. To change the name shown later, press **Show “…”** beside the one you want in the list of linked players above.
+5. To split a name off again, press **Unlink “…”**.
+
+> The Kill Tracker also joins obvious variants of a name by itself. This is for the ones it cannot know, such as a changed callsign.
+>
+> Linking pulls in everything already linked to any of the names, so there are never chains: they all end up under the name you picked.
+
+See also: [Set a player’s unit](#set-a-players-unit) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+
+#### Set a player’s unit
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Units**
+
+Correct the unit the Kill Tracker guessed for a player.
+
+1. Open **📊 Kill Tracker → Units** and find the player.
+2. Choose their unit in the list on their row.
+3. Press **Save changes** at the bottom. Only the rows you changed are written.
+
+> **Automatic** leaves it to the Kill Tracker’s own guess, which uses the squads the player plays in and a tag in the name such as `[2nd USC]`.
+>
+> **Unknown** stops the guess and shows no unit.
+>
+> Players are listed under the name that is shown, after linking.
+
+See also: [Link a player’s names](#link-a-players-names)
+
+#### Take over the old sheet and JSON files
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Import**
+
+Bring the mission names, campaigns, linked names and units over from the sheet and the dashboard’s JSON files.
+
+1. Export the sheet’s **player_stats** tab as CSV and choose it under **1 · Mission names**. Press **Take over the names**: where the sheet’s name for a mission differs from OCAP’s, the sheet’s is taken, and the page lists each one.
+2. Choose **campaigns.json** under **2 · Campaigns** and press **Take over the campaigns**. Do this after step 1, because the campaigns name their missions the way the sheet did.
+3. Do the same with **player_aliases.json** and **unit_overrides.json**.
+
+> Nothing is deleted. A mission, campaign, link or unit that is already set here is left alone — except mission names, where **Replace names that were already set** overrides that.
+>
+> A recording the bot has not counted yet is not in the list; import again once it is.
+>
+> A mission name in a campaign that matches no recording stays on the campaign and is shown on its page, so it can be dropped by hand.
 
 ### Server and members
 
@@ -1750,7 +1845,21 @@ The unit's public scoreboard. The bot reads the OCAP server's recording list eve
 | `/kt/api/stats.csv` | Every counted mission as CSV — the same 35 columns the Google Sheet had, so the existing dashboard reads it unchanged |
 | `/kt/api/missions` | JSON: which recordings are counted, under which rules, and how our kill count compares with the OCAP server's own |
 
-Both are open to everyone and need no login.
+| `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` | The campaigns, the names that belong together and the units set by hand, in the shape of the dashboard's own JSON files |
+
+All of them are open to everyone and need no login.
+
+### Managing it (server admins)
+
+**📊 Kill Tracker** in the tab bar, for server admins only:
+
+- **Missions** — show a mission under a clean name when it wasn't named cleanly in game.
+- **Campaigns** — group missions into campaigns.
+- **Players** — link a player's several names and pick the one shown.
+- **Units** — correct the unit the Kill Tracker guessed for a player.
+- **Import** — take over the mission names from the old sheet and the dashboard's `campaigns.json`, `player_aliases.json` and `unit_overrides.json`, once.
+
+How-tos for each are under [How-tos](#how-tos) → Kill Tracker.
 
 Set `OCAP_BASE_URL` if the OCAP server is not `https://ocap.taskforcephalanx.com`, and `KT_SYNC=0` to stop the polling. A rule change is a code change: bump `RULES_VERSION` in `utils/killtracker.py` and the bot counts every mission again by itself. How it counts, and why, is in `CLAUDE.md`.
 

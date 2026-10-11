@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Kill Tracker units{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+</div>
+
+{% with active = 'ktunits' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>Which unit is a player in?</h2>
+<p class="hint">
+  The Kill Tracker guesses a player’s unit from the squads they play in and from a
+  tag in their name such as <code>[2nd USC]</code>. Where the guess is wrong, set the
+  unit here. <strong>Automatic</strong> leaves it to the guess; <strong>Unknown</strong>
+  stops the guess and shows no unit. Names are the ones shown, after linking on the
+  <a href="/g/{{ guild.id }}/killtracker/players">Players</a> page. {{ total }} players.
+</p>
+
+<form class="form" method="get" action="/g/{{ guild.id }}/killtracker/units">
+  <label class="field">
+    <span>Find a player</span>
+    <input name="q" value="{{ query }}" placeholder="part of a name">
+  </label>
+  <div class="actions"><button class="button" type="submit">Search</button></div>
+</form>
+
+<form method="post" action="/g/{{ guild.id }}/killtracker/units">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <table class="rolelist">
+    <thead><tr><th>Player</th><th>Missions</th><th>Unit</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>
+            {{ row.name }}
+            <input type="hidden" name="player_{{ loop.index0 }}" value="{{ row.name }}">
+          </td>
+          <td>{{ row.missions }}</td>
+          <td>
+            <select name="unit_{{ loop.index0 }}" aria-label="Unit of {{ row.name }}">
+              <option value="auto" {% if row.value == 'auto' %}selected{% endif %}>Automatic</option>
+              {% for unit in units %}
+                <option value="{{ unit }}" {% if row.value == unit %}selected{% endif %}>{{ unit }}</option>
+              {% endfor %}
+              <option value="unknown" {% if row.value == 'unknown' %}selected{% endif %}>Unknown</option>
+            </select>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if rows %}
+    <div class="actions"><button class="button primary" type="submit">Save changes</button></div>
+  {% else %}
+    <p class="empty">No players{% if query %} match “{{ query }}”{% endif %}.</p>
+  {% endif %}
+</form>
+{% endblock %}

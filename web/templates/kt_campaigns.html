@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Kill Tracker campaigns{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+  <a class="button primary" href="/g/{{ guild.id }}/killtracker/campaigns/new">+ New campaign</a>
+</div>
+
+{% with active = 'ktcampaigns' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>Campaigns</h2>
+<p class="hint">
+  A campaign is a named group of missions. The Kill Tracker shows each one as a page
+  of its own, with the medals for the players who took part. Missions are picked by
+  recording, so renaming a mission on the <a href="/g/{{ guild.id }}/killtracker">Missions</a>
+  page keeps it in its campaigns.
+</p>
+
+{% if campaigns %}
+  <table class="rolelist">
+    <tbody>
+      {% for c in campaigns %}
+        <tr>
+          <td>
+            <strong><a href="/g/{{ guild.id }}/killtracker/campaigns/{{ c.id }}">{{ c.name }}</a></strong>
+            <div class="muted">
+              {{ c.ocap_ids|length }} mission(s)
+              {% if c.extra %} · {{ c.extra|length }} name(s) not matched to a recording{% endif %}
+              {% if c.patterns %} · matches “{{ c.patterns|join('”, “') }}”{% endif %}
+            </div>
+          </td>
+          <td class="rowactions">
+            <a class="button" href="/g/{{ guild.id }}/killtracker/campaigns/{{ c.id }}">Edit</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="empty">
+    No campaigns yet. <a href="/g/{{ guild.id }}/killtracker/campaigns/new">Add one</a>, or
+    <a href="/g/{{ guild.id }}/killtracker/import">import the old campaigns.json</a>.
+  </p>
+{% endif %}
+{% endblock %}

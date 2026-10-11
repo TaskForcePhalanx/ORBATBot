@@ -625,6 +625,54 @@ async def init_db():
                 imported_at TIMESTAMP
             )
         ''')
+        # The name an admin gave the mission, shown instead of the one OCAP has.
+        # Held beside `rows` and not in them: a re-count replaces the rows, and a
+        # name somebody typed must survive that. Applied when the CSV is served.
+        await db.execute('''
+            ALTER TABLE kt_missions ADD COLUMN IF NOT EXISTS name_override TEXT
+        ''')
+        # Campaigns: a named group of missions. Membership is by recording id, so
+        # renaming a mission moves it in every campaign; `extra_missions` holds
+        # labels imported from the old campaigns.json that matched no recording
+        # (yet), and `patterns` is the old substring matching, as a JSON list.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS kt_campaigns (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                patterns TEXT NOT NULL DEFAULT '[]',
+                extra_missions TEXT NOT NULL DEFAULT '[]',
+                updated_by_name TEXT,
+                updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
+            )
+        ''')
+        await db.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_kt_campaign_name
+                ON kt_campaigns (lower(name))
+        ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS kt_campaign_missions (
+                campaign_id INTEGER NOT NULL REFERENCES kt_campaigns(id) ON DELETE CASCADE,
+                ocap_id INTEGER NOT NULL REFERENCES kt_missions(ocap_id) ON DELETE CASCADE,
+                PRIMARY KEY (campaign_id, ocap_id)
+            )
+        ''')
+        # Names that belong to one player, `alias` → the name shown — the shape of the
+        # dashboard's player_aliases.json, which the dashboard applies on top of its
+        # own automatic merging. Never a chain: `killtracker.link_names()` keeps it flat.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS kt_aliases (
+                alias TEXT PRIMARY KEY,
+                canonical TEXT NOT NULL
+            )
+        ''')
+        # Which unit a player is in, where the dashboard's guess is wrong. '' is
+        # "Unknown" (the file's `null`); no row at all is "automatic".
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS kt_unit_overrides (
+                player TEXT PRIMARY KEY,
+                unit TEXT NOT NULL DEFAULT ''
+            )
+        ''')
 
 
 async def get_active_operation(guild_id: str):
@@ -2619,29 +2667,187 @@ async def kt_missions() -> list:
     pool = await get_pool()
     async with pool.acquire() as db:
         return await db.fetch(
-            '''SELECT ocap_id, filename, mission, label, world, tag, played_on, duration,
-                      ocap_kills, ocap_player_kills, counted_kills, rules_version,
-                      status, error, attempts, imported_at
+            '''SELECT ocap_id, filename, mission, label, name_override, world, tag,
+                      played_on, duration, ocap_kills, ocap_player_kills,
+                      counted_kills, rules_version, status, error, attempts,
+                      imported_at
                  FROM kt_missions ORDER BY ocap_id DESC'''
         )
 
 
 async def kt_rows() -> list:
-    """The rows of every counted mission, oldest recording first."""
+    """`(rows JSON, name override)` for every counted mission, oldest recording first."""
     pool = await get_pool()
     async with pool.acquire() as db:
         found = await db.fetch(
-            "SELECT rows FROM kt_missions WHERE rows <> '[]' ORDER BY ocap_id"
+            "SELECT rows, name_override FROM kt_missions WHERE rows <> '[]' ORDER BY ocap_id"
         )
-    return [r['rows'] for r in found]
+    return [(r['rows'], r['name_override']) for r in found]
 
 
 async def kt_generation() -> str:
-    """A string that changes whenever any stored count does — the cache key."""
+    """A string that changes whenever anything the public answers show does — the
+    cache key. Counts, names and campaigns all feed it, so an admin's edit is
+    visible as soon as the cache window passes, not only after the next import."""
     pool = await get_pool()
     async with pool.acquire() as db:
         r = await db.fetchrow(
-            """SELECT COUNT(*) AS n, MAX(imported_at) AS last, MIN(rules_version) AS rules
+            """SELECT COUNT(*) AS n, MAX(imported_at) AS last, MIN(rules_version) AS rules,
+                      md5(COALESCE(string_agg(ocap_id || ':' || COALESCE(name_override, ''),
+                                              ',' ORDER BY ocap_id), '')) AS names
                  FROM kt_missions WHERE rows <> '[]'"""
         )
-    return f"{r['n']}:{r['last']}:{r['rules']}"
+        c = await db.fetchrow(
+            """SELECT COUNT(*) AS n, MAX(updated_at) AS last FROM kt_campaigns"""
+        )
+        m = await db.fetchrow("SELECT COUNT(*) AS n FROM kt_campaign_missions")
+        a = await db.fetchval(
+            """SELECT md5(COALESCE((SELECT string_agg(alias || '>' || canonical, ',' ORDER BY alias)
+                                        FROM kt_aliases), '')
+                          || '|' ||
+                          COALESCE((SELECT string_agg(player || '=' || unit, ',' ORDER BY player)
+                                      FROM kt_unit_overrides), ''))""")
+    return f"{r['n']}:{r['last']}:{r['rules']}:{r['names']}:{c['n']}:{c['last']}:{m['n']}:{a}"
+
+
+async def kt_set_name_override(ocap_id: int, name) -> bool:
+    """Set (or, with an empty name, clear) a mission's shown name."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        result = await db.execute(
+            'UPDATE kt_missions SET name_override = $2 WHERE ocap_id = $1',
+            ocap_id, name or None,
+        )
+    return int(result.split()[-1]) > 0
+
+
+async def kt_set_name_overrides(pairs) -> int:
+    """Set many names at once — `(ocap_id, name)` pairs, in one transaction."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            n = 0
+            for ocap_id, name in pairs:
+                result = await db.execute(
+                    'UPDATE kt_missions SET name_override = $2 WHERE ocap_id = $1',
+                    ocap_id, name or None,
+                )
+                n += int(result.split()[-1])
+    return n
+
+
+def _campaign(record, ids) -> dict:
+    import json as _json
+
+    return {
+        'id': record['id'], 'name': record['name'],
+        'patterns': _json.loads(record['patterns'] or '[]'),
+        'extra': _json.loads(record['extra_missions'] or '[]'),
+        'ocap_ids': sorted(ids),
+        'updated_by_name': record['updated_by_name'], 'updated_at': record['updated_at'],
+    }
+
+
+async def kt_campaigns() -> list:
+    """Every campaign with its patterns, leftover labels and recording ids."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        campaigns = await db.fetch('SELECT * FROM kt_campaigns ORDER BY lower(name)')
+        links = await db.fetch('SELECT campaign_id, ocap_id FROM kt_campaign_missions')
+    by_campaign = {}
+    for link in links:
+        by_campaign.setdefault(link['campaign_id'], []).append(link['ocap_id'])
+    return [_campaign(c, by_campaign.get(c['id'], ())) for c in campaigns]
+
+
+async def kt_campaign(campaign_id: int):
+    for campaign in await kt_campaigns():
+        if campaign['id'] == campaign_id:
+            return campaign
+    return None
+
+
+async def kt_save_campaign(campaign_id, *, name: str, patterns: list, extra: list,
+                           ocap_ids: list, updated_by_name: str = None) -> int:
+    """Create (`campaign_id` None) or replace a campaign. Returns its id.
+
+    Raises `ValueError` when another campaign already has the name. Membership is
+    replaced wholesale, in one transaction, like every other list here.
+    """
+    import json as _json
+    import asyncpg
+
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        try:
+            async with db.transaction():
+                if campaign_id is None:
+                    campaign_id = await db.fetchval(
+                        '''INSERT INTO kt_campaigns (name, patterns, extra_missions, updated_by_name)
+                           VALUES ($1, $2, $3, $4) RETURNING id''',
+                        name, _json.dumps(patterns), _json.dumps(extra), updated_by_name)
+                else:
+                    await db.execute(
+                        '''UPDATE kt_campaigns SET name = $2, patterns = $3, extra_missions = $4,
+                                  updated_by_name = $5, updated_at = (NOW() AT TIME ZONE 'UTC')
+                            WHERE id = $1''',
+                        campaign_id, name, _json.dumps(patterns), _json.dumps(extra), updated_by_name)
+                    await db.execute('DELETE FROM kt_campaign_missions WHERE campaign_id = $1', campaign_id)
+                for ocap_id in sorted(set(ocap_ids)):
+                    await db.execute(
+                        '''INSERT INTO kt_campaign_missions (campaign_id, ocap_id)
+                           SELECT $1, ocap_id FROM kt_missions WHERE ocap_id = $2''',
+                        campaign_id, ocap_id)
+        except asyncpg.UniqueViolationError:
+            raise ValueError(f'There is already a campaign called "{name}".')
+    return campaign_id
+
+
+async def kt_delete_campaign(campaign_id: int) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        result = await db.execute('DELETE FROM kt_campaigns WHERE id = $1', campaign_id)
+    return int(result.split()[-1]) > 0
+
+
+async def kt_aliases() -> dict:
+    """`{name as recorded → name shown}`."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch('SELECT alias, canonical FROM kt_aliases')
+    return {r['alias']: r['canonical'] for r in found}
+
+
+async def kt_set_aliases(aliases: dict) -> None:
+    """Replace the alias map. The caller works on the whole map (see
+    `killtracker.link_names()`), so this writes it back as it is."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            await db.execute('DELETE FROM kt_aliases')
+            for alias, canonical in aliases.items():
+                await db.execute(
+                    'INSERT INTO kt_aliases (alias, canonical) VALUES ($1, $2)', alias, canonical)
+
+
+async def kt_unit_overrides() -> dict:
+    """`{player → unit}`; '' is Unknown."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch('SELECT player, unit FROM kt_unit_overrides')
+    return {r['player']: r['unit'] for r in found}
+
+
+async def kt_set_unit_overrides(changes: dict) -> None:
+    """Apply `{player → unit}`; a `None` unit removes the override (automatic)."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            for player, unit in changes.items():
+                if unit is None:
+                    await db.execute('DELETE FROM kt_unit_overrides WHERE player = $1', player)
+                else:
+                    await db.execute(
+                        """INSERT INTO kt_unit_overrides (player, unit) VALUES ($1, $2)
+                           ON CONFLICT (player) DO UPDATE SET unit = EXCLUDED.unit""",
+                        player, unit)

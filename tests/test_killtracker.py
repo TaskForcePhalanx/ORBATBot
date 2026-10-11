@@ -18,6 +18,8 @@ import gzip
 import io
 import json
 
+import pytest
+
 from utils import killtracker as kt
 
 H = {name: i for i, name in enumerate(kt.HEADER)}
@@ -429,3 +431,191 @@ def test_csv_quotes_the_json_columns_so_the_dashboards_parser_can_read_them_back
     back = list(csvlib.reader(io.StringIO(text)))
     assert back[0] == kt.HEADER
     assert json.loads(back[1][H['Vehicle Kills (JSON)']]) == [{'v': 'Mi-8', 'w': 'FIM-92F'}]
+
+
+# ---------------------------------------------------------------------------
+# Names and campaigns (the admin pages)
+# ---------------------------------------------------------------------------
+
+def test_a_name_keeps_the_recordings_date():
+    assert kt.split_label('Operation CORONADO (2025-11-29)') == ('Operation CORONADO', ' (2025-11-29)')
+    assert kt.split_label('No date') == ('No date', '')
+    assert kt.effective_label('Old (2025-11-29)', 'Operation Coronado') == 'Operation Coronado (2025-11-29)'
+    assert kt.effective_label('Old (2025-11-29)', None) == 'Old (2025-11-29)'
+    assert kt.effective_label('Old', 'New') == 'New'
+
+
+def test_a_typed_name_is_tidied_and_loses_a_typed_date():
+    assert kt.clean_name('  Operation   Coronado (2025-11-29) ') == 'Operation Coronado'
+    assert kt.clean_name('') == ''
+    assert kt.clean_name('A\nB') == 'A B'
+    with pytest.raises(ValueError):
+        kt.clean_name('x' * 121)
+
+
+def test_the_csv_shows_the_admins_name_in_the_mission_column():
+    result = rows_of(doc([unit(1, 'Ann'), unit(2, 'Bob', 'EAST', player=0)], [killed(5, 2, 1)]))
+    stored = json.dumps(result['rows'])
+    plain = kt.csv_from_stored([(stored, None)])
+    renamed = kt.csv_from_stored([(stored, 'Clean Name')])
+    assert 'Test Op (2026-03-14)' in plain and 'Clean Name (2026-03-14)' in renamed
+    assert 'Test Op' not in renamed
+    assert result['rows'][0][1] == 'Test Op (2026-03-14)'   # the stored rows are untouched
+
+
+def test_a_source_file_is_matched_without_extension_or_duplicate_marker():
+    assert kt.source_key('2026_03_14__20_27_LZGulfDay08H (5).json.gz') == '2026_03_14__20_27_LZGulfDay08H'
+    assert kt.source_key('A_20260101_120000.json.gz') == 'A_20260101_120000'
+    assert kt.source_key('plain') == 'plain'
+
+
+SHEET = (
+    'Source File,Mission,World,Username\n'
+    '2025_11_29__21_45_OperationCORONADO.json.gz,Operation Coronado (2025-11-29),w,Ann\n'
+    '2025_11_29__21_45_OperationCORONADO.json.gz,Operation Coronado (2025-11-29),w,Bob\n'
+    '2025_11_22__20_40_AShauValleyBattle.json.gz,A Shau Valley Battle (2025-11-22),w,Ann\n'
+    '2025_01_01__20_00_Gone.json.gz,Gone (2025-01-01),w,Ann\n'
+)
+
+
+def test_the_sheets_names_are_read_once_per_recording():
+    names = kt.parse_sheet_names(SHEET)
+    assert names['2025_11_29__21_45_OperationCORONADO'] == 'Operation Coronado (2025-11-29)'
+    assert len(names) == 3
+
+
+@pytest.mark.parametrize('text', ['', 'a,b\n1,2\n'])
+def test_a_file_that_is_not_the_sheet_is_refused(text):
+    with pytest.raises(ValueError):
+        kt.parse_sheet_names(text)
+
+
+def test_only_names_that_differ_are_proposed():
+    missions = [
+        {'ocap_id': 33, 'filename': '2025_11_29__21_45_OperationCORONADO',
+         'label': 'Operation CORONADO (2025-11-29)', 'mission': 'Operation CORONADO', 'name_override': None},
+        {'ocap_id': 32, 'filename': '2025_11_22__20_40_AShauValleyBattle',
+         'label': 'A Shau Valley Battle (2025-11-22)', 'mission': 'x', 'name_override': None},
+        {'ocap_id': 9, 'filename': 'not_in_the_sheet', 'label': 'Z (2025-01-01)', 'mission': 'Z', 'name_override': None},
+        # not counted yet: the OCAP list's name stands in for the recording's
+        {'ocap_id': 8, 'filename': '2025_01_01__20_00_Gone', 'label': None, 'mission': 'Gone', 'name_override': None},
+    ]
+    changes = kt.plan_name_import(kt.parse_sheet_names(SHEET), missions)
+    assert [(c['ocap_id'], c['ocap'], c['sheet']) for c in changes] == [
+        (33, 'Operation CORONADO', 'Operation Coronado')]
+
+
+def test_patterns_are_one_per_line_and_deduplicated():
+    assert kt.clean_patterns(' Iron  Triangle \n\nIron Triangle\nGlacier\r\n') == ['Iron Triangle', 'Glacier']
+    assert kt.clean_patterns('') == []
+    with pytest.raises(ValueError):
+        kt.clean_patterns('\n'.join(str(i) for i in range(51)))
+
+
+def test_the_campaigns_document_follows_renames_and_keeps_unmatched_labels():
+    campaigns = [
+        {'name': 'Iron', 'patterns': ['Triangle'], 'extra': ['Not Counted Yet (2026-01-01)'], 'ocap_ids': [2, 1]},
+        {'name': 'Empty', 'patterns': [], 'extra': [], 'ocap_ids': []},
+        {'name': 'Gone', 'patterns': [], 'extra': [], 'ocap_ids': [99]},
+    ]
+    labels = {1: 'Renamed One (2025-10-25)', 2: 'Two (2025-11-01)'}
+    assert kt.campaigns_document(campaigns, labels) == {
+        'Iron': {'missions': ['Renamed One (2025-10-25)', 'Two (2025-11-01)',
+                              'Not Counted Yet (2026-01-01)'], 'patterns': ['Triangle']},
+        'Empty': {},
+        'Gone': {},
+    }
+
+
+def test_the_old_campaigns_file_is_read_and_comments_skipped():
+    text = json.dumps({'_comment': 'x', 'Iron': {'missions': ['A (2025-01-01)'], 'patterns': ['Tri']}, 'P': {}})
+    assert kt.parse_campaigns_json(text) == [
+        {'name': 'Iron', 'missions': ['A (2025-01-01)'], 'patterns': ['Tri']},
+        {'name': 'P', 'missions': [], 'patterns': []}]
+
+
+@pytest.mark.parametrize('text', ['nope', '[]', '{"A": 5}', '{"A": {"missions": "x"}}', '{"A": {"missions": [1]}}'])
+def test_a_campaigns_file_of_the_wrong_shape_is_refused(text):
+    with pytest.raises(ValueError):
+        kt.parse_campaigns_json(text)
+
+
+def test_labels_are_split_into_recordings_and_leftovers():
+    shown = {1: 'A (2025-01-01)', 2: 'B (2025-01-02)', 3: 'A (2025-01-01)'}
+    assert kt.match_missions(['A (2025-01-01)', 'Z (2025-09-09)'], shown) == ([1, 3], ['Z (2025-09-09)'])
+
+
+# ---------------------------------------------------------------------------
+# Players: names that belong together, and units
+# ---------------------------------------------------------------------------
+
+def test_linking_names_shows_them_as_the_one_picked():
+    assert kt.link_names({}, ['Dusty', 'PSGT Dusty'], 'PSGT Dusty') == {'Dusty': 'PSGT Dusty'}
+
+
+def test_linking_never_leaves_a_chain():
+    # B is already shown as C; linking A to B must bring A, B and C together.
+    out = kt.link_names({'B': 'C'}, ['A', 'B'], 'B')
+    assert out == {'A': 'B', 'C': 'B'}
+    assert all(canonical not in out for canonical in out.values())
+
+
+def test_linking_leaves_other_people_alone():
+    out = kt.link_names({'X': 'Y'}, ['A', 'B'], 'A')
+    assert out == {'X': 'Y', 'B': 'A'}
+
+
+def test_a_name_that_was_the_shown_one_can_become_an_alias():
+    # Dusty and Viking are one person shown as Viking; show Dusty instead.
+    out = kt.link_names({'Dusty': 'Viking', 'T.Viking': 'Viking'}, ['Dusty'], 'Dusty')
+    assert out == {'Viking': 'Dusty', 'T.Viking': 'Dusty'}
+
+
+def test_linking_needs_a_name_to_show():
+    with pytest.raises(ValueError):
+        kt.link_names({}, ['A'], '  ')
+
+
+def test_unlinking_one_name_leaves_the_rest_of_the_person():
+    out = kt.unlink_name({'A': 'C', 'B': 'C'}, 'A')
+    assert out == {'B': 'C'}
+    assert kt.alias_groups({'b': 'C', 'A': 'C', 'x': 'Y'}) == {'C': ['A', 'b'], 'Y': ['x']}
+
+
+def test_known_players_are_counted_across_missions():
+    def rows(label, *players):
+        out = []
+        for name, kills_foot, kills_veh in players:
+            row = [''] * 35
+            row[0], row[1], row[3], row[7], row[17] = 'f_' + label, label, name, kills_foot, kills_veh
+            out.append(row)
+        return json.dumps(out)
+
+    got = kt.known_players([(rows('M1', ('Ann', 2, 1), ('Bob', 1, 0)), None),
+                            (rows('M2', ('Ann', 4, 0)), 'x')])
+    assert got == [{'name': 'Ann', 'missions': 2, 'kills': 7, 'last': 'M2'},
+                   {'name': 'Bob', 'missions': 1, 'kills': 1, 'last': 'M1'}]
+
+
+def test_unit_choices():
+    assert kt.clean_unit('') is None and kt.clean_unit('auto') is None
+    assert kt.clean_unit('unknown') == kt.UNKNOWN_UNIT == ''
+    assert kt.clean_unit('PXG') == 'PXG'
+    with pytest.raises(ValueError):
+        kt.clean_unit('Nope')
+
+
+def test_the_old_aliases_file_is_read_without_chains_or_comments():
+    text = json.dumps({'_comment': 'x', 'A': 'B', 'B': 'C', 'D': 'D'})
+    assert kt.parse_aliases_json(text) == {'A': 'C', 'B': 'C'}
+    for bad in ('nope', '[]', '{"A": 5}'):
+        with pytest.raises(ValueError):
+            kt.parse_aliases_json(bad)
+
+
+def test_the_old_unit_file_maps_null_to_unknown_and_back():
+    parsed = kt.parse_unit_overrides_json(json.dumps({'_c': 'x', 'Goose': '2nd USC', 'Nobody': None}))
+    assert parsed == {'Goose': '2nd USC', 'Nobody': ''}
+    assert kt.unit_overrides_document(parsed) == {'Goose': '2nd USC', 'Nobody': None}
+    with pytest.raises(ValueError):
+        kt.parse_unit_overrides_json(json.dumps({'A': 'Marines'}))

@@ -64,7 +64,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   slots.py              # The approval queue, on top of cogs/slots.py
   operations.py         # Starting and steering an operation, on top of cogs/admin.py
   reddit.py             # The Reddit watches, on top of cogs/redditfeed.py
-  killtracker.py        # The Kill Tracker's public CSV/JSON — no login, GET only
+  killtracker.py        # The Kill Tracker's public CSV/JSON (no login, GET only) and what its admin pages do
   tacmap.py             # Tactical maps, share links and posting, on top of utils/tacmap.py
   terrain.py            # Uploaded terrains, on top of utils/tiles.py
   nav.py                # The two-level tab bar, built once rather than per template
@@ -90,7 +90,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(427 cases), and every one of them covers a module that imports nothing beyond
+(461 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -342,11 +342,21 @@ One row per OCAP recording — see [the Kill Tracker](#the-kill-tracker-utilskil
 | `ocap_kills` / `ocap_player_kills` | INTEGER | The server's own counts, kept to hold ours against |
 | `counted_kills` | INTEGER | Enemy kills by non-Zeus players, as counted here |
 | `rows` | TEXT | **JSON array of the mission's per-player rows**, in `killtracker.HEADER` order. `'[]'` until counted. Replaced wholesale on every re-count, the same reasoning as `orbat_nets` |
+| `name_override` | TEXT | The name an admin gave the mission, shown instead of OCAP's, **beside** `rows` so a re-count cannot erase it. The CSV applies it (`killtracker.apply_name`), keeping the recording's own date |
 | `rules_version` | INTEGER | `killtracker.RULES_VERSION` it was counted with. **0 = never counted.** A mission below the current version is counted again by itself |
 | `status` | TEXT | `ok` or `failed` |
 | `error` / `attempts` / `retry_at` | | Why the last read failed, how many have, and not-before — doubling from 10 minutes to a day (`ocap.retry_delay_minutes`). A failed *re*-count leaves the old rows in place |
 | `sha256` | TEXT | Of the downloaded file |
 | `imported_at` | TIMESTAMP | Naive UTC. Part of the cache key `kt_generation()` |
+
+### `kt_campaigns`, `kt_campaign_missions`
+A named group of missions. `kt_campaign_missions (campaign_id, ocap_id)` is by **recording**, ON DELETE CASCADE on both sides, so a renamed mission stays in its campaigns; `/kt/api/campaigns.json` writes each campaign's missions out under the names they are shown with now. In `kt_campaigns`: `name` (unique, case-insensitive), `patterns` (JSON list — the old substring matching), `extra_missions` (JSON list of labels imported from `campaigns.json` that matched no recording; passed through unchanged) and who last saved it.
+
+### `kt_aliases`
+`alias` (PK) → `canonical`: names that belong to one player and the one shown. The shape of the dashboard's `player_aliases.json`, which the dashboard applies on top of its own automatic merging. **Never a chain** — `killtracker.link_names()` pulls in everything already tied to any of the names, in either direction, because the dashboard doesn't follow one.
+
+### `kt_unit_overrides`
+`player` (PK) → `unit`, where the dashboard's guess is wrong. `''` is *Unknown* (the file's `null`); no row is *automatic*. Units are `killtracker.UNITS`, mirroring `UNIT_ORDER` in the dashboard.
 
 ### `guild_settings`
 | Column | Type | Notes |
@@ -1058,10 +1068,26 @@ JavaScript rounds halves **up** (`toFixed`, `Math.round`); Python rounds them to
 
 The port was run cell by cell against the original `ImportScript` (under Node with the Apps Script services stubbed) on three real recordings — 10, 8 and 8 rows, **0 differences** — and the dashboard's own CSV parser reads the output. That needs the recordings, which are 2–3 MB each and not committed, so it is not a test; do it again when a rule changes, since the script is the reference for everything the tests don't cover.
 
+### The admin pages
+
+**📊 Kill Tracker** in the tab bar, **server admins only for the whole area** (`kt_context()` in `web/app.py`; `nav.build()` leaves the group out for anyone else). It changes what the public answers say, and nothing it does touches the counted statistics:
+
+| Page | What it does |
+|---|---|
+| Missions | Give a mission a clean name (`kt_missions.name_override`). Empty = OCAP's name again |
+| Campaigns | Create, edit, delete campaigns; pick missions by recording, optionally add name patterns |
+| Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink |
+| Units | Set a player's unit where the dashboard's guess is wrong (`kt_unit_overrides`), one form, only changed rows written |
+| Import | Take over the old work once: mission names from the sheet's CSV, `campaigns.json`, `player_aliases.json`, `unit_overrides.json` |
+
+Each of them is a function in `web/killtracker.py` (what it does, in one place) over `utils/killtracker.py` (the pure rules: `clean_name`, `plan_name_import`, `link_names`, `campaigns_document`, `parse_*_json`, tested). **Import order matters:** mission names first, because `campaigns.json` names its missions the way the sheet did and they are matched against the names *as shown*. Anything already set is kept (except mission names, with the checkbox), and a campaign mission name that matches no recording stays on the campaign as `extra_missions`.
+
+The public side serves them in the shape of the dashboard's own files — `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` — cached under `kt_generation()`, which includes names, campaigns, aliases and units, so an edit shows within the cache window rather than at the next import. **The CSV keeps the recorded player names**: the dashboard applies the aliases itself, as it always has.
+
 ### Not done yet
 
 * The dashboard still reads the Google Sheet. Point `CSV_URL` in `TFP_KillTracker/tracker.js` at `/kt/api/stats.csv` to compare the two; the sheet keeps running until the numbers agree.
-* `unit_overrides.json`, `player_aliases.json` and `campaigns.json` still live in the dashboard's repo.
+* The dashboard reads the aliases, units and campaigns from here only with `?source=bot`; its own JSON files stay in its repo until the switch.
 * The dashboard itself could be served from here (one origin, one deploy). It is a static page, so it is a copy, not a rewrite.
 
 ---

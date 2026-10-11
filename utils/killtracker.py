@@ -779,9 +779,370 @@ def to_csv(rows) -> str:
     return out.getvalue()
 
 
+_DATE_SUFFIX = re.compile(r' \((\d{4}-\d{2}-\d{2})\)$')
+
+# Longest name an admin may give a mission or a campaign.
+MAX_NAME = 120
+
+
+def split_label(label: str) -> tuple:
+    """`'Op Name (2025-11-29)'` → `('Op Name', ' (2025-11-29)')`; no date → `(label, '')`."""
+    m = _DATE_SUFFIX.search(label or '')
+    if not m:
+        return (label or '', '')
+    return (label[:m.start()], m.group(0))
+
+
+def effective_label(label: str, override) -> str:
+    """The mission's name as shown: the admin's name if there is one, with the
+    date from the recording kept — the date is the recording's, not a choice."""
+    if not override:
+        return label or ''
+    return override + split_label(label)[1]
+
+
+def clean_name(text, *, what: str = 'name') -> str:
+    """A name from a form: one line, trimmed, bounded. Raises `ValueError`.
+
+    The date suffix is taken off if it was typed (people copy the whole cell),
+    because `effective_label()` adds the recording's own.
+    """
+    name = ' '.join((text or '').split())
+    name = split_label(name)[0].strip()
+    if len(name) > MAX_NAME:
+        raise ValueError(f'The {what} can be at most {MAX_NAME} characters.')
+    return name
+
+
+def apply_name(rows: list, override) -> list:
+    """The mission's rows with the Mission column carrying the shown name."""
+    if not override:
+        return rows
+    out = []
+    for row in rows:
+        row = list(row)
+        row[1] = effective_label(row[1], override)
+        out.append(row)
+    return out
+
+
 def csv_from_stored(stored) -> str:
-    """The CSV for a list of stored missions, each one a JSON array of rows."""
+    """The CSV for stored missions: `(rows_json, name_override)` pairs, or bare JSON."""
     rows = []
-    for text in stored:
-        rows.extend(json.loads(text))
+    for item in stored:
+        text, override = item if isinstance(item, tuple) else (item, None)
+        rows.extend(apply_name(json.loads(text), override))
     return to_csv(rows)
+
+
+# ---------------------------------------------------------------------------
+# Names from the old sheet
+# ---------------------------------------------------------------------------
+
+def source_key(name: str) -> str:
+    """A recording's identity from a sheet's `Source File`: `X.json.gz` and
+    `X (5).json.gz` (a downloaded duplicate) are both `X`."""
+    name = (name or '').strip()
+    for suffix in ('.json.gz', '.json'):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return re.sub(r' \(\d+\)$', '', name).strip()
+
+
+def parse_sheet_names(text: str) -> dict:
+    """`{source key: Mission label}` from the old sheet's CSV export.
+
+    Every row of a mission repeats its name, so the first one is taken. Raises
+    `ValueError` when the text has no `Source File` and `Mission` columns —
+    which is what pasting the wrong sheet looks like.
+    """
+    reader = csv.reader(io.StringIO((text or '').lstrip('\ufeff')))
+    try:
+        header = [h.strip() for h in next(reader)]
+    except StopIteration:
+        raise ValueError('That file is empty.')
+    try:
+        src, mis = header.index('Source File'), header.index('Mission')
+    except ValueError:
+        raise ValueError('That is not the sheet: it needs a "Source File" and a '
+                         '"Mission" column.')
+    found = {}
+    for row in reader:
+        if len(row) <= max(src, mis):
+            continue
+        key, label = source_key(row[src]), row[mis].strip()
+        if key and label and key not in found:
+            found[key] = label
+    return found
+
+
+def plan_name_import(sheet: dict, missions) -> list:
+    """What importing the sheet's names would change.
+
+    `missions` are records with `ocap_id`, `filename`, `label` (the recording's
+    own name) and `name_override`. Returns one dict per recording whose sheet
+    name differs from the recording's — `ocap_id`, `filename`, `ocap`, `sheet`
+    (both without the date) and `current` (an override already there, or None).
+    A recording the sheet does not know, or names the same, is left out.
+    """
+    changes = []
+    for m in missions:
+        sheet_label = sheet.get(source_key(m['filename']))
+        if not sheet_label:
+            continue
+        theirs = split_label(sheet_label)[0].strip()
+        # The recording's own name: what was counted, or — before it has been
+        # counted — what the OCAP list calls it.
+        ours = split_label(m['label'] or m['mission'] or '')[0].strip()
+        if not theirs or theirs == ours:
+            continue
+        changes.append({'ocap_id': m['ocap_id'], 'filename': m['filename'],
+                        'ocap': ours, 'sheet': theirs, 'current': m['name_override']})
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# Campaigns
+# ---------------------------------------------------------------------------
+
+MAX_PATTERNS = 50
+
+
+def clean_patterns(text) -> list:
+    """One pattern per line, trimmed, blanks and repeats dropped, bounded."""
+    out = []
+    for line in (text or '').splitlines():
+        line = ' '.join(line.split())
+        if not line or line in out:
+            continue
+        if len(line) > MAX_NAME:
+            raise ValueError(f'A pattern can be at most {MAX_NAME} characters.')
+        out.append(line)
+    if len(out) > MAX_PATTERNS:
+        raise ValueError(f'At most {MAX_PATTERNS} patterns.')
+    return out
+
+
+def campaigns_document(campaigns, labels: dict) -> dict:
+    """The dashboard's `campaigns.json`, built from the database.
+
+    `campaigns` are `{name, patterns, extra, ocap_ids}`; `labels` maps a recording
+    id to the name it is currently shown under, so renaming a mission moves it
+    in every campaign without anyone editing a list. `extra` is mission labels
+    that matched no recording when they were imported (a mission not counted
+    yet); they are passed through unchanged.
+    """
+    doc = {}
+    for c in campaigns:
+        missions = [labels[i] for i in sorted(c['ocap_ids']) if i in labels]
+        for label in c.get('extra') or ():
+            if label not in missions:
+                missions.append(label)
+        entry = {}
+        if missions:
+            entry['missions'] = missions
+        if c.get('patterns'):
+            entry['patterns'] = list(c['patterns'])
+        doc[c['name']] = entry
+    return doc
+
+
+def parse_campaigns_json(text: str) -> list:
+    """The old `campaigns.json` as `[{name, missions, patterns}]`.
+
+    Keys starting with `_` are comments. Raises `ValueError` for anything that is
+    not the expected shape — this reads a file somebody pasted.
+    """
+    try:
+        doc = json.loads(text or '')
+    except json.JSONDecodeError as e:
+        raise ValueError(f'That is not valid JSON ({e.msg}, line {e.lineno}).')
+    if not isinstance(doc, dict):
+        raise ValueError('campaigns.json is an object of campaign names.')
+    out = []
+    for name, body in doc.items():
+        if str(name).startswith('_'):
+            continue
+        if not isinstance(body, dict):
+            raise ValueError(f'Campaign "{name}" should be an object with "missions" and/or "patterns".')
+        missions, patterns = body.get('missions') or [], body.get('patterns') or []
+        if not (isinstance(missions, list) and isinstance(patterns, list)
+                and all(isinstance(x, str) for x in missions + patterns)):
+            raise ValueError(f'Campaign "{name}": "missions" and "patterns" are lists of text.')
+        out.append({'name': clean_name(name, what='campaign name'),
+                    'missions': [m.strip() for m in missions if m.strip()],
+                    'patterns': [p.strip() for p in patterns if p.strip()]})
+    return out
+
+
+def match_missions(labels: list, shown: dict) -> tuple:
+    """Split mission labels into recordings and leftovers.
+
+    `shown` maps recording id → the label it is shown under. Returns
+    `(ids, unmatched)`: the ids whose label is in `labels`, and the labels no
+    recording carries.
+    """
+    by_label = {}
+    for ocap_id, label in shown.items():
+        by_label.setdefault(label, []).append(ocap_id)
+    ids, unmatched = [], []
+    for label in labels:
+        if label in by_label:
+            ids.extend(by_label[label])
+        else:
+            unmatched.append(label)
+    return sorted(set(ids)), unmatched
+
+
+# ---------------------------------------------------------------------------
+# Players: names that belong together, and which unit they are in
+# ---------------------------------------------------------------------------
+
+# The units the dashboard knows (colours and ordering live there). Mirrors
+# `UNIT_ORDER` in the dashboard's tracker.js: a new unit needs a colour there
+# anyway, so it is added in both places.
+UNITS = ('2nd USC', 'CNTO', 'PXG', 'TFP', 'SKUA')
+
+# A stored unit of '' means "Unknown": the dashboard's `null` in unit_overrides.json,
+# which stops its automatic guess. No stored row at all means "automatic".
+UNKNOWN_UNIT = ''
+
+
+def clean_player(text) -> str:
+    """A player name from a form or a file: one line, trimmed, bounded.
+
+    Not otherwise changed — the dashboard matches these against the names in the
+    statistics character for character, so `[2nd USC] Trp. Dusty` stays that.
+    """
+    name = ' '.join((text or '').split())
+    if len(name) > MAX_NAME:
+        raise ValueError(f'A player name can be at most {MAX_NAME} characters.')
+    return name
+
+
+def link_names(aliases: dict, names, display: str) -> dict:
+    """Make `names` one person, shown as `display`. Returns the new alias map.
+
+    The aliases are `{name as recorded → name shown}`. Linking pulls in
+    everything already tied to any of the names — in either direction — so that
+    linking A to B when B is already shown as C moves all three, and the map
+    never holds a chain (the dashboard does not follow one).
+    """
+    display = clean_player(display)
+    members = {clean_player(n) for n in names if clean_player(n)}
+    if not display:
+        raise ValueError('Pick the name to show.')
+    members.add(display)
+    changed = True
+    while changed:
+        changed = False
+        for alias, canonical in aliases.items():
+            if (alias in members) != (canonical in members):
+                members.update((alias, canonical))
+                changed = True
+    out = {a: c for a, c in aliases.items() if a not in members and c not in members}
+    for member in members:
+        if member != display:
+            out[member] = display
+    return out
+
+
+def unlink_name(aliases: dict, name: str) -> dict:
+    """Take one name out of its person; the person's other names stay linked."""
+    return {a: c for a, c in aliases.items() if a != name}
+
+
+def alias_groups(aliases: dict) -> dict:
+    """`{shown name: [names recorded under it]}`, both sorted."""
+    groups = {}
+    for alias, canonical in aliases.items():
+        groups.setdefault(canonical, []).append(alias)
+    return {k: sorted(v, key=str.lower) for k, v in sorted(groups.items(), key=lambda kv: kv[0].lower())}
+
+
+def known_players(stored) -> list:
+    """Every name that appears in the counted statistics.
+
+    `stored` is `(rows JSON, ...)` per mission as `database.kt_rows()` returns it.
+    Each result has the name, how many missions it appears in, its kills, and
+    the label of the latest one. Zeus rows are not told apart here: a name is
+    a name.
+    """
+    seen = {}
+    for item in stored:
+        text = item[0] if isinstance(item, tuple) else item
+        for row in json.loads(text):
+            name = row[3]
+            if not name:
+                continue
+            entry = seen.setdefault(name, {'name': name, 'missions': set(), 'kills': 0, 'last': ''})
+            entry['missions'].add(row[0])
+            entry['kills'] += (row[7] or 0) + (row[17] or 0)
+            entry['last'] = row[1]
+    return sorted(({'name': e['name'], 'missions': len(e['missions']), 'kills': e['kills'],
+                    'last': e['last']} for e in seen.values()),
+                  key=lambda e: e['name'].lower())
+
+
+def clean_unit(value):
+    """A unit choice from a form. Returns `None` (automatic), `''` (Unknown) or a unit."""
+    value = (value or '').strip()
+    if value in ('', 'auto'):
+        return None
+    if value == 'unknown':
+        return UNKNOWN_UNIT
+    if value in UNITS:
+        return value
+    raise ValueError(f'"{value}" is not one of the units.')
+
+
+def parse_aliases_json(text: str) -> dict:
+    """The old `player_aliases.json` as `{name → name shown}`; `_` keys are comments."""
+    try:
+        doc = json.loads(text or '')
+    except json.JSONDecodeError as e:
+        raise ValueError(f'That is not valid JSON ({e.msg}, line {e.lineno}).')
+    if not isinstance(doc, dict):
+        raise ValueError('player_aliases.json is an object of names.')
+    out = {}
+    for alias, canonical in doc.items():
+        if str(alias).startswith('_'):
+            continue
+        if not isinstance(canonical, str):
+            raise ValueError(f'"{alias}" should map to a name.')
+        alias, canonical = clean_player(alias), clean_player(canonical)
+        if alias and canonical and alias != canonical:
+            out[alias] = canonical
+    # No chains: whatever a name points at is followed to the end.
+    for alias in list(out):
+        seen = {alias}
+        while out[alias] in out and out[alias] not in seen:
+            seen.add(out[alias])
+            out[alias] = out[out[alias]]
+    return out
+
+
+def parse_unit_overrides_json(text: str) -> dict:
+    """The old `unit_overrides.json` as `{player → unit}`; `null` becomes Unknown.
+
+    A unit the dashboard does not have is refused, not guessed at.
+    """
+    try:
+        doc = json.loads(text or '')
+    except json.JSONDecodeError as e:
+        raise ValueError(f'That is not valid JSON ({e.msg}, line {e.lineno}).')
+    if not isinstance(doc, dict):
+        raise ValueError('unit_overrides.json is an object of player names.')
+    out = {}
+    for player, unit in doc.items():
+        if str(player).startswith('_'):
+            continue
+        if unit is not None and unit not in UNITS:
+            raise ValueError(f'"{player}": "{unit}" is not one of {", ".join(UNITS)}.')
+        out[clean_player(player)] = UNKNOWN_UNIT if unit is None else unit
+    return out
+
+
+def unit_overrides_document(overrides: dict) -> dict:
+    """The dashboard's `unit_overrides.json`: Unknown is `null`."""
+    return {player: (unit or None) for player, unit in sorted(overrides.items(), key=lambda kv: kv[0].lower())}

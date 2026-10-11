@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Kill Tracker players{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+</div>
+
+{% with active = 'ktplayers' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>Players with more than one name</h2>
+<p class="hint">
+  A player who played under several names (a rank in front, a different callsign)
+  is counted as one when you link the names here, and shown under the one you pick.
+  The Kill Tracker also joins obvious variants by itself; this is for the ones it
+  cannot know.
+</p>
+
+{% if groups %}
+  <table class="rolelist">
+    <tbody>
+      {% for shown, names in groups %}
+        <tr>
+          <td>
+            <strong>{{ shown }}</strong>
+            <div class="muted">also: {{ names|join(', ') }}</div>
+          </td>
+          <td class="rowactions">
+            {% for name in names %}
+              <form method="post" action="/g/{{ guild.id }}/killtracker/players/show" style="display:inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="name" value="{{ name }}">
+                <button class="button" type="submit" title="Show “{{ name }}” instead">Show “{{ name }}”</button>
+              </form>
+              <form method="post" action="/g/{{ guild.id }}/killtracker/players/unlink" style="display:inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="name" value="{{ name }}">
+                <button class="button danger" type="submit" title="Unlink “{{ name }}”">Unlink “{{ name }}”</button>
+              </form>
+            {% endfor %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="empty">No names are linked{% if query %} that match “{{ query }}”{% endif %}.</p>
+{% endif %}
+
+<h2>Link names</h2>
+<p class="hint">
+  Tick two or more names that are one person and mark which one to show, then press
+  <strong>Link</strong>. {{ total }} names appear in the statistics.
+</p>
+
+<form class="form" method="get" action="/g/{{ guild.id }}/killtracker/players">
+  <label class="field">
+    <span>Find a name</span>
+    <input name="q" value="{{ query }}" placeholder="part of a name">
+  </label>
+  <div class="actions"><button class="button" type="submit">Search</button></div>
+</form>
+
+<form method="post" action="/g/{{ guild.id }}/killtracker/players/link">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <table class="rolelist">
+    <thead><tr><th>Link</th><th>Show</th><th>Name</th><th>Missions</th><th>Kills</th></tr></thead>
+    <tbody>
+      {% for n in names %}
+        <tr>
+          <td><input type="checkbox" name="name" value="{{ n.name }}" aria-label="Link {{ n.name }}"></td>
+          <td><input type="radio" name="display" value="{{ n.name }}" aria-label="Show {{ n.name }}"></td>
+          <td>{{ n.name }}{% if n.shown_as %} <span class="muted">→ shown as {{ n.shown_as }}</span>{% endif %}</td>
+          <td>{{ n.missions }}</td>
+          <td>{{ n.kills }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if names %}
+    <div class="actions"><button class="button primary" type="submit">Link the ticked names</button></div>
+  {% else %}
+    <p class="empty">No names{% if query %} match “{{ query }}”{% endif %}.</p>
+  {% endif %}
+</form>
+{% endblock %}
