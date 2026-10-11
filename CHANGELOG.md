@@ -4,7 +4,26 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.029 — 2026-10-11 (latest)
+## v1.031 — 2026-10-11 (latest)
+
+### Changed
+- **The dashboard reads only the bot.** The numbers, campaigns, linked names and unit corrections all come from `bot.taskforcephalanx.com/kt/api/`; nothing reads the Google Sheet any more, and `?source=bot` is no longer needed (it is ignored). The JSON files next to the page are used only when the bot cannot be reached
+
+- **Longest kills page (bot admin):** a struck kill leaves the list at once and the next-farthest kill fills its place; struck kills are listed separately, where they can be put back
+
+### Removed
+- The Google Sheet as a data source, and the `[BOT DATA]` tab-title prefix that marked the other one
+
+---
+
+## v1.030 — 2026-10-11
+
+### Changed
+- **Longest kills page (bot admin)** lists infantry kills only — a vehicle's long shots are real — offers every player's own longest kill (the number on the player card), and can be filtered by mission or player
+
+---
+
+## v1.029 — 2026-10-11
 
 ### Fixed
 - **Unbelievable long kills** — indirect fire (mortars, artillery) and pistols beyond 300 m no longer feed the longest/average kill distance (they still count as kills). Until now an in-vehicle kill had no distance ceiling at all. All missions are counted again by the bot automatically
