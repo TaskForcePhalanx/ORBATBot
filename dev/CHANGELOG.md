@@ -4,7 +4,17 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.028 — 2026-10-11 (latest)
+## v1.029 — 2026-10-11 (latest)
+
+### Fixed
+- **Unbelievable long kills** — indirect fire (mortars, artillery) and pistols beyond 300 m no longer feed the longest/average kill distance (they still count as kills). Until now an in-vehicle kill had no distance ceiling at all. All missions are counted again by the bot automatically
+
+### Added
+- **Admin page "Longest kills"** (bot, 📊 Kill Tracker): the farthest kills of all missions with a tick to strike the ones that cannot be true
+
+---
+
+## v1.028 — 2026-10-11
 
 ### Removed
 - **Orange data-source badge** in the corner of `?source=bot`; the tab title still starts with `[BOT DATA]`
