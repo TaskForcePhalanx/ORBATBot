@@ -808,12 +808,15 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
     # The mission's farthest kills, and also each player's own longest: the number
     # that stands next to their name on the dashboard is that one, and it must
     # be checkable even when the mission had farther kills than a short list holds.
-    keep, seen = far[:FAR_KILL_KEEP], set()
-    for k in far[FAR_KILL_KEEP:]:
+    # Struck kills do not take a place: striking the farthest lets the next one
+    # fill up. They are all kept, flagged, so they can be put back.
+    live = [k for k in far if not k['x']]
+    keep, seen = live[:FAR_KILL_KEEP], set()
+    for k in live[FAR_KILL_KEEP:]:
         if k['ki'] not in seen and not any(j['ki'] == k['ki'] for j in keep):
             keep.append(k)
         seen.add(k['ki'])
-    far = keep
+    far = keep + [k for k in far if k['x']]
     return {'mission': label, 'world': rec.world_name, 'rows': rows, 'kills': kills, 'far': far}
 
 

@@ -17,7 +17,8 @@
   kill distance — including every player’s own longest, which is the number next to their
   name on the dashboard. <strong>Tick a kill that is not believable</strong> — a weapon OCAP
   got wrong, a shot that cannot have happened — and save: it still counts as a kill, but its
-  distance leaves the statistics. Untick a struck kill to put it back. Kills from a vehicle
+  distance leaves the statistics, it moves to *Struck kills* below, and the next-farthest kill takes
+  its place. Untick a struck kill there to put it back. Kills from a vehicle
   are not listed (a vehicle’s weapons reach that far), and mortars and other indirect fire,
   pistols beyond 300 m, crew of a destroyed vehicle and on-foot kills beyond 1500 m are left
   out already.
@@ -43,7 +44,6 @@
   </label>
   <div class="actions"><button class="button" type="submit">Show</button></div>
 </form>
-{% if struck_total %}<p class="hint">{{ struck_total }} kill(s) are struck in total.</p>{% endif %}
 {% if cut %}<p class="hint">Showing the {{ limit }} farthest of {{ total }}; choose a mission or a player to see the rest.</p>{% endif %}
 
 <form method="post" action="/g/{{ guild.id }}/killtracker/kills">
@@ -57,13 +57,12 @@
     </thead>
     <tbody>
       {% for k in kills %}
-        <tr {% if k.x %}style="opacity:.6"{% endif %}>
+        <tr>
           <td>
             <input type="hidden" name="listed" value="{{ k.id }}">
-            <input type="checkbox" name="struck" value="{{ k.id }}" {% if k.x %}checked{% endif %}
-                   aria-label="Strike this kill">
+            <input type="checkbox" name="struck" value="{{ k.id }}" aria-label="Strike this kill">
           </td>
-          <td>{% if k.x %}<s>{{ k.d|round|int }} m</s>{% else %}<strong>{{ k.d|round|int }} m</strong>{% endif %}</td>
+          <td><strong>{{ k.d|round|int }} m</strong></td>
           <td>{{ k.killer }}</td>
           <td>{{ k.w }}</td>
           <td>{{ k.victim }}</td>
@@ -73,7 +72,24 @@
       {% endfor %}
     </tbody>
   </table>
-  {% if kills %}
+  {% if struck %}
+    <h2>Struck kills</h2>
+    <p class="hint">These no longer count towards the distance. Untick one and save to put it back.</p>
+    <table class="rolelist">
+      <thead><tr><th>Struck</th><th>Distance</th><th>Killer</th><th>Weapon</th><th>Victim</th><th>Mission</th></tr></thead>
+      <tbody>
+        {% for k in struck %}
+          <tr style="opacity:.7">
+            <td><input type="hidden" name="listed" value="{{ k.id }}">
+                <input type="checkbox" name="struck" value="{{ k.id }}" checked aria-label="Keep this kill struck"></td>
+            <td><s>{{ k.d|round|int }} m</s></td><td>{{ k.killer }}</td><td>{{ k.w }}</td>
+            <td>{{ k.victim }}</td><td>{{ k.mission }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  {% if kills or struck %}
     <div class="actions"><button class="button primary" type="submit">Save changes</button></div>
   {% else %}
     <p class="empty">No kills to check{% if mission or query %} for this filter{% endif %}.</p>

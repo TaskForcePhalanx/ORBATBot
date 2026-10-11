@@ -735,3 +735,18 @@ def test_every_players_own_longest_kill_is_offered_even_when_the_mission_had_far
     killers = [k['killer'] for k in result['far']]
     assert killers.count('Ann') == kt.FAR_KILL_KEEP
     assert killers.count('Cat') == 1
+
+
+def test_a_struck_kill_does_not_take_a_place_so_the_next_farthest_fills_up():
+    ann = unit(1, 'Ann')
+    n = kt.FAR_KILL_KEEP + 1
+    victims = [unit(10 + i, f'V{i}', 'EAST', player=0) for i in range(n)]
+    events = [killed(1 + i, 10 + i, 1, 'M4', 900 - i) for i in range(n)]
+    d = doc([ann] + victims, events, end=5000)
+    plain = kt.compute(kt.reduce_document(d), 'x.json.gz')
+    assert len(plain['far']) == kt.FAR_KILL_KEEP        # the 26th is not kept…
+    struck = kt.compute(kt.reduce_document(d), 'x.json.gz', {kt.kill_key(1, 1, 10)})
+    live = [k for k in struck['far'] if not k['x']]
+    assert len(live) == kt.FAR_KILL_KEEP                 # …until the farthest is struck
+    assert [k['d'] for k in struck['far'] if k['x']] == [900]
+    assert min(k['d'] for k in live) == 900 - kt.FAR_KILL_KEEP

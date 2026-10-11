@@ -358,12 +358,21 @@ async def _far_entries() -> list:
     vehicle's weapons really do reach that far, and entries stored before that was
     decided are skipped here as well."""
     missions = []
+    struck = await database.kt_exclusions()
     for r in await database.kt_far_kills():
         try:
             far = json.loads(r['far_kills'] or '[]')
         except ValueError:
             far = []
         far = [k for k in far if isinstance(k, dict) and not k.get('veh')] if isinstance(far, list) else []
+        # What is struck *now*, not what the last count saw: a kill struck a minute
+        # ago leaves the list at once, though its mission is counted again later.
+        gone = struck.get(r['ocap_id'], set())
+        for k in far:
+            try:
+                k['x'] = killtracker.kill_key(k['f'], k['ki'], k['vi']) in gone
+            except KeyError:
+                pass
         missions.append((r['ocap_id'], killtracker.effective_label(r['label'], r['name_override']), far))
     return killtracker.far_listing(missions)
 
@@ -376,13 +385,15 @@ async def kills_view(mission: str = '', query: str = '') -> dict:
     records = await database.kt_missions()
     missions = sorted({(e['ocap_id'], e['mission']) for e in entries}, key=lambda m: m[1].lower())
     chosen = int(mission) if str(mission).isdigit() else None
-    shown = [e for e in entries
-             if (chosen is None or e['ocap_id'] == chosen) and _matches(e['killer'], query)]
+    shown = [e for e in entries if not e['x']
+             and (chosen is None or e['ocap_id'] == chosen) and _matches(e['killer'], query)]
+    struck = [e for e in entries if e['x']
+              and (chosen is None or e['ocap_id'] == chosen) and _matches(e['killer'], query)]
     filtered = chosen is not None or bool(query)
     waiting = sum(1 for m in records
                   if m['status'] == 'ok' and m['rules_version'] < killtracker.RULES_VERSION)
     return {'kills': shown if filtered else shown[:SHOWN_KILLS], 'cut': (not filtered) and len(shown) > SHOWN_KILLS,
-            'total': len(entries), 'waiting': waiting, 'limit': SHOWN_KILLS, 'missions': missions,
+            'struck': struck, 'total': sum(1 for e in entries if not e['x']), 'waiting': waiting, 'limit': SHOWN_KILLS, 'missions': missions,
             'mission': chosen, 'query': query, 'struck_total': sum(1 for e in entries if e['x'])}
 
 
