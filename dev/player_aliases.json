@@ -1,0 +1,6 @@
+{
+  "_comment": "Maps any name variant to a canonical display name. The canonical name should be the 'correct' or most recent version. Spacing/bracket/punctuation variants are handled automatically — only use this file for rank differences or completely different names.",
+  "_example": "\"PSGT Dusty\": \"[2nd USC] Trp. Dusty\"",
+  "PSGT Dusty": "[2nd USC] Trp. Dusty",
+  "SGT T.Viking": "The Viking"
+}
