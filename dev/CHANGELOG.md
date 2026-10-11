@@ -4,7 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.029 — 2026-10-11 (latest)
+## v1.030 — 2026-10-11 (latest)
+
+### Changed
+- **Longest kills page (bot admin)** lists infantry kills only — a vehicle's long shots are real — offers every player's own longest kill (the number on the player card), and can be filtered by mission or player
+
+---
+
+## v1.029 — 2026-10-11
 
 ### Fixed
 - **Unbelievable long kills** — indirect fire (mortars, artillery) and pistols beyond 300 m no longer feed the longest/average kill distance (they still count as kills). Until now an in-vehicle kill had no distance ceiling at all. All missions are counted again by the bot automatically
