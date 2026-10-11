@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Microsoft Clarity -->
+<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "vzc2xlns0f");
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TFP Kill Tracker</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --charcoal: #424242;
+    --charcoal-light: #5a5a5a;
+    --bg: #f4f4f4;
+    --white: #ffffff;
+    --green: #388e3c;
+    --red: #c62828;
+    --gold: #f9a825;
+    --silver: #9e9e9e;
+    --bronze: #795548;
+    --border: #e0e0e0;
+    --row-hover: #f0f0f0;
+    --tk-bg: #fff3f3;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Open Sans', sans-serif; background: var(--bg); color: #333; }
+
+  /* ── MAIN ── */
+  .container { max-width: 1650px; margin: 0 auto; padding: 20px 20px 40px; }
+
+  /* ── STATS BAR ── */
+  .stats-bar {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    background: var(--white); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 18px; flex: 1 1 120px; min-width: 110px;
+  }
+  .stat-card .val { font-family: 'Oswald', sans-serif; font-size: 1.4rem; font-weight: 600; color: var(--charcoal); }
+  .stat-card .lbl { font-size: 0.72rem; color: #888; margin-top: 2px; }
+
+  /* ── FILTER PANEL ── */
+  .filter-panel {
+    background: var(--white); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 18px; margin-bottom: 18px;
+  }
+  .filter-panel h3 { font-family: 'Oswald', sans-serif; font-size: 0.95rem; color: var(--charcoal); margin-bottom: 10px; }
+  .filter-row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .filter-group { flex: 1 1 220px; }
+  .filter-group label { display: block; font-size: 0.75rem; color: #666; margin-bottom: 4px; font-weight: 600; }
+  .filter-search {
+    width: 100%; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 4px; font-size: 0.82rem; font-family: 'Open Sans', sans-serif;
+    margin-bottom: 6px;
+  }
+  .filter-search:focus { outline: none; border-color: var(--charcoal); }
+  .pills-container { display: flex; flex-wrap: wrap; gap: 5px; max-height: 90px; overflow-y: auto; }
+  .pill {
+    padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg); transition: all 0.15s;
+    user-select: none;
+  }
+  .pill.active { background: var(--charcoal); color: white; border-color: var(--charcoal); }
+  .filter-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .event-type-select {
+    padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.82rem; font-family: 'Open Sans', sans-serif;
+    background: var(--white); color: #333; cursor: pointer;
+    appearance: auto; margin-top: 2px;
+  }
+  .event-type-select:focus { outline: none; border-color: var(--charcoal); }
+  .btn-reset {
+    padding: 5px 14px; background: transparent; border: 1px solid var(--border);
+    border-radius: 4px; font-size: 0.78rem; cursor: pointer; font-family: 'Open Sans', sans-serif;
+  }
+  .btn-reset:hover { background: var(--bg); }
+
+  /* ── UNIT FILTER ── */
+  .unit-btn {
+    padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg); color: #333;
+    font-family: 'Open Sans', sans-serif; font-weight: 600;
+    transition: all 0.15s; user-select: none;
+  }
+  .unit-btn:hover { filter: brightness(0.93); }
+  .unit-btn.active { background: var(--charcoal); border-color: var(--charcoal); color: white; }
+  .unit-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 0.68rem; font-weight: 700; color: white;
+    letter-spacing: 0.4px; vertical-align: middle; margin-left: 8px;
+  }
+  /* ── CAMPAIGN VIEW ── */
+  #campaignHeader, #campaignStats { display: none; }
+  body.campaign-mode #campaignHeader { display: flex; }
+  body.campaign-mode #campaignStats { display: block; background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; }
+  body.campaign-mode #statsBar, body.campaign-mode #awardsRow, body.campaign-mode #hallFameLabel,
+  body.campaign-mode #shameRow, body.campaign-mode #hallShameLabel, body.campaign-mode .chart-section,
+  body.campaign-mode .filter-panel, body.campaign-mode #sectionNav, body.campaign-mode #filterBadge,
+  body.campaign-mode .section-header, body.campaign-mode #sc-infantry, body.campaign-mode #sc-vehicle,
+  body.campaign-mode #unitLeaderboardSection, body.campaign-mode #extraLeaderboardSections,
+  body.campaign-mode #careerHeader, body.campaign-mode #careerStats { display: none !important; }
+
+  /* ── CAREER VIEW ── */
+  .career-pills-label {
+    font-size: 0.72rem; color: var(--charcoal); font-weight: 600;
+    margin: 6px 0 4px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .career-header {
+    background: var(--white); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 20px; margin-bottom: 18px; display: flex; align-items: center; gap: 16px;
+  }
+  .btn-back {
+    padding: 6px 14px; background: var(--charcoal); color: white;
+    border: none; border-radius: 4px; font-size: 0.82rem; cursor: pointer;
+    font-family: 'Open Sans', sans-serif; white-space: nowrap; flex-shrink: 0;
+  }
+  .btn-back:hover { background: var(--charcoal-light); }
+  .career-icon-btn {
+    background: none; border: none; cursor: pointer; font-size: 0.85rem;
+    margin-left: 6px; opacity: 0.45; vertical-align: middle; padding: 0 2px;
+  }
+  .career-icon-btn:hover { opacity: 1; }
+
+  .career-header-name { font-family: 'Oswald', sans-serif; font-size: 1.4rem; font-weight: 700; color: var(--charcoal); }
+  .career-header-sub { font-size: 0.78rem; color: #888; margin-top: 2px; }
+
+  /* ── SECTION HEADER ── */
+  .section-header {
+    font-family: 'Oswald', sans-serif; font-size: 1.1rem;
+    color: var(--charcoal); margin: 28px 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-header::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* ── TABLE ── */
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); background: var(--white); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    background: var(--charcoal); color: white;
+    padding: 9px 8px; font-family: 'Oswald', sans-serif;
+    font-size: 0.79rem; font-weight: 600; letter-spacing: 0.2px;
+    white-space: nowrap; text-align: center; cursor: pointer;
+    user-select: none;
+  }
+  thead th:nth-child(2) { text-align: left; }
+  thead th:hover { background: var(--charcoal-light); }
+  thead th .sort-arrow { margin-left: 4px; opacity: 0.6; font-size: 0.7rem; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--row-hover); }
+  tbody tr.tk-row { background: var(--tk-bg); }
+  tbody tr.tk-row:hover { background: #ffe0e0; }
+  tbody td {
+    padding: 7px 8px; font-size: 0.82rem; text-align: center; white-space: nowrap;
+  }
+  tbody td:first-child { text-align: center; font-weight: 700; font-family: 'Oswald', sans-serif; font-size: 1rem; }
+  tbody td:nth-child(2) { text-align: left; font-weight: 600; }
+  .rank-gold   { color: var(--gold); }
+  .rank-silver { color: var(--silver); }
+  .rank-bronze { color: var(--bronze); }
+  .kd-good { color: var(--green); font-weight: 600; }
+  .kd-bad  { color: var(--red); font-weight: 600; }
+  .tk-cell { color: var(--red); font-weight: 700; }
+
+  /* ── TOP KILLERS CHART ── */
+  .chart-section {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px; margin-bottom: 20px;
+  }
+  .chart-section h3 { font-family: 'Oswald', sans-serif; color: var(--charcoal); margin-bottom: 14px; font-size: 1rem; }
+  .bar-row { display: flex; align-items: center; margin-bottom: 7px; gap: 10px; }
+  .bar-label { width: 130px; font-size: 0.78rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .bar-track { flex: 1; background: var(--bg); border-radius: 4px; height: 18px; overflow: hidden; }
+  .bar-fill  { height: 100%; background: var(--charcoal); border-radius: 4px; transition: width 0.4s ease; }
+  .bar-val   { width: 36px; font-size: 0.78rem; font-weight: 700; color: var(--charcoal); }
+
+  /* ── LEADER CARD ── */
+  /* ── AWARD CARDS ROW ── */
+  .awards-row {
+    display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+  }
+  .award-card {
+    flex: 1 1 200px; border-radius: 8px; padding: 16px 20px;
+    display: flex; align-items: center; gap: 14px; min-width: 180px;
+  }
+  #shameRow {
+    flex-wrap: nowrap;
+  }
+  #shameRow .award-card {
+    flex: 1 1 0; min-width: 0; padding: 12px 14px;
+  }
+  .award-card.ac-kills   { background: var(--charcoal); color: white; }
+  .award-card.ac-longest { background: #1a237e; color: white; }
+  .award-card.ac-spk     { background: #1b5e20; color: white; }
+  .award-card.ac-kda     { background: #4a148c; color: white; }
+  .award-card.ac-time    { background: #00695c; color: white; }
+  .award-card.ac-dist    { background: #0277bd; color: white; }
+  .award-icon { font-size: 2rem; flex-shrink: 0; }
+  .award-body {}
+  .award-label { font-size: 0.7rem; opacity: 0.75; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px; }
+  .award-name  { font-family: 'Oswald', sans-serif; font-size: 1.25rem; font-weight: 700; line-height: 1.2; }
+  .award-stat  { font-size: 0.8rem; opacity: 0.85; margin-top: 3px; }
+
+  /* ── HALL LABELS ── */
+  .hall-label {
+    font-family: 'Oswald', sans-serif; font-size: 0.78rem; font-weight: 600;
+    letter-spacing: 1.2px; text-transform: uppercase; color: #888;
+    margin-bottom: 6px;
+  }
+
+  /* ── SHAME CARDS ── */
+  .award-card.ac-shame-kd       { background: #b71c1c; color: white; }
+  .award-card.ac-shame-tk       { background: #e65100; color: white; }
+  .award-card.ac-shame-spk      { background: #827717; color: white; }
+  .award-card.ac-shame-hits     { background: #4e342e; color: white; }
+  .award-card.ac-shame-suicides { background: #6a1b9a; color: white; }
+  .award-card.ac-shame-deaths   { background: #37474f; color: white; }
+  .award-card.ac-shame-shots    { background: #bf360c; color: white; }
+  .award-card.ac-shame-dist     { background: #558b2f; color: white; }
+
+  /* ── LOADING / ERROR ── */
+  .loading { text-align: center; padding: 60px; font-size: 1rem; color: #888; }
+  .error   { background: #fff0f0; border: 1px solid #ffcdd2; border-radius: 8px; padding: 18px; color: #b71c1c; margin: 20px 0; }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55); z-index: 1000;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--white); border-radius: 10px;
+    width: 90%; max-width: 860px; max-height: 88vh;
+    overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+    display: flex; flex-direction: column;
+  }
+  .modal-header {
+    background: var(--charcoal); color: white;
+    padding: 18px 24px; border-radius: 10px 10px 0 0;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 1;
+  }
+  .modal-header h2 { font-family: 'Oswald', sans-serif; font-size: 1.3rem; margin: 0; }
+  .modal-header .modal-sub { font-size: 0.82rem; margin-top: 8px; display: flex; gap: 40px; flex-wrap: wrap; }
+  .modal-header .modal-sub .co-col { line-height: 1.9; }
+  .modal-header .modal-sub b { font-weight: 700; }
+  .modal-close, .modal-maximize {
+    background: none; border: none; color: white; cursor: pointer; padding: 0 4px; line-height: 1;
+  }
+  .modal-close { font-size: 1.6rem; }
+  .modal-maximize { font-size: 1.2rem; opacity: 0.8; }
+  .modal-close:hover, .modal-maximize:hover { opacity: 0.7; }
+  .modal-body { padding: 20px 24px; }
+  .modal-section { margin-bottom: 24px; }
+  .modal-section h3 {
+    font-family: 'Oswald', sans-serif; font-size: 0.95rem;
+    color: var(--charcoal); margin-bottom: 10px;
+    padding-bottom: 5px; border-bottom: 2px solid var(--border);
+  }
+  .modal-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+  .modal-stat {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 14px; min-width: 110px;
+  }
+  .modal-stat .ms-val { font-family: 'Oswald', sans-serif; font-size: 1.2rem; color: var(--charcoal); }
+  .modal-stat .ms-lbl { font-size: 0.7rem; color: #888; margin-top: 2px; }
+  .modal-stat .ms-sub { font-size: 0.68rem; color: #aaa; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+  .medals-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .medal-wrap { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .medal-wrap canvas { display: block; border-radius: 2px; cursor: default; }
+  .medal-label { font-size: 0.68rem; color: #555; text-align: center; max-width: 140px; line-height: 1.2; }
+  .weapon-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .weapon-label { font-size: 0.78rem; width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .weapon-track { flex: 1; background: var(--bg); border-radius: 3px; height: 14px; }
+  .weapon-fill  { height: 100%; background: var(--charcoal); border-radius: 3px; }
+  .weapon-val   { font-size: 0.78rem; font-weight: 700; width: 28px; text-align: right; }
+  .mission-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; min-width: 900px; }
+  .mission-table th {
+    background: var(--charcoal); color: white; cursor: pointer;
+    padding: 7px 10px; text-align: right; font-family: 'Oswald', sans-serif; font-size: 0.78rem;
+  }
+  .mission-table th:hover { background: var(--charcoal-light); }
+  .mission-table th:first-child { text-align: left; }
+  .mission-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+  .mission-table td:first-child { text-align: left; font-weight: 600; }
+  .mission-table tr:hover td { background: var(--row-hover); }
+  .best-mission-card {
+    background: linear-gradient(135deg, var(--charcoal), #5a5a5a);
+    color: white; border-radius: 8px; padding: 14px 18px;
+  }
+  .best-mission-card .bm-name { font-family: 'Oswald', sans-serif; font-size: 1.1rem; font-weight: 700; }
+  .best-mission-card .bm-stats { font-size: 0.8rem; opacity: 0.85; margin-top: 5px; display: flex; flex-wrap: wrap; gap: 14px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: var(--row-hover) !important; }
+
+  /* ── K/D TREND ── */
+  .kd-trend-wrap {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px; margin-bottom: 20px;
+  }
+  .kd-trend-wrap h3 { font-family: 'Oswald', sans-serif; color: var(--charcoal); margin-bottom: 12px; font-size: 1rem; }
+  .kd-trend-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .kd-trend-svg { width: 100%; height: auto; display: block; overflow: visible; }
+
+  /* ── PLAYER COMPARISON ── */
+  .compare-wrap {
+    background: var(--white); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px; margin-bottom: 20px;
+  }
+  .compare-wrap h3 { font-family: 'Oswald', sans-serif; color: var(--charcoal); margin-bottom: 14px; font-size: 1rem; }
+  .compare-controls { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .compare-select {
+    padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.82rem; font-family: 'Open Sans', sans-serif;
+    background: var(--white); color: #333; cursor: pointer; min-width: 200px;
+  }
+  .compare-select:focus { outline: none; border-color: var(--charcoal); }
+  .compare-table { width: 100%; border-collapse: collapse; }
+  .compare-table th {
+    background: var(--charcoal); color: white;
+    padding: 9px 14px; font-family: 'Oswald', sans-serif; font-size: 0.82rem; text-align: left;
+  }
+  .compare-table tbody td { padding: 7px 14px; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+  .compare-table tbody tr:hover td { background: var(--row-hover); }
+  .compare-win  { color: var(--green); font-weight: 700; }
+  .compare-lose { color: #bbb; }
+  .section-header { cursor: pointer; user-select: none; }
+  .section-header:hover { opacity: 0.75; }
+  .section-arrow { font-size: 0.65rem; margin-left: 6px; opacity: 0.5; flex-shrink: 0; }
+
+  /* ── SECTION NAV ── */
+  #sectionNav {
+    position: sticky; top: 0; z-index: 200;
+    background: var(--charcoal); border-bottom: 2px solid #2a2a2a;
+    display: flex; flex-wrap: wrap; gap: 0;
+    padding: 0 20px;
+    margin: 0 -20px 16px;
+  }
+  .snav-btn {
+    padding: 12px 18px; font-size: 0.82rem; font-weight: 600;
+    font-family: 'Oswald', sans-serif; letter-spacing: 0.4px;
+    color: rgba(255,255,255,0.6); background: none; border: none;
+    cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s; margin-bottom: -2px;
+  }
+  .snav-btn:hover { color: white; border-bottom-color: rgba(255,255,255,0.4); }
+
+  /* ── BACK TO TOP ── */
+  #backToTop {
+    position: fixed; bottom: 24px; right: 24px; z-index: 300;
+    background: var(--charcoal); color: white; border: none;
+    border-radius: 50%; width: 40px; height: 40px;
+    font-size: 1.1rem; cursor: pointer; display: none;
+    align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3); transition: background 0.15s;
+  }
+  #backToTop:hover { background: var(--charcoal-light); }
+  #backToTop.visible { display: flex; }
+</style>
+</head>
+<body>
+
+<div id="avgTooltip" style="display:none;position:fixed;background:#1a1a2e;color:#e0e0e0;padding:6px 12px;border-radius:6px;font-size:0.78rem;pointer-events:none;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.5);"></div>
+
+<div class="container">
+  <div id="loading" class="loading">Loading mission data…</div>
+  <div id="error"  class="error"   style="display:none"></div>
+
+  <div id="content" style="display:none">
+
+    <!-- Section nav bar (sticky within page/iframe scroll context) -->
+    <div id="sectionNav" style="display:none">
+      <button class="snav-btn" onclick="navTo('infantry')">Infantry</button>
+      <button class="snav-btn" onclick="navTo('vehicle')">Vehicle</button>
+      <button class="snav-btn" onclick="navTo('unit-lb')">Units</button>
+      <button class="snav-btn" onclick="navTo('mission-hist')">Missions</button>
+      <button class="snav-btn" onclick="navTo('veh-kills')">Veh Kills</button>
+      <button class="snav-btn" onclick="navTo('weapons')">Weapons</button>
+      <button class="snav-btn" onclick="navTo('maps')">Maps</button>
+      <button class="snav-btn" onclick="navTo('roles')">Roles</button>
+      <button class="snav-btn" onclick="navTo('attendance')">Attendance</button>
+      <button class="snav-btn" onclick="navTo('kd-trend')">K/D Trend</button>
+      <button class="snav-btn" onclick="navTo('comparison')">Compare</button>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats-bar" id="statsBar"></div>
+
+    <!-- Award cards -->
+    <div class="hall-label" id="hallFameLabel" style="display:none">🏆 Hall of Fame</div>
+    <div class="awards-row" id="awardsRow" style="display:none">
+      <div class="award-card ac-kills">
+        <div class="award-body">
+          <div class="award-label">Executioner</div>
+          <div class="award-name" id="aw-kills-name">—</div>
+          <div class="award-stat" id="aw-kills-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-longest">
+        <div class="award-body">
+          <div class="award-label">Pro Sniper</div>
+          <div class="award-name" id="aw-long-name">—</div>
+          <div class="award-stat" id="aw-long-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-spk">
+        <div class="award-body">
+          <div class="award-label">Perfect Aim</div>
+          <div class="award-name" id="aw-spk-name">—</div>
+          <div class="award-stat" id="aw-spk-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-kda">
+        <div class="award-body">
+          <div class="award-label">K/D Player</div>
+          <div class="award-name" id="aw-kda-name">—</div>
+          <div class="award-stat" id="aw-kda-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-time">
+        <div class="award-body">
+          <div class="award-label">Always On Duty</div>
+          <div class="award-name" id="aw-time-name">—</div>
+          <div class="award-stat" id="aw-time-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-dist">
+        <div class="award-body">
+          <div class="award-label">Ultra Runner</div>
+          <div class="award-name" id="aw-dist-name">—</div>
+          <div class="award-stat" id="aw-dist-stat"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hall of Shame cards -->
+    <div class="hall-label" id="hallShameLabel" style="display:none">💀 Hall of Shame</div>
+    <div class="awards-row" id="shameRow" style="display:none">
+      <div class="award-card ac-shame-kd">
+        <div class="award-body">
+          <div class="award-label">Cannon Fodder</div>
+          <div class="award-name" id="sh-kd-name">—</div>
+          <div class="award-stat" id="sh-kd-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-tk">
+        <div class="award-body">
+          <div class="award-label">Most Valuable Opponent</div>
+          <div class="award-name" id="sh-tk-name">—</div>
+          <div class="award-stat" id="sh-tk-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-spk">
+        <div class="award-body">
+          <div class="award-label">Spray &amp; Pray Specialist</div>
+          <div class="award-name" id="sh-spk-name">—</div>
+          <div class="award-stat" id="sh-spk-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-hits">
+        <div class="award-body">
+          <div class="award-label">Bullet Magnet</div>
+          <div class="award-name" id="sh-hits-name">—</div>
+          <div class="award-stat" id="sh-hits-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-suicides">
+        <div class="award-body">
+          <div class="award-label">Tactically Unfortunate</div>
+          <div class="award-name" id="sh-sui-name">—</div>
+          <div class="award-stat" id="sh-sui-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-deaths">
+        <div class="award-body">
+          <div class="award-label">Body Bag Collector</div>
+          <div class="award-name" id="sh-deaths-name">—</div>
+          <div class="award-stat" id="sh-deaths-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-shots">
+        <div class="award-body">
+          <div class="award-label">Full-Auto Philosopher</div>
+          <div class="award-name" id="sh-shots-name">—</div>
+          <div class="award-stat" id="sh-shots-stat"></div>
+        </div>
+      </div>
+      <div class="award-card ac-shame-dist">
+        <div class="award-body">
+          <div class="award-label">Passenger Princess</div>
+          <div class="award-name" id="sh-dist-name">—</div>
+          <div class="award-stat" id="sh-dist-stat"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Executioners chart -->
+    <div class="chart-section">
+      <h3>Top Infantry Killers</h3>
+      <div id="chartBars"></div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-panel">
+      <h3>Filters</h3>
+      <div class="filter-row">
+        <div class="filter-group">
+          <label>Players</label>
+          <input type="text" class="filter-search" id="playerSearch" placeholder="Search players…">
+          <div class="career-pills-label">Player Career Stats</div>
+          <div class="pills-container" id="playerPills"></div>
+        </div>
+        <div class="filter-group">
+          <label>Missions</label>
+          <input type="text" class="filter-search" id="missionSearch" placeholder="Search missions…">
+          <div class="pills-container" id="missionPills"></div>
+          <div style="margin-top:12px">
+            <div style="font-size:0.75rem;color:#666;font-weight:600;margin-bottom:6px;">Campaigns</div>
+            <div class="pills-container" id="campaignPills"></div>
+          </div>
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button class="btn-reset" id="resetFilters">Reset Filters</button>
+        <span style="font-size:0.78rem;color:#888" id="filterCount"></span>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:0.75rem;color:#666;font-weight:600;margin-bottom:6px;">Unit</div>
+        <div id="unitFilterBtns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:0.75rem;color:#666;font-weight:600;margin-bottom:6px;">Event Type</div>
+        <select class="event-type-select" id="eventTypeSelect">
+          <option value="both">Both</option>
+          <option value="joint">Joint Op</option>
+          <option value="regular">Regular Op</option>
+        </select>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:0.75rem;color:#666;font-weight:600;margin-bottom:6px;">Players</div>
+        <select class="event-type-select" id="zeusFilterSelect">
+          <option value="all">All Players</option>
+          <option value="no-zeus">Hide Zeus</option>
+          <option value="zeus-only">Zeus Only</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Active filter badge -->
+    <div id="filterBadge" style="display:none;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:0.8rem;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"></div>
+
+    <!-- Career view header (hidden in leaderboard mode) -->
+    <div id="careerHeader" class="career-header" style="display:none">
+      <button class="btn-back" onclick="closeCareerPage()">← Back to Leaderboard</button>
+      <div>
+        <div class="career-header-name" id="careerPlayerName"></div>
+        <div class="career-header-sub" id="careerPlayerSub"></div>
+      </div>
+    </div>
+
+    <!-- Campaign page (shown only in campaign mode) -->
+    <div id="campaignHeader" class="career-header">
+      <button class="btn-back" onclick="closeCampaignPage()">← Back to Leaderboard</button>
+      <div>
+        <div class="career-header-name" id="campaignName"></div>
+        <div class="career-header-sub" id="campaignSub"></div>
+      </div>
+    </div>
+    <div id="campaignStats"></div>
+
+    <!-- Career inline stats (hidden in leaderboard mode) -->
+    <div id="careerStats" style="display:none"></div>
+
+    <!-- Infantry table -->
+    <div class="section-header" onclick="toggleSection('infantry')">Infantry Combat Stats (On Foot)<span class="section-arrow" id="arr-infantry">▼</span></div>
+    <div id="sc-infantry">
+      <div class="table-wrap">
+        <table id="infantryTable">
+          <thead id="infantryHead"></thead>
+          <tbody id="infantryBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Vehicle table -->
+    <div class="section-header" onclick="toggleSection('vehicle')">Vehicle Combat Stats<span class="section-arrow" id="arr-vehicle">▼</span></div>
+    <div id="sc-vehicle">
+      <div class="table-wrap">
+        <table id="vehicleTable">
+          <thead id="vehicleHead"></thead>
+          <tbody id="vehicleBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Unit leaderboard -->
+    <div id="unitLeaderboardSection">
+      <div class="section-header" onclick="toggleSection('unit-lb')">Unit Leaderboard<span class="section-arrow" id="arr-unit-lb">▶</span></div>
+      <div id="sc-unit-lb" style="display:none">
+        <div class="table-wrap">
+          <table id="unitTable">
+            <thead id="unitHead"></thead>
+            <tbody id="unitBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Extra leaderboard sections (hidden in career view) -->
+    <div id="extraLeaderboardSections">
+
+      <!-- Mission History -->
+      <div class="section-header" onclick="toggleSection('mission-hist')">Mission History<span class="section-arrow" id="arr-mission-hist">▶</span></div>
+      <div id="sc-mission-hist" style="display:none">
+        <div class="table-wrap">
+          <table id="missionHistTable">
+            <thead id="missionHistHead"></thead>
+            <tbody id="missionHistBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Vehicle Kills -->
+      <div class="section-header" onclick="toggleSection('veh-kills')">Vehicle Kills<span class="section-arrow" id="arr-veh-kills">▶</span></div>
+      <div id="sc-veh-kills" style="display:none">
+        <div class="table-wrap">
+          <table id="vehKillsTable">
+            <thead id="vehKillsHead"></thead>
+            <tbody id="vehKillsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Weapon Leaderboard -->
+      <div class="section-header" onclick="toggleSection('weapons')">Weapon Leaderboard<span class="section-arrow" id="arr-weapons">▶</span></div>
+      <div id="sc-weapons" style="display:none">
+        <div style="margin-bottom:8px">
+          <input type="text" id="weaponSearch" class="filter-search" placeholder="Search weapons…" oninput="window._wpSearchChange(this.value)" style="max-width:280px;margin:0">
+        </div>
+        <div class="table-wrap">
+          <table id="weaponTable">
+            <thead id="weaponHead"></thead>
+            <tbody id="weaponBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Map Stats -->
+      <div class="section-header" onclick="toggleSection('maps')">Map Stats<span class="section-arrow" id="arr-maps">▶</span></div>
+      <div id="sc-maps" style="display:none">
+        <div class="table-wrap">
+          <table id="worldTable">
+            <thead id="worldHead"></thead>
+            <tbody id="worldBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Role Leaderboard -->
+      <div class="section-header" onclick="toggleSection('roles')">Role Leaderboard<span class="section-arrow" id="arr-roles">▶</span></div>
+      <div id="sc-roles" style="display:none">
+        <div class="table-wrap">
+          <table id="roleTable">
+            <thead id="roleHead"></thead>
+            <tbody id="roleBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Attendance -->
+      <div class="section-header" onclick="toggleSection('attendance')">Attendance<span class="section-arrow" id="arr-attendance">▶</span></div>
+      <div id="sc-attendance" style="display:none">
+        <div class="table-wrap">
+          <table id="attendanceTable">
+            <thead id="attendanceHead"></thead>
+            <tbody id="attendanceBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- K/D Trend -->
+      <div class="section-header" onclick="toggleSection('kd-trend')">K/D Trend Over Time<span class="section-arrow" id="arr-kd-trend">▶</span></div>
+      <div id="sc-kd-trend" style="display:none">
+        <div class="kd-trend-wrap">
+          <div class="kd-trend-controls">
+            <label style="font-size:0.78rem;color:#666;font-weight:600">View:</label>
+            <select class="event-type-select" id="kdTrendSubject" onchange="renderKdTrend()">
+              <option value="__overall__">Overall</option>
+            </select>
+          </div>
+          <div id="kdTrendChart"></div>
+        </div>
+      </div>
+
+      <!-- Player Comparison -->
+      <div class="section-header" onclick="toggleSection('comparison')">Player Comparison<span class="section-arrow" id="arr-comparison">▶</span></div>
+      <div id="sc-comparison" style="display:none">
+        <div class="compare-wrap">
+          <div class="compare-controls">
+            <select class="compare-select" id="compareP1" onchange="renderComparison()">
+              <option value="">Select player 1…</option>
+            </select>
+            <span style="font-weight:700;color:#888;font-size:1.1rem">vs</span>
+            <select class="compare-select" id="compareP2" onchange="renderComparison()">
+              <option value="">Select player 2…</option>
+            </select>
+          </div>
+          <div id="compareBody"></div>
+        </div>
+      </div>
+
+    </div><!-- end extraLeaderboardSections -->
+
+    <!-- Player detail modal -->
+    <div class="modal-overlay" id="playerModal" onclick="closeModal(event)">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h2 id="modalPlayerName">Player</h2>
+            <div class="modal-sub" id="modalPlayerSub"></div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="modal-maximize" id="modalMaximizeBtn" title="Full career page">&#x26F6;</button>
+            <button class="modal-close" onclick="document.getElementById('playerModal').classList.remove('open')">✕</button>
+          </div>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer style="text-align:center;padding:18px 0 24px;font-size:0.72rem;color:#aaa;font-family:'Open Sans',sans-serif">
+  Released <span id="releaseDate"></span>
+</footer>
+
+<button id="backToTop" title="Back to top">▲</button>
+<script src="tracker.js"></script>
+</body>
+</html>

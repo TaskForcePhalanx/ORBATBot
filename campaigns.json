@@ -1,0 +1,119 @@
+{
+  "_comment": "Maps campaign names to missions. Each campaign can have explicit 'missions' list and/or 'patterns' (substring matches against mission name)",
+  
+  "Operation Iron Triangle": 
+  {
+    "missions": 
+    [
+      "Battle for Hué (2026-01-31)",
+      "Operation CORONADO (2025-11-29)",
+      "Operation Iron Triangle (2025-10-25)",
+      "Operation Texas Star (2026-02-28)"
+    ]
+  },
+
+  "Opération Sillage d’Azur": 
+  {
+    "missions": 
+    [
+      "Commando de Marine 5 (2025-07-19)"
+    ],
+    "patterns": ["Commando de Marine"]
+  },
+  
+  "Operation Aegis Shield": 
+  {
+    "missions": 
+    [
+      "Invasion Day 2 (2026-04-04)",
+      "Invasion Day 3 (2026-04-11)",
+      "Invasion Day 4 (2026-04-18)",
+      "LZ Gulf Day 1 (2026-03-21)",
+      "LZ Gulf Day 0 + 8H (2026-03-14)",
+      "OP Lynx Day 0 (2026-03-07)"
+    ],
+    "patterns": ["Invasion Day"] 
+  },
+
+  "Opération Outremer Resolve": 
+  {
+    "missions": 
+    [
+      "Blunt Force Surgery (2025-10-04)",
+      "A show of force (2025-09-06)",
+      "Fog Frog (2025-10-11)",
+      "Nightcrawler (2025-09-20)",
+      "Zone of Control (2025-09-13)"
+    ]
+  },
+
+  "Operation Wüstenanker": 
+  {
+    "missions": 
+    [
+      "Operation Glacier 1 (2025-11-08)",
+      "Operation Panther Fang (2025-11-01)",
+      "Anker – Wirf! (2025-10-18)"
+    ]
+  },
+
+  "Operation Crossguard": 
+  {
+    "missions": 
+    [
+      "Operation Crossguard Part 2 (2025-08-30)",
+      "Operation Crossguard Part 3 (2025-09-27)"
+    ]
+  },
+
+  "Operation Tramontane": 
+  {
+    "missions": 
+    [
+      "Operation Tramontane phase 1 (2026-04-25)"
+    ],
+    "patterns": ["Operation_Tramontane"]
+  },
+
+    "Operation Camilla": 
+  {
+    "missions": 
+    [
+      "East Africa - Mini Joint OP (2026-06-27)"
+    ],
+    "patterns": ["East Africa"]
+  },
+    "The Mountain War": 
+  {
+    "missions": 
+    [
+      "The_Mountain_War (2026-07-04)"
+    ],
+    "patterns": ["The_Mountain_War"]
+  },
+      "Operation Baltic Guardian": 
+  {
+    "missions": 
+    [
+      "Baltic Showdown (Part 1) (2026-09-05)"
+    ],
+    "patterns": ["Baltic Showdown"]
+  },
+    "Operation Grenzfest": 
+  {
+    "missions": 
+    [
+      "Operation Grenzfest 1 (2026-09-26)"
+    ],
+    "patterns": ["Operation Grenzfest"]
+  },
+"Winter War": 
+  {
+    "missions": 
+    [
+      "The Winter War (2026-02-21)"
+    ],
+    "patterns": ["The Winter War"] 
+  }
+
+}
