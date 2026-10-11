@@ -2670,7 +2670,7 @@ async def kt_missions() -> list:
             '''SELECT ocap_id, filename, mission, label, name_override, world, tag,
                       played_on, duration, ocap_kills, ocap_player_kills,
                       counted_kills, rules_version, status, error, attempts,
-                      imported_at
+                      retry_at, imported_at
                  FROM kt_missions ORDER BY ocap_id DESC'''
         )
 
