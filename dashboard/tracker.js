@@ -4,7 +4,7 @@
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-11";
-const VERSION      = "1.032";
+const VERSION      = "1.033";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -336,7 +336,10 @@ function buildAggregates() {
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
-    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = topWeaponRow; }
+    // The weapon the longest kill was made with (a column the bot records), without the
+    // magazine in brackets; empty for a mission counted before that column existed.
+    const lkWeapon = (r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "").replace(/\s*\[[^\]]+\]$/, '');
+    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = lkWeapon; }
     if (kof > 0 && aof > 0) { p.avgDistFootSum += aof * kof; p.avgDistFootN += kof; }
 
     p.killsInVeh  += kiv;
@@ -869,7 +872,10 @@ function applyFilters() {
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
-    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = topWeaponRow; }
+    // The weapon the longest kill was made with (a column the bot records), without the
+    // magazine in brackets; empty for a mission counted before that column existed.
+    const lkWeapon = (r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "").replace(/\s*\[[^\]]+\]$/, '');
+    if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = lkWeapon; }
     if (kof > 0 && aof > 0) { p.avgDistFootSum += aof * kof; p.avgDistFootN += kof; }
 
     p.killsInVeh  += kiv; p.deathsInVeh += div2; p.tkInVeh += tkiv;
@@ -1026,9 +1032,7 @@ function renderLeader() {
     .sort((a,b) => b.maxLongestFoot - a.maxLongestFoot)[0];
   if (byLong && byLong.maxLongestFoot > 0) {
     document.getElementById("aw-long-name").textContent = byLong.name;
-    // The weapon is the player's most-used one in that mission, not the one the longest
-    // kill was made with (the statistics do not record that), so it says so.
-    const longWeapon = byLong.longestKillWeapon ? ` · main weapon: ${byLong.longestKillWeapon}` : "";
+    const longWeapon = byLong.longestKillWeapon ? ` · ${byLong.longestKillWeapon}` : "";
     document.getElementById("aw-long-stat").textContent =
       `${byLong.maxLongestFoot} m · avg ${Math.round(byLong.avgDistFoot)} m${longWeapon}`;
   } else {
@@ -1441,7 +1445,7 @@ function buildCareerStatsHTML(p) {
         ${mStat(p.tkOnFoot, 'Teamkills')}
         ${mStat(p.shotsOnFoot, 'Shots Fired')}
         ${mStat(p.spkFoot != null ? p.spkFoot.toFixed(1) : '—', 'Shots / Kill')}
-        ${mStat(p.maxLongestFoot ? p.maxLongestFoot + 'm' : '—', 'Longest Kill', p.longestKillWeapon ? 'main weapon: ' + p.longestKillWeapon : '')}
+        ${mStat(p.maxLongestFoot ? p.maxLongestFoot + 'm' : '—', 'Longest Kill', p.longestKillWeapon || '')}
         ${mStat(p.avgDistFoot ? Math.round(p.avgDistFoot) + 'm' : '—', 'Avg Kill Dist')}
         ${mStat(p.distanceRun ? p.distanceRun.toFixed(1) + ' km' : '—', 'Dist Run')}
       </div>

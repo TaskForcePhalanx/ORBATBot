@@ -69,7 +69,7 @@ def killed(frame, victim, killer, weapon='M4', dist=100):
 def test_header_and_rows_have_the_same_width():
     result = rows_of(doc([unit(1, 'Ann'), unit(2, 'Bob', 'EAST', player=0, group='x')],
                          [killed(5, 2, 1)]))
-    assert len(kt.HEADER) == 35
+    assert len(kt.HEADER) == 37    # the sheet's 35, and the two weapon columns of the longest kills
     assert all(len(r) == len(kt.HEADER) for r in result['rows'])
 
 
@@ -586,7 +586,7 @@ def test_known_players_are_counted_across_missions():
     def rows(label, *players):
         out = []
         for name, kills_foot, kills_veh in players:
-            row = [''] * 35
+            row = [''] * 35   # a row counted before the weapon columns existed
             row[0], row[1], row[3], row[7], row[17] = 'f_' + label, label, name, kills_foot, kills_veh
             out.append(row)
         return json.dumps(out)
@@ -750,3 +750,28 @@ def test_a_struck_kill_does_not_take_a_place_so_the_next_farthest_fills_up():
     assert len(live) == kt.FAR_KILL_KEEP                 # …until the farthest is struck
     assert [k['d'] for k in struck['far'] if k['x']] == [900]
     assert min(k['d'] for k in live) == 900 - kt.FAR_KILL_KEEP
+
+
+def test_the_weapon_of_the_longest_kill_is_recorded_with_it():
+    ann = unit(1, 'Ann')
+    victims = [unit(10 + i, f'V{i}', 'EAST', player=0) for i in range(3)]
+    events = [killed(1, 10, 1, 'M4', 300), killed(2, 11, 1, 'HK417', 640), killed(3, 12, 1, 'M4', 500)]
+    r = row(rows_of(doc([ann] + victims, events)), 'Ann')
+    assert r[H['Longest Kill On Foot (m)']] == 640
+    assert r[H['Longest Kill Weapon (On Foot)']] == 'HK417'
+    assert r[H['Longest Kill Weapon (In Vehicle)']] == ''
+
+
+def test_a_struck_longest_kill_gives_its_weapon_up_with_its_distance():
+    ann = unit(1, 'Ann')
+    victims = [unit(10 + i, f'V{i}', 'EAST', player=0) for i in range(2)]
+    events = [killed(1, 10, 1, 'M4', 300), killed(2, 11, 1, 'HK417', 640)]
+    result = kt.compute(kt.reduce_document(doc([ann] + victims, events)), 'x.json.gz', {kt.kill_key(2, 1, 11)})
+    r = row(result, 'Ann')
+    assert (r[H['Longest Kill On Foot (m)']], r[H['Longest Kill Weapon (On Foot)']]) == (300, 'M4')
+
+
+def test_a_mission_counted_before_the_weapon_columns_still_makes_a_full_width_csv():
+    old = json.dumps([[''] * 35])
+    lines = kt.csv_from_stored([(old, None)]).strip().split('\n')
+    assert len(lines[1].split(',')) == len(kt.HEADER)

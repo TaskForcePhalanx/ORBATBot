@@ -38,7 +38,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # statistics, and a kill an admin has struck from the list doesn't either.
 # 3 = the list of kills to check holds on-foot kills only (a vehicle's long shots
 # are real) and every player's own longest one, not just the mission's farthest.
-RULES_VERSION = 3
+# 4 = two more columns: the weapon the longest kill was made with.
+RULES_VERSION = 4
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -63,6 +64,8 @@ HEADER = [
     "Distance Run (km)",
     # Vehicle kill detail list
     "Vehicle Kills (JSON)",
+    # Added by the bot, after the sheet's columns: the weapon of the longest kill
+    "Longest Kill Weapon (On Foot)", "Longest Kill Weapon (In Vehicle)",
 ]
 
 # --- counting thresholds (the Apps Script's constants, unchanged) -----------
@@ -409,7 +412,7 @@ class _Player:
                  'tk_foot', 'shots_foot', 'hits_taken_foot', 'hits_dealt_foot',
                  'kill_dist_foot', 'kills_veh', 'deaths_veh', 'tk_veh',
                  'vkills_foot', 'vkills_veh', 'shots_veh', 'hits_taken_veh',
-                 'hits_dealt_veh', 'kill_dist_veh', 'weapon_kills', 'vehicle_kills',
+                 'hits_dealt_veh', 'kill_dist_veh', 'longest_foot_weapon', 'longest_veh_weapon', 'weapon_kills', 'vehicle_kills',
                  'suicides', 'is_unknown', 'is_zeus', 'time_played', 'distance_run')
 
     def __init__(self, ent: Entity, name: str, capture_delay):
@@ -425,6 +428,7 @@ class _Player:
         self.vkills_foot = self.vkills_veh = 0
         self.shots_veh = self.hits_taken_veh = self.hits_dealt_veh = 0
         self.kill_dist_veh = []
+        self.longest_foot_weapon = self.longest_veh_weapon = ''
         self.weapon_kills = {}
         self.vehicle_kills = []
         self.suicides = 0
@@ -444,6 +448,7 @@ class _Player:
         self.distance_run = 0
         self.kill_dist_foot = []
         self.kill_dist_veh = []
+        self.longest_foot_weapon = self.longest_veh_weapon = ''
         self.weapon_kills = {}
         self.vehicle_kills = []
 
@@ -713,10 +718,14 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
                     if killer_in_vehicle:
                         killer_p.kills_veh += 1
                         if feeds:
+                            if not killer_p.kill_dist_veh or distance > max(killer_p.kill_dist_veh):
+                                killer_p.longest_veh_weapon = weapon_name
                             killer_p.kill_dist_veh.append(distance)
                     else:
                         killer_p.kills_foot += 1
                         if feeds:
+                            if not killer_p.kill_dist_foot or distance > max(killer_p.kill_dist_foot):
+                                killer_p.longest_foot_weapon = weapon_name
                             killer_p.kill_dist_foot.append(distance)
                         weapon = weapon_name or 'Unknown'
                         killer_p.weapon_kills[weapon] = killer_p.weapon_kills.get(weapon, 0) + 1
@@ -797,6 +806,8 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
             js_round(p.time_played),
             to_fixed(p.distance_run / 1000, 1),
             _json(p.vehicle_kills) if p.vehicle_kills else '',
+            p.longest_foot_weapon if p.kill_dist_foot else '',
+            p.longest_veh_weapon if p.kill_dist_veh else '',
         ])
 
     rows.sort(key=lambda r: r[7], reverse=True)  # stable, like the script's sort
@@ -926,6 +937,8 @@ def csv_from_stored(stored) -> str:
     for item in stored:
         text, override = item if isinstance(item, tuple) else (item, None)
         rows.extend(apply_name(json.loads(text), override))
+    # Missions counted before a column was added are shorter; they read as empty there.
+    rows = [r + [''] * (len(HEADER) - len(r)) if len(r) < len(HEADER) else r for r in rows]
     return to_csv(rows)
 
 

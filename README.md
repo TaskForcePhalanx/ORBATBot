@@ -1864,7 +1864,7 @@ The unit's public scoreboard. The bot reads the OCAP server's recording list eve
 
 | Address | What |
 |---|---|
-| `/kt/api/stats.csv` | Every counted mission as CSV — the same 35 columns the Google Sheet had, so the existing dashboard reads it unchanged |
+| `/kt/api/stats.csv` | Every counted mission as CSV — the 35 columns the Google Sheet had plus two for the weapon of the longest kill, so the existing dashboard reads it unchanged |
 | `/kt/api/missions` | JSON: which recordings are counted, under which rules, and how our kill count compares with the OCAP server's own |
 
 | `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` | The campaigns, the names that belong together and the units set by hand, in the shape of the dashboard's own JSON files |
