@@ -694,6 +694,162 @@ async def init_db():
                 unit TEXT NOT NULL DEFAULT ''
             )
         ''')
+        await _init_campaign_planner(db)
+
+
+async def _init_campaign_planner(db):
+    """The campaign planner's tables (`cp_`). Created after everything they
+    point at — Kill Tracker campaigns, tactical maps, ORBATs, operations.
+
+    A campaign is three to five missions. Each mission's wizard fields live in
+    one JSON document (`cp_missions.fields`), keyed as in `utils/campaign.STEPS`
+    — they are only ever read and written whole, and the rules that read them
+    are in `utils/campaign.py`. Everything the bot has to query or schedule
+    (dates, drops, links to other features) is a real column.
+    """
+    # One row per guild. NULL means "not set"; utils.campaign supplies defaults.
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_settings (
+            guild_id TEXT PRIMARY KEY,
+            unit_role_id TEXT,
+            drop_channel_id TEXT,
+            team_channel_id TEXT,
+            drop_weekday INTEGER,
+            drop_time TEXT,
+            orbat_opens TEXT,
+            survey_url TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    # The campaign record. `kt_campaign_id` ties it to the Kill Tracker's
+    # campaign of the same name, so after-action stats come from one place.
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_campaigns (
+            id SERIAL PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            kt_campaign_id INTEGER REFERENCES kt_campaigns(id) ON DELETE SET NULL,
+            map_id INTEGER REFERENCES tac_maps(id) ON DELETE SET NULL,
+            archived BOOLEAN NOT NULL DEFAULT FALSE,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
+            updated_by_name TEXT,
+            updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
+        )
+    ''')
+    await db.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cp_campaign_name
+            ON cp_campaigns (guild_id, lower(name))
+    ''')
+    # Areas of operations: one region of the campaign map, each with its own
+    # detailed tactical map. Phases are layers on that map.
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_aos (
+            id SERIAL PRIMARY KEY,
+            campaign_id INTEGER NOT NULL REFERENCES cp_campaigns(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            area TEXT,
+            map_id INTEGER REFERENCES tac_maps(id) ON DELETE SET NULL
+        )
+    ''')
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_missions (
+            id SERIAL PRIMARY KEY,
+            campaign_id INTEGER NOT NULL REFERENCES cp_campaigns(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            name TEXT NOT NULL,
+            op_date DATE,
+            fields TEXT NOT NULL DEFAULT '{}',
+            orbat_id INTEGER REFERENCES orbats(id) ON DELETE SET NULL,
+            operation_id INTEGER REFERENCES operations(id) ON DELETE SET NULL,
+            updated_by_name TEXT,
+            updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
+        )
+    ''')
+    await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_cp_missions_campaign
+            ON cp_missions (campaign_id, position)
+    ''')
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_mission_aos (
+            mission_id INTEGER NOT NULL REFERENCES cp_missions(id) ON DELETE CASCADE,
+            ao_id INTEGER NOT NULL REFERENCES cp_aos(id) ON DELETE CASCADE,
+            PRIMARY KEY (mission_id, ao_id)
+        )
+    ''')
+    # A mission phase, drawn as one layer (`layer_id`, a layer of the AO's map).
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_phases (
+            id SERIAL PRIMARY KEY,
+            mission_id INTEGER NOT NULL REFERENCES cp_missions(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            title TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            ao_id INTEGER REFERENCES cp_aos(id) ON DELETE SET NULL,
+            layer_id TEXT
+        )
+    ''')
+    # The objectives library. Admin-edited; `pairs_with` is a JSON list of
+    # other entries' ids — a suggestion in the picker, never a rule.
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_objective_library (
+            id SERIAL PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL,
+            wording TEXT NOT NULL DEFAULT '',
+            pairs_with TEXT NOT NULL DEFAULT '[]',
+            position INTEGER NOT NULL DEFAULT 0
+        )
+    ''')
+    # An objective chosen for a phase, with its own copy of the wording.
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_phase_objectives (
+            id SERIAL PRIMARY KEY,
+            phase_id INTEGER NOT NULL REFERENCES cp_phases(id) ON DELETE CASCADE,
+            library_id INTEGER REFERENCES cp_objective_library(id) ON DELETE SET NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            name TEXT NOT NULL,
+            wording TEXT NOT NULL DEFAULT ''
+        )
+    ''')
+    # One row per drop per mission. `due_at` is naive UTC. `approved_hash` is
+    # utils.campaign.approval_hash() of what was approved; when what the drop
+    # would post now hashes differently, the approval no longer counts.
+    # `message_ids` is a JSON list — one per part of a split post.
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_drops (
+            mission_id INTEGER NOT NULL REFERENCES cp_missions(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            due_at TIMESTAMP,
+            approved_hash TEXT,
+            approved_by TEXT,
+            approved_by_name TEXT,
+            approved_at TIMESTAMP,
+            held_pinged_at TIMESTAMP,
+            posted_at TIMESTAMP,
+            channel_id TEXT,
+            message_ids TEXT NOT NULL DEFAULT '[]',
+            posted_hash TEXT,
+            PRIMARY KEY (mission_id, kind)
+        )
+    ''')
+    await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_cp_drops_due
+            ON cp_drops (due_at) WHERE posted_at IS NULL
+    ''')
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS cp_images (
+            id SERIAL PRIMARY KEY,
+            campaign_id INTEGER NOT NULL REFERENCES cp_campaigns(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            data BYTEA NOT NULL,
+            created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
+        )
+    ''')
 
 
 async def get_active_operation(guild_id: str):
@@ -1603,6 +1759,41 @@ async def save_log_settings(guild_id: str, values: dict):
     async with pool.acquire() as db:
         await db.execute(
             f'''INSERT INTO log_settings (guild_id, {', '.join(columns)})
+                VALUES ($1, {placeholders})
+                ON CONFLICT (guild_id) DO UPDATE SET
+                    {updates}, updated_at = CURRENT_TIMESTAMP''',
+            guild_id, *[values[name] for name in columns],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Campaign planner settings
+# ---------------------------------------------------------------------------
+
+_CP_SETTINGS_COLUMNS = (
+    'unit_role_id', 'drop_channel_id', 'team_channel_id', 'drop_weekday',
+    'drop_time', 'orbat_opens', 'survey_url',
+)
+
+
+async def get_cp_settings(guild_id: str):
+    """The stored row, or None. Pass it through
+    `utils.campaign.settings_with_defaults()` before reading it."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetchrow('SELECT * FROM cp_settings WHERE guild_id = $1', guild_id)
+
+
+async def save_cp_settings(guild_id: str, values: dict):
+    columns = [name for name in _CP_SETTINGS_COLUMNS if name in values]
+    if not columns:
+        return
+    updates = ', '.join(f'{name} = EXCLUDED.{name}' for name in columns)
+    placeholders = ', '.join(f'${i}' for i in range(2, 2 + len(columns)))
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            f'''INSERT INTO cp_settings (guild_id, {', '.join(columns)})
                 VALUES ($1, {placeholders})
                 ON CONFLICT (guild_id) DO UPDATE SET
                     {updates}, updated_at = CURRENT_TIMESTAMP''',

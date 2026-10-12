@@ -170,6 +170,8 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
 
+**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner)
+
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
 **Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
@@ -754,6 +756,31 @@ Paste the plan into a running mission as markers, with no mod on either side.
 > Symbol sizes and mobility have no counterpart in Arma, so they are written into the marker text: `1-1 Alpha / A Coy (planned Plt twd)`.
 >
 > Dashed is lost — Arma has no dashed marker. The debug console has to be enabled in the mission’s `description.ext`.
+
+### Campaign planner
+
+_Planning a three-to-five mission campaign and its weekly drops._
+
+#### Set up the campaign planner
+
+**Who:** Admin · **Where:** Web — **🗂️ Campaigns → Settings**
+
+Choose who may plan, where the weekly drops are posted, and when they go out.
+
+1. Go to **🗂️ Campaigns → Settings**.
+2. Pick the **Unit role**. Server admins can always plan; Unit Leaders can plan when they also hold this role.
+3. Pick the **Drop channel** — the public announcements channel every drop is posted in.
+4. Pick the **Mission team channel** — a private channel I ping when a drop is due but nobody has approved it.
+5. Set the **Drop day** and **Drop time**, and which drop **opens the ORBAT** for sign-ups.
+6. Save.
+
+> With no unit role set, only server admins can plan. That is on purpose: the planner never opens wider than you chose.
+>
+> Drop times are read in the server's time zone, and posts show every time as a Discord timestamp, so readers see their own time.
+>
+> Make the drop channel an Announcement channel and partner servers can **Follow** it to get each drop in their own server.
+>
+> The survey link may contain `{op}`, which becomes the mission name with spaces as `%20`.
 
 ### Reddit announcements
 

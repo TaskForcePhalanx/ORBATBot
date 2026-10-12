@@ -90,6 +90,18 @@ def can_action_slots(member: discord.Member) -> bool:
     return _is_unit_leader_or_admin(member)
 
 
+def can_plan(member: discord.Member, unit_role_id) -> bool:
+    """Who may open the campaign planner: server admins, and Unit Leaders who
+    also hold the unit role set in the planner's settings (TFP's own role —
+    partner groups' Unit Leaders run the slots, not the campaign). With no role
+    set yet, admins only, so the planner never opens wider than intended."""
+    if is_admin(member):
+        return True
+    if not unit_role_id or not _is_unit_leader_or_admin(member):
+        return False
+    return any(str(role.id) == str(unit_role_id) for role in member.roles)
+
+
 def can_manage_event(member: discord.Member, event) -> bool:
     return _is_organiser(member, event)
 

@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Campaign planner settings{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+</div>
+
+{% with active = 'cpsettings' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>Campaign planner settings</h2>
+<p class="hint">
+  Who may plan campaigns, where the weekly drops are posted, and when. Drop times
+  are read in this server's time zone ({{ tz }}).
+</p>
+
+{% for problem in problems %}
+  <div class="flash warn">{{ problem }}</div>
+{% endfor %}
+
+<form class="form" method="post" action="/g/{{ guild.id }}/campaigns/settings">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <label class="field">
+    <span>Unit role</span>
+    <select name="unit_role_id">
+      <option value="">None — server admins only</option>
+      {% for role in roles %}
+        <option value="{{ role.id }}" {% if settings.unit_role_id == role.id|string %}selected{% endif %}>@{{ role.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="hint">
+    Server admins can always plan. Unit Leaders can plan too when they also hold
+    this role, so partner groups' leaders run their slots without editing your campaigns.
+  </p>
+
+  <label class="field">
+    <span>Drop channel</span>
+    <select name="drop_channel_id">
+      <option value="">Not set — drops are not posted</option>
+      {% for channel in channels %}
+        <option value="{{ channel.id }}" {% if settings.drop_channel_id == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="hint">
+    The public announcements channel every drop goes to. Make it an Announcement
+    channel and partner servers can Follow it to get each drop too.
+  </p>
+
+  <label class="field">
+    <span>Mission team channel</span>
+    <select name="team_channel_id">
+      <option value="">Not set</option>
+      {% for channel in channels %}
+        <option value="{{ channel.id }}" {% if settings.team_channel_id == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="hint">
+    A private channel for the mission team. I ping it when a drop is due but not
+    approved, or when sign-ups can't start because an operation is already running.
+  </p>
+
+  <label class="field">
+    <span>Drop day</span>
+    <select name="drop_weekday">
+      {% for number, name in weekdays %}
+        <option value="{{ number }}" {% if settings.drop_weekday == number %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field">
+    <span>Drop time</span>
+    <input type="time" name="drop_time" value="{{ settings.drop_time }}" required>
+  </label>
+  <p class="hint">
+    The four weekly drops go out on this day in each of the four weeks before the op.
+    The WARNO goes four weeks out and the AAR the day after.
+  </p>
+
+  <label class="field">
+    <span>The ORBAT opens with</span>
+    <select name="orbat_opens">
+      {% for key, label in openers %}
+        <option value="{{ key }}" {% if settings.orbat_opens == key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="hint">
+    When this drop posts I start sign-ups in #orbat for everyone, from the mission's ORBAT.
+  </p>
+
+  <label class="field">
+    <span>Feedback survey link</span>
+    <input type="url" name="survey_url" maxlength="500"
+           value="{{ settings.survey_url }}" placeholder="{{ default_survey_url }}">
+  </label>
+  <p class="hint">
+    Linked in the AAR. <code>{op}</code> becomes the mission name, with spaces as
+    <code>%20</code>. Left empty, the default above is used.
+  </p>
+
+  <div class="actions">
+    <button class="button primary" type="submit">Save</button>
+  </div>
+</form>
+{% endblock %}

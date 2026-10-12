@@ -27,6 +27,7 @@ from utils import reddit as reddit_lib
 from utils import tacmap as tacmap_lib
 from web import (
     auth,
+    campaigns as campaign_service,
     nav as nav_service,
     embeds as embed_service,
     invites as invite_service,
@@ -45,6 +46,7 @@ from web.auth import Forbidden, NotAuthenticated
 from web.config import LOGO_NAMES, WebConfig
 from web.guilds import (
     can_action_slots,
+    can_plan,
     can_create_events,
     can_manage_event,
     forget_member,
@@ -157,6 +159,10 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         member = await resolve_member(bot, guild, session['id'])
         if member is None:
             raise Forbidden(f"You're not a member of {guild.name}.")
+        # The campaign planner is open to admins and the unit's own Unit
+        # Leaders; which role counts as "the unit" is a planner setting.
+        planner = await database.get_cp_settings(str(guild.id))
+        may_plan = can_plan(member, planner['unit_role_id'] if planner else None)
         return {
             'session': session,
             'guild': guild,
@@ -164,12 +170,14 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             'tz': await database.get_guild_timezone(str(guild.id)),
             'may_create': can_create_events(member),
             'may_action_slots': can_action_slots(member),
+            'may_plan': may_plan,
             'is_admin': is_admin(member),
             # The tab bar, built from what this member may open — see web/nav.py.
             'nav': nav_service.build(
                 guild.id,
                 is_admin=is_admin(member),
                 may_action_slots=can_action_slots(member),
+                may_plan=may_plan,
             ),
         }
 
@@ -1605,6 +1613,33 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         await database.save_invite_labels(str(guild_id), labels, remove)
         return redirect(request, f"/g/{guild_id}/logs", 'ok',
                         f"Saved {len(labels)} invite label(s).")
+
+    # -- campaign planner ---------------------------------------------------
+
+    def require_planner_admin(context: dict):
+        if not context['is_admin']:
+            raise Forbidden("Only a server admin can change the campaign planner's settings.")
+
+    @app.get('/g/{guild_id}/campaigns/settings', response_class=HTMLResponse)
+    async def campaign_settings(request: Request, guild_id: str):
+        context = await guild_context(request, guild_id)
+        require_planner_admin(context)
+        return render(request, 'cp_settings.html', {
+            **context,
+            **await campaign_service.settings_page(context['guild']),
+        })
+
+    @app.post('/g/{guild_id}/campaigns/settings')
+    async def save_campaign_settings(request: Request, guild_id: str):
+        context = await guild_context(request, guild_id)
+        require_planner_admin(context)
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        try:
+            note = await campaign_service.save_settings(context['guild'], form)
+        except ValueError as e:
+            return redirect(request, f"/g/{guild_id}/campaigns/settings", 'warn', str(e))
+        return redirect(request, f"/g/{guild_id}/campaigns/settings", 'ok', note)
 
     # -- reddit feeds -------------------------------------------------------
 
