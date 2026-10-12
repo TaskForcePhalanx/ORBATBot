@@ -1593,6 +1593,11 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'Its Kill Tracker campaign goes too if the planner created it and no '
             'recordings have been added; one holding stats, or set up in the Kill '
             'Tracker by hand, is kept. Its missions\' ORBATs and its posted drops stay.',
+            'A campaign closes itself: once every planned mission has been played, its '
+            'AAR day has passed and its OCAP recording is linked (or a week has gone by), '
+            'it is marked **Complete** and the mission team channel is told. Set it back '
+            'to **Active** to keep it open; it stays open until another mission is added. '
+            'Switch this off in **Campaigns → Settings**.',
         ),
         page='campaigns',
         related=('mission-wizard', 'campaign-maps', 'campaign-settings'),

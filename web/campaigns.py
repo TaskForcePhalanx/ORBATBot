@@ -271,6 +271,7 @@ async def campaign_page(guild, campaign: dict, tz: str) -> dict:
         'aos': await database.list_cp_aos(campaign['id']),
         'campaign_map_svg': await campaign_map_svg(guild, campaign),
         'statuses': rules.CAMPAIGN_STATUSES,
+        'auto_complete': plan['auto_complete'],
         'suggested_date': suggested.isoformat() if suggested else '',
         'carries_from': last['name'] if last else None,
     }

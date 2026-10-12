@@ -414,6 +414,8 @@ def settings_with_defaults(row: dict | None) -> dict:
         'orbat_access': row.get('orbat_access') if row.get('orbat_access') in ORBAT_ACCESS
         else DEFAULT_ORBAT_ACCESS,
         'orbat_role_ids': [r for r in str(row.get('orbat_role_ids') or '').split(',') if r],
+        # NULL = on: a campaign closing itself is what most servers want.
+        'auto_complete': row.get('auto_complete') is not False,
     }
 
 
@@ -491,6 +493,7 @@ def clean_settings(form: dict, *, role_ids=(), channel_ids=(), orbat_role_ids=()
         'survey_url': survey or None,
         'orbat_access': access,
         'orbat_role_ids': ','.join(extra) or None,
+        'auto_complete': bool(form.get('auto_complete')),
     }
 
 
@@ -1406,6 +1409,36 @@ def clean_campaign(form) -> dict:
 
 
 CAMPAIGN_STATUSES = ('active', 'complete', 'archived')
+
+# How long after an op the bot keeps looking for its recording
+# (`cogs/campaigns.LOOK_BACK_DAYS`). A mission with no recording by then counts
+# as over anyway: it was not recorded, or nobody is going to pick one.
+RECORDING_WAIT = timedelta(days=7)
+
+
+def mission_over(mission: dict, today: date) -> bool:
+    """Whether a mission has been played and its after action can move on:
+    the AAR day (D+1) has gone by, and its recording is settled — linked,
+    ruled out by a person, or no longer being looked for."""
+    day = parse_date(mission.get('op_date'))
+    if day is None or today <= day + timedelta(days=1):
+        return False
+    return bool(mission.get('ocap_id') or mission.get('ocap_manual')
+                or today - day > RECORDING_WAIT)
+
+
+def campaign_finished(campaign: dict, missions: list[dict], today: date) -> bool:
+    """Whether the bot may mark a campaign Complete by itself: it is active,
+    nobody has settled that already (`auto_completed_at`: the bot closed it
+    once, or a person reopened it after it was closed — either way it stays
+    open), every mission it planned exists, and every one of them is over
+    (`mission_over()`). Adding a mission clears the mark, so a reopened
+    campaign that gets another mission closes again once that one is over."""
+    if campaign.get('status') != 'active' or campaign.get('auto_completed_at'):
+        return False
+    if not missions or len(missions) < (campaign.get('planned_missions') or 1):
+        return False
+    return all(mission_over(m, today) for m in missions)
 
 
 # ---------------------------------------------------------------------------

@@ -728,6 +728,9 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
     # extra roles, comma-separated — see utils.campaign.may_edit_orbats().
     for column in ('orbat_access', 'orbat_role_ids'):
         await db.execute(f'ALTER TABLE cp_settings ADD COLUMN IF NOT EXISTS {column} TEXT')
+    # Whether a campaign whose missions are all over marks itself Complete.
+    # NULL = yes — see utils.campaign.settings_with_defaults().
+    await db.execute('ALTER TABLE cp_settings ADD COLUMN IF NOT EXISTS auto_complete BOOLEAN')
     await db.execute('''
         ALTER TABLE cp_settings ADD COLUMN IF NOT EXISTS
             library_seeded BOOLEAN NOT NULL DEFAULT FALSE
@@ -766,7 +769,11 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
                                # Whether the planner made its Kill Tracker campaign
                                # (rather than linking one that existed) — the only
                                # kind a delete may take with it.
-                               ('kt_created', 'BOOLEAN NOT NULL DEFAULT FALSE')):
+                               ('kt_created', 'BOOLEAN NOT NULL DEFAULT FALSE'),
+                               # When the bot marked it Complete by itself, or a
+                               # person reopened it after it was closed. Set, the
+                               # bot leaves it alone until a mission is added.
+                               ('auto_completed_at', 'TIMESTAMP')):
         await db.execute(
             f'ALTER TABLE cp_campaigns ADD COLUMN IF NOT EXISTS {column} {definition}')
     await db.execute('ALTER TABLE cp_campaigns DROP COLUMN IF EXISTS archived')
@@ -1853,6 +1860,7 @@ async def save_log_settings(guild_id: str, values: dict):
 _CP_SETTINGS_COLUMNS = (
     'unit_role_id', 'drop_channel_id', 'team_channel_id', 'drop_weekday',
     'drop_time', 'orbat_opens', 'survey_url', 'orbat_access', 'orbat_role_ids',
+    'auto_complete',
 )
 
 
@@ -1998,9 +2006,17 @@ async def update_cp_campaign(campaign_id: int, values: dict, user_name: str):
     async with pool.acquire() as db:
         try:
             async with db.transaction():
+                # Reopening a closed campaign is a person deciding it stays
+                # open: the bot must not close it again (`auto_completed_at`)
+                # until a new mission is added.
+                reopen = ''
+                if values.get('status') == 'active':
+                    reopen = (", auto_completed_at = CASE WHEN status <> 'active' "
+                              "THEN COALESCE(auto_completed_at, NOW() AT TIME ZONE 'UTC') "
+                              "ELSE auto_completed_at END")
                 await db.execute(
                     f"""UPDATE cp_campaigns SET {sets}, updated_by_name = $2,
-                            updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
+                            updated_at = (NOW() AT TIME ZONE 'UTC'){reopen} WHERE id = $1""",
                     campaign_id, user_name, *[values[c] for c in columns])
                 # A Kill Tracker campaign the planner made follows a rename, so
                 # the dashboard does not keep the old name. One linked by hand
@@ -2151,6 +2167,10 @@ async def create_cp_mission(campaign_id: int, name: str, op_date, fields: dict,
                            $2, $3, $4, $5)
                    RETURNING id""",
                 campaign_id, name, op_date, _json.dumps(fields), user_name)
+            # A new mission is more to play: the campaign may close itself
+            # again once that one is over too.
+            await db.execute('UPDATE cp_campaigns SET auto_completed_at = NULL WHERE id = $1',
+                             campaign_id)
             await touch_cp_campaign(db, campaign_id, user_name)
     return mission_id
 
@@ -2411,6 +2431,44 @@ async def cp_missions_awaiting_recording(first, last) -> list:
                 WHERE m.ocap_id IS NULL AND NOT m.ocap_manual
                   AND m.op_date BETWEEN $1 AND $2 AND c.status <> 'archived'""", first, last)
     return [dict(r) for r in rows]
+
+
+async def cp_campaigns_may_complete() -> list:
+    """Active campaigns the bot has not closed before, on servers that have
+    not switched closing off, each with its missions' dates and recording
+    state — what `campaign.campaign_finished()` decides on."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        campaigns = await db.fetch(
+            """SELECT c.id, c.guild_id, c.name, c.status, c.planned_missions,
+                      c.auto_completed_at, c.is_test
+                 FROM cp_campaigns c
+                 LEFT JOIN cp_settings s ON s.guild_id = c.guild_id
+                WHERE c.status = 'active' AND c.auto_completed_at IS NULL
+                  AND s.auto_complete IS DISTINCT FROM FALSE""")
+        if not campaigns:
+            return []
+        missions = await db.fetch(
+            """SELECT campaign_id, id, op_date, ocap_id, ocap_manual FROM cp_missions
+                WHERE campaign_id = ANY($1::int[])""", [c['id'] for c in campaigns])
+    by_campaign: dict = {}
+    for m in missions:
+        by_campaign.setdefault(m['campaign_id'], []).append(dict(m))
+    return [{**dict(c), 'missions': by_campaign.get(c['id'], [])} for c in campaigns]
+
+
+async def auto_complete_cp_campaign(campaign_id: int) -> bool:
+    """Mark a campaign Complete as the bot. False when somebody changed it in
+    the meantime (it is no longer active, or was closed before)."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        done = await db.fetchval(
+            """UPDATE cp_campaigns SET status = 'complete',
+                      auto_completed_at = (NOW() AT TIME ZONE 'UTC'),
+                      updated_by_name = 'ORBATBot', updated_at = (NOW() AT TIME ZONE 'UTC')
+                WHERE id = $1 AND status = 'active' AND auto_completed_at IS NULL
+               RETURNING id""", campaign_id)
+    return done is not None
 
 
 async def link_cp_campaign_recordings(campaign_id: int):

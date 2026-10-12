@@ -806,6 +806,8 @@ Set up a campaign of three to five missions, its AOs, and the missions in the or
 > Tick **Test campaign** to try things out. A test campaign is not added to the Kill Tracker and its drops never post publicly. **Delete test campaign** removes it with one press, and **Delete all test campaigns** on the list clears every one — with its maps, its posts and the ORBATs the planner made for it. An ORBAT you only linked stays. **Make it real** keeps a test you want after all.
 >
 > Deleting a real campaign asks you to type its name. Its maps go with it. Its Kill Tracker campaign goes too if the planner created it and no recordings have been added; one holding stats, or set up in the Kill Tracker by hand, is kept. Its missions' ORBATs and its posted drops stay.
+>
+> A campaign closes itself: once every planned mission has been played, its AAR day has passed and its OCAP recording is linked (or a week has gone by), it is marked **Complete** and the mission team channel is told. Set it back to **Active** to keep it open; it stays open until another mission is added. Switch this off in **Campaigns → Settings**.
 
 See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Plan on the campaign and AO maps](#plan-on-the-campaign-and-ao-maps) · [Set up the campaign planner](#set-up-the-campaign-planner)
 

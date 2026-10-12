@@ -171,6 +171,11 @@
             {% for s in statuses %}<option value="{{ s }}" {% if campaign.status == s %}selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}
           </select></label>
       </div>
+      {% if campaign.status == 'active' and auto_complete %}
+      <p class="hint">I mark it Complete by myself once all {{ campaign.planned_missions }} planned
+        missions have been played{% if campaign.auto_completed_at %} — but not this time: it was
+        closed and reopened, so it stays open until another mission is added{% endif %}.</p>
+      {% endif %}
       <label class="field"><span>Running summary</span>
         <textarea name="summary" rows="5">{{ campaign.summary }}</textarea></label>
       {% if not campaign.is_test %}
@@ -178,7 +183,8 @@
         Kill Tracker campaign:
         {% if campaign.kt_name %}<strong>{{ campaign.kt_name }}</strong>{% if is_admin %} —
           <a href="/g/{{ guild.id }}/killtracker/campaigns">manage it there</a>{% endif %}.
-          Renaming here does not rename it.
+          {% if campaign.kt_created %}Renaming the campaign renames it too.{% else %}It was
+          linked by hand, so renaming here leaves its name alone.{% endif %}
         {% else %}none linked.{% endif %}
       </p>
       {% endif %}
