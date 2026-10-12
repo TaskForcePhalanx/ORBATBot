@@ -20,7 +20,8 @@ def _item(key: str, label: str, href: str) -> dict:
     return {'key': key, 'label': label, 'href': href}
 
 
-def build(guild_id, *, is_admin: bool, may_action_slots: bool) -> dict:
+def build(guild_id, *, is_admin: bool, may_action_slots: bool,
+          may_plan: bool = False) -> dict:
     """The tab structure for one member of one guild.
 
     Permissions decide what is *in* the structure rather than what the template
@@ -75,7 +76,16 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool) -> dict:
         groups.append({'key': 'kt', 'label': '📊 Kill Tracker',
                        'href': killtracker[0]['href']})
 
-    items = {'ops': operations, 'kt': killtracker}
+    # The campaign planner. `may_plan` is admins plus the unit's own Unit
+    # Leaders (web.guilds.can_plan); the settings page is admins only.
+    campaigns = []
+    if is_admin:
+        campaigns.append(_item('cpsettings', 'Settings', f"{base}/campaigns/settings"))
+    if campaigns and (may_plan or is_admin):
+        groups.insert(2 if operations else 1,
+                      {'key': 'cp', 'label': '🗂️ Campaigns', 'href': campaigns[0]['href']})
+
+    items = {'ops': operations, 'cp': campaigns, 'kt': killtracker}
     group_of = {
         item['key']: group_key
         for group_key, group_items in items.items()

@@ -47,6 +47,7 @@ utils/
   embeds.py             # Builder-made rich messages → discord.Embed, post and edit
   reddit.py             # One Reddit feed, read and rendered — no Discord, no database
   killtracker.py        # One OCAP recording → the Kill Tracker's per-player rows. Stdlib only
+  campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks. Stdlib only
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
   tiles.py              # A terrain's tile pyramid, read out of an uploaded archive
@@ -68,6 +69,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   tacmap.py             # Tactical maps, share links and posting, on top of utils/tacmap.py
   terrain.py            # Uploaded terrains, on top of utils/tiles.py
   nav.py                # The two-level tab bar, built once rather than per template
+  campaigns.py          # The campaign planner's pages, on top of utils/campaign.py
   # There is no web/help.py: utils/help.py holds the content, and the two
   # routes have no permissions to check and no form to translate.
   voice.py              # Voice leaderboard shaping, the settings form and posting
@@ -109,6 +111,7 @@ all:
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form and the consistency checks |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -367,6 +370,22 @@ A named group of missions. `kt_campaign_missions (campaign_id, ocap_id)` is by *
 ### `kt_unit_overrides`
 `player` (PK) → `unit`, where the dashboard's guess is wrong. `''` is *Unknown* (the file's `null`); no row is *automatic*. Units are `killtracker.UNITS`, mirroring `UNIT_ORDER` in the dashboard.
 
+### Campaign planner (`cp_`)
+Created by `_init_campaign_planner()` at the end of `init_db()`, after the tables they reference.
+
+| Table | What it holds |
+|---|---|
+| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()` |
+| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `summary`, `kt_campaign_id` → `kt_campaigns`, `map_id` → `tac_maps` (the campaign map), `archived` |
+| `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (its outline on the campaign map), `map_id` → its detailed `tac_maps` |
+| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS`), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started |
+| `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
+| `cp_phases` | A mission phase: `title`, `detail`, `ao_id`, `layer_id` (the layer of the AO's map it is drawn on) |
+| `cp_objective_library` | Admin-edited objectives: `category`, `name`, `wording`, `pairs_with` (JSON ids — a suggestion, never a rule) |
+| `cp_phase_objectives` | An objective chosen for a phase, with its own copy of `name` and `wording` |
+| `cp_drops` | PK (`mission_id`, `kind`). `due_at` (naive UTC), `approved_hash`/`approved_by`/`approved_at`, `held_pinged_at`, `posted_at`, `channel_id`, `message_ids` (JSON, one per part), `posted_hash` |
+| `cp_images` | Uploaded images for drops and exports: `campaign_id`, `filename`, `content_type`, `data` (BYTEA) |
+
 ### `guild_settings`
 | Column | Type | Notes |
 |---|---|---|
@@ -594,6 +613,8 @@ needs one of these three channels must go through it**; a fresh
 | Reading a tactical map — web only | ✅ | ✅ | ✅ |
 | Drawing on one, sharing it, posting it — web only | ❌ | ✅ | ✅ |
 | Uploading or deleting a terrain — web only | ❌ | ❌ | ✅ |
+| Campaign planner — web only | ❌ | ✅ with the planner's unit role | ✅ |
+| Campaign planner settings — web only | ❌ | ❌ | ✅ |
 
 **Admin** = `manage_guild` or `administrator` Discord permission.
 **Unit gating:** `_can_action_request()` in `slots.py` — admins bypass all unit checks; anyone else needs the `Unit Leader` role **and** the requester's unit role; a request with no unit role can be actioned by any Unit Leader. The Unit Leader half is not optional: the buttons in `#slot-approvals` are visible to everyone who can read the channel, so without it any member of a unit could approve their own request by pressing the button on it.
@@ -1047,6 +1068,61 @@ On fire: sets `reminder_fired = 1`, DMs all approved members, posts mention in `
 
 ---
 
+## The campaign planner (`utils/campaign.py`, `web/campaigns.py`)
+
+Plans a campaign of three to five missions and the weekly cycle of drops that
+announces each one. It combines what were two separate tools — the Op Cycle
+Planner and the Mission Objectives Library — with this bot's ORBATs and
+tactical maps. The design is in the *TFP Campaign Planner — Design Spec*; it is
+being built in milestones:
+
+1. **Foundations** — the rules module, the `cp_` tables, access, settings. *Done.*
+2. Campaigns, missions and the wizard.
+3. The ORBAT link and PDF/DOCX export.
+4. Drops and approvals — scheduled posting, holds and pings.
+5. Maps — the campaign map, AO maps, phases as layers.
+6. After action and the Kill Tracker link.
+
+### Who can plan
+
+`web.guilds.can_plan(member, unit_role_id)`: server admins always; Unit Leaders
+only when they also hold the role set as **Unit role** in the planner's
+settings. With no role set, admins only — the planner never opens wider than
+somebody chose. Settings are admins only.
+
+### The rules live in Python
+
+`utils/campaign.py` is stdlib only and tested. The editor pages will be
+interactive, but they ask the server for the schedule, each drop's text and the
+checks rather than working them out in the browser, so the preview, the export
+and the bot's own posting can never disagree. In particular:
+
+- **Drop dates** — WARNO at D-28, the four weekly drops on the chosen weekday
+  in each of the four weeks before the op (the last such day before D-21, D-14,
+  D-7, D-0), AAR at D+1. Drop times are read in the guild's time zone; op times
+  (orders, H-Hour, FragO timings) in the mission's own zone, falling back to the
+  guild's.
+- **Every time in a post is a Discord timestamp.**
+- **The ORBAT line** — before the drop that opens the ORBAT, a drop says when it
+  opens; on it, that it is open; after it, that slots are filling. The ORBAT
+  opens for everyone at once.
+- **Splitting** — `split_message()` splits over 2,000 characters on paragraphs,
+  then lines, then spaces, and ends each part with `-# Part i/n`.
+- **Approval** — `approval_hash()` of the text and image ids. A drop only posts
+  when the hash stored at approval matches what it would post now, so any edit
+  after approval needs approving again.
+- **Private fields** (`Field.private`, e.g. *Held back for Zeus*) are never read
+  by `build_post()` or the checks.
+
+### JavaScript
+
+The planner's editing pages will be the **second deliberate exception** to the
+no-JavaScript rule (after `tacmap.js`, below): vanilla, no build step, no CDN.
+Unlike the map, they need scripting to edit; the read-only pages stay
+server-rendered. Milestone 1 adds no script.
+
+---
+
 ## The Kill Tracker (`utils/killtracker.py`, `utils/ocap.py`, `cogs/killtracker.py`, `web/killtracker.py`)
 
 The Kill Tracker is the unit's public scoreboard: per-player kills, deaths, distance, shots and so on per Arma mission, read out of **OCAP** recordings. It began as a static dashboard (`TFP_KillTracker`, GitHub Pages) over a Google Sheet that a Google Apps Script (`ImportScript`) filled by hand. It now runs here, and **`utils/killtracker.py` is a port of that script that produces the same rows in the same columns** (`HEADER`: the sheet's 35, then two the bot added — the weapon of each player's longest kill, on foot and in a vehicle) so the dashboard reads this bot's CSV as it read the sheet. A mission counted before a column existed is padded with empty cells when the CSV is served (`csv_from_stored()`), until it is counted again.
@@ -1413,6 +1489,7 @@ POST /g/{guild}/reddit/{id}/announce    post one of them by hand
 POST /g/{guild}/reddit/{id}/mark        mark the ticked posts as announced — posts nothing
 POST /g/{guild}/reddit/{id}/delete      stop watching
 GET  /g/{guild}/logs                    admin — member log settings, POST to save
+GET  /g/{guild}/campaigns/settings      admin — campaign planner settings, POST to save
 GET  /g/{guild}/voice                   voice leaderboard; admins also get the settings
 POST /g/{guild}/voice                   admin — save the voice settings
 POST /g/{guild}/voice/post              admin — post the top 10 into a channel
@@ -2135,8 +2212,9 @@ the only palette entries that do not survive the trip intact: they land on
 
 ### There is JavaScript here, and only here
 
-The rest of the site is server-rendered with no script files on purpose. A map
-cannot be: placing a symbol on terrain and dragging it where it belongs *is* the
+The rest of the site is server-rendered with no script files on purpose — the
+campaign planner's editor is the one other planned exception (see *The campaign
+planner*). A map cannot be: placing a symbol on terrain and dragging it where it belongs *is* the
 feature, and a page of coordinate fields would be worse than the paper map it
 replaces. So `web/static/tacmap.js` exists — vanilla, no build step, no CDN,
 served from the bot's own container like everything else.

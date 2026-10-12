@@ -82,6 +82,8 @@ GROUPS: tuple[Group, ...] = (
     Group('maps', 'Tactical maps',
           'Drawing the plan on the terrain, sharing it, and getting it into '
           'the mission.'),
+    Group('campaigns', 'Campaign planner',
+          'Planning a three-to-five mission campaign and its weekly drops.'),
     Group('reddit', 'Reddit announcements',
           'Watching a user or a subreddit and announcing new posts.'),
     Group('killtracker', 'Kill Tracker',
@@ -1514,8 +1516,44 @@ _SERVER: tuple[Topic, ...] = (
 )
 
 
+_CAMPAIGNS: tuple[Topic, ...] = (
+    Topic(
+        key='campaign-settings',
+        title='Set up the campaign planner',
+        group='campaigns',
+        audience=ADMIN,
+        where='Web — **🗂️ Campaigns → Settings**',
+        summary='Choose who may plan, where the weekly drops are posted, and '
+                'when they go out.',
+        steps=(
+            'Go to **🗂️ Campaigns → Settings**.',
+            'Pick the **Unit role**. Server admins can always plan; Unit Leaders '
+            'can plan when they also hold this role.',
+            'Pick the **Drop channel** — the public announcements channel every '
+            'drop is posted in.',
+            'Pick the **Mission team channel** — a private channel I ping when a '
+            'drop is due but nobody has approved it.',
+            'Set the **Drop day** and **Drop time**, and which drop **opens the '
+            'ORBAT** for sign-ups.',
+            'Save.',
+        ),
+        notes=(
+            'With no unit role set, only server admins can plan. That is on '
+            'purpose: the planner never opens wider than you chose.',
+            'Drop times are read in the server\'s time zone, and posts show '
+            'every time as a Discord timestamp, so readers see their own time.',
+            'Make the drop channel an Announcement channel and partner servers '
+            'can **Follow** it to get each drop in their own server.',
+            'The survey link may contain `{op}`, which becomes the mission name '
+            'with spaces as `%20`.',
+        ),
+        page='cpsettings',
+    ),
+)
+
+
 TOPICS: tuple[Topic, ...] = (
-    _SLOTS + _ORBATS + _EVENTS + _ROLES + _MAPS + _REDDIT + _KILLTRACKER + _SERVER
+    _SLOTS + _ORBATS + _EVENTS + _ROLES + _MAPS + _CAMPAIGNS + _REDDIT + _KILLTRACKER + _SERVER
 )
 
 
