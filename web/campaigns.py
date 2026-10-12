@@ -143,7 +143,41 @@ async def campaigns_page(guild, tz: str) -> dict:
 async def create_campaign(guild, form, member) -> int:
     values = rules.clean_campaign(form)
     return await database.create_cp_campaign(
-        str(guild.id), values, str(member.id), member.display_name)
+        str(guild.id), values, str(member.id), member.display_name,
+        is_test=form.get('is_test') == '1')
+
+
+def _deleted_note(name: str, outcome: dict) -> str:
+    """What a delete did, in one sentence — including the Kill Tracker side,
+    because that is the part somebody would otherwise go and check."""
+    if 'kt_removed' in outcome:
+        return (f'Deleted {name}, its missions and images, and its empty Kill Tracker '
+                'campaign. Nothing of it is left.')
+    if 'kt_kept' in outcome:
+        return (f"Deleted {name}, its missions and images. Its Kill Tracker campaign "
+                f"({outcome['kt_kept']}) was kept: it holds missions or was set up "
+                'there by hand. An admin can remove it under Kill Tracker → Campaigns.')
+    return f'Deleted {name}, its missions and images. Nothing of it is left.'
+
+
+async def delete_campaign(campaign: dict) -> str:
+    return _deleted_note(campaign['name'], await database.delete_cp_campaign(campaign['id']))
+
+
+async def delete_test_campaigns(guild) -> str:
+    ids = await database.test_cp_campaign_ids(str(guild.id))
+    for campaign_id in ids:
+        await database.delete_cp_campaign(campaign_id)
+    if not ids:
+        return 'There were no test campaigns to delete.'
+    return (f'Deleted {len(ids)} test campaign{"s" if len(ids) != 1 else ""} with '
+            'everything in them. Nothing of them is left.')
+
+
+async def make_real(campaign: dict, member) -> str:
+    kt_name = await database.make_cp_campaign_real(campaign['id'], member.display_name)
+    return (f"{campaign['name']} is a real campaign now, linked to the Kill Tracker "
+            f'campaign {kt_name}.')
 
 
 # ---------------------------------------------------------------------------

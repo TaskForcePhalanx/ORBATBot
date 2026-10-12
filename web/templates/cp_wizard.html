@@ -71,6 +71,10 @@
 
   {% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
 
+{% if campaign.is_test %}
+  <div class="flash warn">🧪 <strong>Test campaign</strong> — not on the Kill Tracker, and its drops never post publicly.</div>
+{% endif %}
+
   <noscript>
     <div class="flash warn">
       The mission wizard needs JavaScript to edit. The

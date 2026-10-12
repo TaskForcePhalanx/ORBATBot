@@ -19,6 +19,10 @@
 
 {% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
 
+{% if campaign.is_test %}
+  <div class="flash warn">🧪 <strong>Test campaign</strong> — not on the Kill Tracker, and its drops never post publicly.</div>
+{% endif %}
+
 <p class="hint">
   Drops go out on <strong>{{ state.settings.drop_weekday }}s at {{ state.settings.drop_time }}</strong>
   ({{ tz }}), and the ORBAT opens with <strong>{{ state.settings.orbat_opens }}</strong>.

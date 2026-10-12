@@ -1710,8 +1710,15 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
                         'Campaign created. Add its AOs and its first mission.')
 
-    # The library's routes come before /campaigns/{campaign_id}, which would
-    # otherwise try to read "objectives" as a campaign id.
+    # These come before /campaigns/{campaign_id}, which would otherwise try to
+    # read "delete-tests" or "objectives" as a campaign id.
+
+    @app.post('/g/{guild_id}/campaigns/delete-tests')
+    async def campaigns_delete_tests(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        await planner_form(request, context)
+        note = await campaign_service.delete_test_campaigns(context['guild'])
+        return redirect(request, campaign_url(guild_id), 'ok', note)
 
     @app.get('/g/{guild_id}/campaigns/objectives', response_class=HTMLResponse)
     async def objectives_page(request: Request, guild_id: str):
@@ -1790,12 +1797,23 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         context = await campaign_ctx(request, guild_id, campaign_id)
         form = await planner_form(request, context)
         name = context['campaign']['name']
-        if str(form.get('confirm_name') or '').strip().lower() != name.lower():
+        # A test campaign is made to be thrown away, so one press does it; a
+        # real one asks for its name, because it may be months of planning.
+        if (not context['campaign']['is_test']
+                and str(form.get('confirm_name') or '').strip().lower() != name.lower()):
             return redirect(request, campaign_url(guild_id, campaign_id), 'warn',
                             f'Type the campaign name ({name}) to delete it.')
-        await database.delete_cp_campaign(campaign_id)
-        return redirect(request, campaign_url(guild_id), 'ok',
-                        f'Deleted {name} and its missions. Its Kill Tracker campaign is untouched.')
+        note = await campaign_service.delete_campaign(context['campaign'])
+        return redirect(request, campaign_url(guild_id), 'ok', note)
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/make-real')
+    async def campaign_make_real(request: Request, guild_id: str, campaign_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        await planner_form(request, context)
+        if not context['campaign']['is_test']:
+            return redirect(request, campaign_url(guild_id, campaign_id))
+        note = await campaign_service.make_real(context['campaign'], context['member'])
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/aos')
     async def campaign_ao_add(request: Request, guild_id: str, campaign_id: int):

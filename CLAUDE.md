@@ -377,7 +377,7 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 | Table | What it holds |
 |---|---|
 | `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again |
-| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `kt_campaign_id` → `kt_campaigns` (found or created by name on creation), `map_id` → `tac_maps` (the campaign map) |
+| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it), `map_id` → `tac_maps` (the campaign map) |
 | `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (its outline on the campaign map), `map_id` → its detailed `tac_maps` |
 | `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
 | `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
@@ -1170,6 +1170,30 @@ suggested four weeks on, one cycle of drops. **With "Success looks like" left
 empty, the OPORD uses the primary objectives' success conditions**, as the
 library tells mission makers to write it.
 
+### Test campaigns, and what a delete leaves behind
+
+A campaign created with **Test campaign** ticked (`is_test`) exists to be thrown
+away, so everything about it is arranged for that:
+
+- **No Kill Tracker campaign** is made or linked, so nothing of it reaches the
+  public dashboard.
+- **One press deletes it** (no typing the name), and **Delete all test
+  campaigns** on the list clears every one.
+- **Its drops never post publicly, and it never starts an operation.** That is
+  a rule for milestone 4 to keep: a test campaign's drops go to the mission
+  team channel at most, and the sign-up start at the opening drop is skipped.
+- **Make it real** gives it its Kill Tracker campaign then, exactly as if it had
+  been created real (`make_cp_campaign_real()`).
+
+`delete_cp_campaign()` removes the campaign and, by cascade, every AO, mission,
+phase, objective, drop and image in it. **Its Kill Tracker campaign goes too
+only when it is provably a leftover**: `kt_created`, no recording in it, no
+name patterns or imported missions, and no other planner campaign pointing at
+it. Anything else is kept and the flash message says so — those numbers are
+public, and an admin may have built that campaign by hand. ORBATs, maps and
+operations a mission links to (milestones 3–5) are links, not contents: a
+delete drops the link and leaves them.
+
 ### The objectives library
 
 Seeded once per guild, the first time anybody opens it
@@ -1556,7 +1580,9 @@ GET  /g/{guild}/campaigns/objectives/{id}  admin — edit one entry, POST to sav
 POST /g/{guild}/campaigns/objectives/{id}/delete
 GET  /g/{guild}/campaigns/settings      admin — campaign planner settings, POST to save
 GET  /g/{guild}/campaigns/{id}          planner — one campaign, POST to save its details
-POST /g/{guild}/campaigns/{id}/delete   confirmed by typing the name
+POST /g/{guild}/campaigns/delete-tests  every test campaign, with everything in them
+POST /g/{guild}/campaigns/{id}/delete   confirmed by typing the name (a test campaign: one press)
+POST /g/{guild}/campaigns/{id}/make-real  a test campaign becomes real, gets its Kill Tracker campaign
 POST /g/{guild}/campaigns/{id}/aos      add an AO;  …/aos/{ao} rename, …/aos/{ao}/delete
 POST /g/{guild}/campaigns/{id}/missions create one, copying the last one's stable details
 GET  /g/{guild}/campaigns/{id}/missions/{m}           the wizard (needs JavaScript)

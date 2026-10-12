@@ -15,6 +15,25 @@
 
 {% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
 
+{% if campaign.is_test %}
+  <div class="flash warn cptestbanner">
+    <span>🧪 <strong>Test campaign.</strong> Not on the Kill Tracker, and its drops
+      never post publicly. Delete it when you're done and nothing is left.</span>
+    <span class="cptestactions">
+      <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/make-real"
+            onsubmit="return confirm('Make this a real campaign? It gets a Kill Tracker campaign of the same name.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="button" type="submit">Make it real</button>
+      </form>
+      <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/delete"
+            onsubmit="return confirm('Delete this test campaign and everything in it?')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="button danger" type="submit">Delete test campaign</button>
+      </form>
+    </span>
+  </div>
+{% endif %}
+
 {% if campaign.summary %}
   <div class="card"><div class="cardbody cpsummary">{{ campaign.summary }}</div></div>
 {% endif %}
@@ -139,6 +158,7 @@
       </div>
       <label class="field"><span>Running summary</span>
         <textarea name="summary" rows="5">{{ campaign.summary }}</textarea></label>
+      {% if not campaign.is_test %}
       <p class="hint">
         Kill Tracker campaign:
         {% if campaign.kt_name %}<strong>{{ campaign.kt_name }}</strong>{% if is_admin %} —
@@ -146,17 +166,25 @@
           Renaming here does not rename it.
         {% else %}none linked.{% endif %}
       </p>
+      {% endif %}
       <div class="actions"><button class="button primary" type="submit">Save</button></div>
     </form>
 
+    {% if not campaign.is_test %}
     <form class="form" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/delete" style="margin-top:24px">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <h3 class="bad">Delete the campaign</h3>
-      <p class="hint">Deletes every mission, phase and image in it. This cannot be undone. Archiving keeps it out of the way instead.</p>
+      <p class="hint">
+        Deletes every mission, phase and image in it. This cannot be undone —
+        archiving keeps it out of the way instead. Its Kill Tracker campaign goes
+        too if the planner made it and no recordings have been added; one that
+        holds stats, or was set up there by hand, is kept.
+      </p>
       <label class="field"><span>Type the campaign name to confirm</span>
         <input name="confirm_name" autocomplete="off" required></label>
       <div class="actions"><button class="button danger" type="submit">Delete campaign</button></div>
     </form>
+    {% endif %}
   </div>
 </details>
 {% endblock %}

@@ -6,6 +6,7 @@
     <div class="cardbody">
       <div class="cpcardhead">
         <a class="cpcardtitle" href="/g/{{ guild.id }}/campaigns/{{ c.id }}">🗂️ {{ c.name }}</a>
+        {% if c.is_test %}<span class="chip testchip">🧪 Test</span>{% endif %}
         {% if c.status != 'active' %}<span class="chip">{{ c.status }}</span>{% endif %}
       </div>
       {% if c.era or c.theatre %}
@@ -45,6 +46,16 @@
   A campaign is three to five missions. Each mission runs on the weekly cycle:
   lock a step, and the drop it feeds goes out a few days later.
 </p>
+
+{% set tests = (campaigns + archived)|selectattr('is_test')|list %}
+{% if tests %}
+  <form class="cptestbar" method="post" action="/g/{{ guild.id }}/campaigns/delete-tests"
+        onsubmit="return confirm('Delete every test campaign, with all their missions and images?')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <span>🧪 {{ tests|length }} test campaign{{ 's' if tests|length != 1 }} — nothing of them is on the Kill Tracker.</span>
+    <button class="button danger" type="submit">Delete all test campaigns</button>
+  </form>
+{% endif %}
 
 {% if campaigns %}
   <div class="cards">
@@ -87,12 +98,17 @@
     </label>
     <input type="hidden" name="status" value="active">
   </div>
+  <label class="check">
+    <input type="checkbox" name="is_test" value="1">
+    🧪 Test campaign — to try things out. It is not added to the Kill Tracker,
+    its drops will never post publicly, and it deletes with one press, leaving nothing behind.
+  </label>
   <label class="field">
     <span>Summary</span>
     <textarea name="summary" rows="3" placeholder="What the campaign is about, in a few lines. You can keep this running as missions are played."></textarea>
   </label>
   <p class="hint">
-    The campaign is also set up in the Kill Tracker under the same name (or
+    A real campaign is also set up in the Kill Tracker under the same name (or
     linked to one that already exists), so its missions' stats land in one place.
   </p>
   <div class="actions">
