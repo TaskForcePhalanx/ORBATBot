@@ -219,6 +219,7 @@
     document.getElementById('cp-dropmeta').textContent =
       (when ? 'Posts ' + when.date_label + ' ' + state.settings.drop_time + ' (' + when.d_label + ') · ' : '') +
       drop.chars + ' characters' + (drop.parts.length > 1 ? ' · goes out as ' + drop.parts.length + ' messages' : '');
+    box.appendChild(dropBar(drop));
     drop.parts.forEach(function (part, i) {
       var pre = el('pre', { class: 'cppre', text: part });
       var copy = el('button', { type: 'button', class: 'linkish', text: 'Copy' + (drop.parts.length > 1 ? ' part ' + (i + 1) : ''),
@@ -237,6 +238,47 @@
       });
       box.appendChild(thumbs);
     }
+  }
+
+  /* The drop's state and its buttons. Approving sends the version on screen
+     (its hash); the server refuses if that is not what it would post, so an
+     approval is always of words somebody read. */
+  function dropBar(drop) {
+    var st = drop.state;
+    var bar = el('div', { class: 'cpdropstate' }, [
+      el('span', { class: 'cpstatus ' + st.tone, text: st.label })
+    ]);
+    if (drop.approved_by && st.approved) bar.appendChild(el('span', { class: 'muted', text: 'by ' + drop.approved_by }));
+    var actions = [];
+    if (st.can_approve) actions.push(['approve', st.posted ? 'Approve and update the post' : 'Approve', 'primary']);
+    if (st.can_unapprove) actions.push(['unapprove', 'Withdraw approval', '']);
+    if (st.key === 'skipped') actions.push(['unskip', 'Put back in the schedule', '']);
+    actions.forEach(function (a) {
+      bar.appendChild(el('button', { type: 'button', class: 'button small ' + a[2], text: a[1],
+        onclick: function () { dropAction(drop, a[0]); } }));
+    });
+    return bar;
+  }
+
+  function dropAction(drop, action) {
+    if (inFlight || phasesDirty || Object.keys(pending).length) {
+      say('Wait for the save to finish, then approve what you see.', 'err');
+      return;
+    }
+    say('Working…');
+    fetch(app.dataset.api + '/drops/' + drop.key + '/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': app.dataset.csrf },
+      body: JSON.stringify({ hash: drop.hash })
+    }).then(function (response) {
+      return response.json().catch(function () {
+        return { ok: false, error: 'The server refused that (' + response.status + ').' };
+      });
+    }).then(function (answer) {
+      if (!answer.ok) { say(answer.error || 'That did not work.', 'err'); return; }
+      apply(answer.state);
+      say(answer.note, 'ok');
+    }).catch(function () { say('Could not reach the server.', 'err'); });
   }
 
   /* -- steps ------------------------------------------------------------------ */

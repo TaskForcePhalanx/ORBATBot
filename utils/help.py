@@ -1612,8 +1612,8 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'bot will post, and **Checks** flags mistakes as you go.',
             'In **Orders**, add the phases in order. Give each its AO and press '
             '**+ Add objective** to pick from the objectives library.',
-            'Until automatic posting arrives, copy each drop into the drop channel '
-            'with **Copy**, or from the mission\'s **Schedule & all drops** page.',
+            'When a drop reads right, press **Approve** under its preview. It posts '
+            'by itself at its time — see *Approve and post the drops*.',
         ),
         notes=(
             'Everything saves a moment after you stop typing — the top right says '
@@ -1633,7 +1633,7 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'its drops and checks without it.',
         ),
         page='campaigns',
-        related=('plan-campaign', 'objectives-library'),
+        related=('plan-campaign', 'campaign-drops', 'objectives-library'),
     ),
     Topic(
         key='objectives-library',
@@ -1720,6 +1720,42 @@ _CAMPAIGNS: tuple[Topic, ...] = (
         ),
         page='campaigns',
         related=('mission-orbat', 'mission-wizard'),
+    ),
+    Topic(
+        key='campaign-drops',
+        title='Approve and post the drops',
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — a mission\'s **Schedule** page → **Drops**, or the drop preview in the wizard',
+        summary='Each drop posts by itself at its time once somebody has approved it.',
+        steps=(
+            'Open the mission\'s **Schedule** page and open a drop, or look at the preview '
+            'beside a step in the wizard.',
+            'Read it, then press **Approve**. If its time has already come it posts at '
+            'once; otherwise it shows **Approved** and posts on the day.',
+            'Changed your mind before it posts? **Withdraw approval**. A drop you will '
+            'not use at all, or posted by hand, gets **Don\'t post**.',
+        ),
+        notes=(
+            'An approval is for exactly the words and images you read, at that time. '
+            'Edit the drop afterwards, or move the op date, and it says **Needs '
+            're-approval** and will not post until somebody approves it again.',
+            'A drop whose time comes without an approval is **Held**: the mission team '
+            'channel is pinged once, and it posts the minute it is approved.',
+            'Approving a change to a drop that already posted edits the posted '
+            'message in place, Part 1/2 and images included.',
+            'When the drop that opens the ORBAT posts, sign-ups start by themselves on '
+            'the mission\'s ORBAT, with H-Hour as the start time. They never replace an '
+            'operation that is still to be played: then the team channel is told, and '
+            '**Start sign-ups now** on the Schedule page does it once that one is over.',
+            'A test campaign\'s drops go to the mission team channel only, never start '
+            'sign-ups, and are deleted from Discord with the campaign. A real '
+            'campaign\'s posted drops stay in Discord when it is deleted.',
+            'Set the drop channel and the mission team channel in **Campaigns → '
+            'Settings** — nothing posts without them.',
+        ),
+        page='campaigns',
+        related=('mission-wizard', 'campaign-settings', 'mission-orbat'),
     ),
 )
 

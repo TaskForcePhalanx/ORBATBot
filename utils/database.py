@@ -912,6 +912,10 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
     ''')
     await db.execute('ALTER TABLE cp_images ADD COLUMN IF NOT EXISTS bytes INTEGER NOT NULL DEFAULT 0')
     await db.execute('ALTER TABLE cp_images ADD COLUMN IF NOT EXISTS created_by_name TEXT')
+    # Milestone 4: a drop somebody chose not to post at all (posted by hand,
+    # or a WARNO for a mission planned too late for one).
+    await db.execute('ALTER TABLE cp_drops ADD COLUMN IF NOT EXISTS skipped INTEGER NOT NULL DEFAULT 0')
+    await db.execute('ALTER TABLE cp_drops ADD COLUMN IF NOT EXISTS skipped_by_name TEXT')
 
 
 async def get_active_operation(guild_id: str):
@@ -1965,6 +1969,11 @@ async def make_cp_campaign_real(campaign_id: int, user_name: str) -> str:
                 """UPDATE cp_campaigns SET is_test = FALSE, kt_campaign_id = $2, kt_created = $3,
                        updated_by_name = $4, updated_at = (NOW() AT TIME ZONE 'UTC')
                     WHERE id = $1""", campaign_id, kt_id, kt_created, user_name)
+            # What it posted as a test went to the team channel; as a real
+            # campaign every drop is still to be approved and posted publicly.
+            await db.execute(
+                """DELETE FROM cp_drops WHERE mission_id IN
+                       (SELECT id FROM cp_missions WHERE campaign_id = $1)""", campaign_id)
             return name
 
 
@@ -1974,10 +1983,23 @@ async def update_cp_campaign(campaign_id: int, values: dict, user_name: str):
     pool = await get_pool()
     async with pool.acquire() as db:
         try:
-            await db.execute(
-                f"""UPDATE cp_campaigns SET {sets}, updated_by_name = $2,
-                        updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
-                campaign_id, user_name, *[values[c] for c in columns])
+            async with db.transaction():
+                await db.execute(
+                    f"""UPDATE cp_campaigns SET {sets}, updated_by_name = $2,
+                            updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
+                    campaign_id, user_name, *[values[c] for c in columns])
+                # A Kill Tracker campaign the planner made follows a rename, so
+                # the dashboard does not keep the old name. One linked by hand
+                # is an admin's and keeps whatever they called it.
+                if values.get('name'):
+                    await db.execute(
+                        """UPDATE kt_campaigns k SET name = $2, updated_at = (NOW() AT TIME ZONE 'UTC')
+                             FROM cp_campaigns c
+                            WHERE c.id = $1 AND c.kt_created AND k.id = c.kt_campaign_id
+                              AND k.name <> $2
+                              AND NOT EXISTS (SELECT 1 FROM kt_campaigns o
+                                               WHERE lower(o.name) = lower($2) AND o.id <> k.id)""",
+                        campaign_id, values['name'])
         except asyncpg.UniqueViolationError:
             raise ValueError(f"There's already a campaign called {values.get('name')}.")
 
@@ -2109,7 +2131,14 @@ async def patch_cp_mission(mission_id: int, campaign_id: int, patch: dict,
                            name, op_date, user_name: str):
     """Merges `patch` into the stored fields — only the keys sent change.
     `name` and `op_date` mirror the fields into their columns when given
-    (None leaves the column alone; op_date '' clears it)."""
+    (None leaves the column alone; op_date '' clears it). The wizard's fields
+    hold the date as ISO text, and asyncpg wants a date for a date column."""
+    if isinstance(op_date, str) and op_date:
+        from datetime import date as _date
+        try:
+            op_date = _date.fromisoformat(op_date)
+        except ValueError:
+            op_date = ''
     pool = await get_pool()
     async with pool.acquire() as db:
         async with db.transaction():
@@ -2394,6 +2423,127 @@ async def cp_image_meta(campaign_id: int, ids) -> dict:
             """SELECT id, filename, bytes, content_type FROM cp_images
                 WHERE campaign_id = $1 AND id = ANY($2::int[])""", campaign_id, ids)
     return {r['id']: dict(r) for r in rows}
+
+
+# -- drops (milestone 4) ----------------------------------------------------
+#
+# A row records decisions only — who approved which version for which time,
+# that the team was pinged about a hold, what was posted where. Whether a drop
+# is approved *now* is `campaign.drop_state()`, from this row and what the drop
+# would post now.
+
+def _drop_dict(row) -> dict:
+    out = dict(row)
+    out['message_ids'] = _json.loads(out.get('message_ids') or '[]')
+    return out
+
+
+async def get_cp_drops(mission_id: int) -> dict:
+    """kind → row for one mission."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch('SELECT * FROM cp_drops WHERE mission_id = $1', mission_id)
+    return {r['kind']: _drop_dict(r) for r in rows}
+
+
+async def approve_cp_drop(mission_id: int, kind: str, approved_hash: str, due_at,
+                          user_id: str, user_name: str):
+    """Approve what the drop would post now, for the time it would post. A
+    new approval forgets an earlier hold ping, so a later hold pings again."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """INSERT INTO cp_drops (mission_id, kind, due_at, approved_hash, approved_by,
+                                     approved_by_name, approved_at)
+               VALUES ($1, $2, $3, $4, $5, $6, (NOW() AT TIME ZONE 'UTC'))
+               ON CONFLICT (mission_id, kind) DO UPDATE
+                  SET due_at = EXCLUDED.due_at, approved_hash = EXCLUDED.approved_hash,
+                      approved_by = EXCLUDED.approved_by,
+                      approved_by_name = EXCLUDED.approved_by_name,
+                      approved_at = EXCLUDED.approved_at, held_pinged_at = NULL""",
+            mission_id, kind, due_at, approved_hash, user_id, user_name)
+
+
+async def unapprove_cp_drop(mission_id: int, kind: str):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """UPDATE cp_drops SET approved_hash = NULL, approved_by = NULL,
+                   approved_by_name = NULL, approved_at = NULL
+                WHERE mission_id = $1 AND kind = $2 AND posted_at IS NULL""",
+            mission_id, kind)
+
+
+async def skip_cp_drop(mission_id: int, kind: str, user_name: str, skipped: bool):
+    """Mark a drop as not to be posted by the bot (or undo that)."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """INSERT INTO cp_drops (mission_id, kind, skipped, skipped_by_name)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (mission_id, kind) DO UPDATE
+                  SET skipped = EXCLUDED.skipped, skipped_by_name = EXCLUDED.skipped_by_name
+                WHERE cp_drops.posted_at IS NULL OR cp_drops.skipped = 1""",
+            mission_id, kind, 1 if skipped else 0, user_name if skipped else None)
+
+
+async def mark_cp_drop_posted(mission_id: int, kind: str, channel_id: str,
+                              message_ids: list, posted_hash: str):
+    """Record what went out where — on a first post and after an edit."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """UPDATE cp_drops SET channel_id = $3, message_ids = $4, posted_hash = $5,
+                   posted_at = COALESCE(posted_at, (NOW() AT TIME ZONE 'UTC'))
+                WHERE mission_id = $1 AND kind = $2""",
+            mission_id, kind, channel_id, _json.dumps([str(m) for m in message_ids]),
+            posted_hash)
+
+
+async def mark_cp_drop_pinged(mission_id: int, kind: str):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """INSERT INTO cp_drops (mission_id, kind, held_pinged_at)
+               VALUES ($1, $2, (NOW() AT TIME ZONE 'UTC'))
+               ON CONFLICT (mission_id, kind) DO UPDATE
+                  SET held_pinged_at = EXCLUDED.held_pinged_at""", mission_id, kind)
+
+
+async def cp_missions_near(start, end) -> list:
+    """Missions dated between two days, in campaigns that are not archived,
+    with their guild and whether their campaign is a test — what the posting
+    loop looks at each minute."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT m.*, c.guild_id, c.name AS campaign_name, c.is_test
+                 FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
+                WHERE m.op_date BETWEEN $1 AND $2 AND c.status <> 'archived'
+                ORDER BY m.op_date, m.id""", start, end)
+    return [_mission_dict(r) for r in rows]
+
+
+async def cp_posted_messages(campaign_id: int = None, mission_id: int = None) -> list:
+    """(channel_id, message_id) for every drop message a campaign or mission
+    posted — what deleting a test campaign takes out of Discord."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT d.channel_id, d.message_ids FROM cp_drops d
+                 JOIN cp_missions m ON m.id = d.mission_id
+                WHERE ($1::int IS NULL OR m.campaign_id = $1)
+                  AND ($2::int IS NULL OR m.id = $2)
+                  AND d.channel_id IS NOT NULL""", campaign_id, mission_id)
+    return [(r['channel_id'], mid) for r in rows
+            for mid in _json.loads(r['message_ids'] or '[]')]
+
+
+async def set_cp_mission_operation(mission_id: int, operation_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('UPDATE cp_missions SET operation_id = $2 WHERE id = $1',
+                         mission_id, operation_id)
 
 
 # ---------------------------------------------------------------------------

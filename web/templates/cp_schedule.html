@@ -26,7 +26,9 @@
 <p class="hint">
   Drops go out on <strong>{{ state.settings.drop_weekday }}s at {{ state.settings.drop_time }}</strong>
   ({{ tz }}), and the ORBAT opens with <strong>{{ state.settings.orbat_opens }}</strong>.
-  Until automatic posting arrives, copy each drop below into the drop channel by hand.
+  A drop posts by itself at its time once somebody approves it; one that isn't approved
+  is held and the mission team is pinged.
+  {% if not state.settings.channel_set %}<strong>{% if state.is_test %}No mission team channel is set, so this test campaign's drops have nowhere to go.{% else %}No drop channel is set, so nothing will post.{% endif %}</strong>{% endif %}
 </p>
 
 <div class="cptools">
@@ -69,12 +71,45 @@
 {% endif %}
 
 <h2 style="margin-top:28px">Drops</h2>
+<div class="cpsignups">
+  {% if state.operation_id %}
+    <p>✅ Sign-ups for this mission have been started.</p>
+  {% elif state.is_test %}
+    <p class="muted">A test campaign never starts sign-ups.</p>
+  {% else %}
+    <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/signups" class="inlineform">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="back" value="schedule">
+      <span class="muted">Sign-ups start by themselves when {{ state.settings.orbat_opens }} posts{% if not state.orbat_id %} — once an ORBAT is linked{% endif %}.</span>
+      <button class="button small" type="submit">Start sign-ups now</button>
+    </form>
+  {% endif %}
+</div>
+{% set drop_base = '/g/' ~ guild.id ~ '/campaigns/' ~ campaign.id ~ '/missions/' ~ mission.id ~ '/drops/' %}
 {% for drop in state.drops %}
-  <details class="panel">
+  <details class="panel" id="drop-{{ drop.key }}">
     <summary>{{ drop.label }}
-      <span class="note">{{ drop.chars }} characters{% if drop.parts|length > 1 %} · {{ drop.parts|length }} messages{% endif %}{% if drop.images %} · {{ drop.images|length }} image{{ 's' if drop.images|length > 1 }}{% endif %}</span>
+      <span class="cpstatus {{ drop.state.tone }}">{{ drop.state.label }}</span>
+      <span class="note">{% if drop.due_label %}{{ drop.due_label }} · {% endif %}{{ drop.chars }} characters{% if drop.parts|length > 1 %} · {{ drop.parts|length }} messages{% endif %}{% if drop.images %} · {{ drop.images|length }} image{{ 's' if drop.images|length > 1 }}{% endif %}</span>
     </summary>
     <div class="panelbody">
+      <div class="cpdropbar">
+        <span class="muted">
+          {% if drop.state.key == 'skipped' %}Skipped by {{ drop.skipped_by or 'someone' }}.
+          {% elif drop.approved_by and drop.state.approved %}Approved by {{ drop.approved_by }}.
+          {% elif drop.approved_by %}{{ drop.approved_by }} approved an earlier version.{% endif %}
+          {% if drop.pinged_at and not drop.state.posted %} The mission team was pinged.{% endif %}
+        </span>
+        {% for action, label, cls in [('approve', 'Approve' if not drop.state.posted else 'Approve and update the post', 'primary'), ('unapprove', 'Withdraw approval', ''), ('skip', "Don't post", ''), ('unskip', 'Put back in the schedule', '')] %}
+          {% if (action == 'approve' and drop.state.can_approve) or (action == 'unapprove' and drop.state.can_unapprove) or (action == 'skip' and drop.state.can_skip) or (action == 'unskip' and drop.state.key == 'skipped') %}
+            <form method="post" action="{{ drop_base }}{{ drop.key }}/{{ action }}" class="inline">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="hash" value="{{ drop.hash }}">
+              <button class="button small {{ cls }}" type="submit">{{ label }}</button>
+            </form>
+          {% endif %}
+        {% endfor %}
+      </div>
       {% for part in drop.parts %}
         {% if drop.parts|length > 1 %}<p class="muted nospace">Message {{ loop.index }} of {{ loop.length }}</p>{% endif %}
         <textarea class="cppost" readonly rows="{{ [part.count('\n') + 2, 24]|min }}">{{ part }}</textarea>

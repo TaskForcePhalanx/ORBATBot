@@ -39,6 +39,7 @@ cogs/
   purge.py              # /purge — bulk message deletion, by count or back to a date
   redditfeed.py         # Watches a Reddit user or subreddit and announces new posts
   killtracker.py        # Polls the OCAP server and counts new recordings — no commands
+  campaigns.py          # Posts the planner's approved drops, pings holds, starts sign-ups — no commands
 utils/
   database.py           # All PostgreSQL queries (asyncpg)
   sheets.py             # Google Sheets read/write (gspread)
@@ -99,7 +100,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(535 cases), and every one of them covers a module that imports nothing beyond
+(546 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -113,7 +114,7 @@ all:
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, and what each briefing pack contains (`document_blocks`) |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, and when an operation still counts as running |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -378,14 +379,14 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 | Table | What it holds |
 |---|---|
 | `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again. `orbat_access` (`admins` / `planners`, NULL = planners) and `orbat_role_ids` (comma-separated extra roles) — who may edit mission ORBATs, read through `campaign.may_edit_orbats()` |
-| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it), `map_id` → `tac_maps` (the campaign map) |
+| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it, and the only kind a rename carries over to), `map_id` → `tac_maps` (the campaign map) |
 | `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (its outline on the campaign map), `map_id` → its detailed `tac_maps` |
 | `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
 | `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
 | `cp_phases` | A mission phase: `position`, `title`, `detail`, `ao_id`, `layer_id` (the layer of the AO's map it is drawn on, milestone 5). A row, not part of `fields`, because a layer hangs off it — `save_cp_phases()` keeps a phase's id across saves for exactly that reason |
 | `cp_objective_library` | Per guild, seeded from `utils/objectives_seed.py`, admin-edited: `category`, `kind` (`objective` / `complication`), `name`, `players_do`, `complete_when`, `pairs_with` (free text; `campaign.pairing_ids()` turns it into the picker's suggestions — never a rule), `intsum_hint`, `position` |
 | `cp_phase_objectives` | An objective chosen for a phase: `library_id` (where it was picked from, or NULL), `role` (`primary` / `secondary` / `complication`), and its own copy of `name`, `players_do`, `complete_when`, `intsum_hint`; `result` for the AAR. Replaced wholesale on each save — nothing hangs off one |
-| `cp_drops` | PK (`mission_id`, `kind`). `due_at` (naive UTC), `approved_hash`/`approved_by`/`approved_at`, `held_pinged_at`, `posted_at`, `channel_id`, `message_ids` (JSON, one per part), `posted_hash` |
+| `cp_drops` | PK (`mission_id`, `kind`). Decisions only — the state is `campaign.drop_state()`. `approved_hash` + `due_at` (naive UTC) are **the version and the time that were approved**, stored together; `approved_by`/`approved_by_name`/`approved_at`; `held_pinged_at` (the team was told once; cleared by a new approval); `posted_at`, `channel_id`, `message_ids` (JSON, every message incl. image-only ones), `posted_hash` (what is in Discord now); `skipped`/`skipped_by_name` (Don't post) |
 | `cp_images` | Uploaded images for drops and exports: `campaign_id`, `filename`, `content_type` (sniffed from the bytes, `campaign.image_type()`), `data` (BYTEA), `bytes`, `created_by_name`. Never changed once stored, so served `immutable`. Per campaign, so a mission carrying over the unit image shares the same row |
 
 ### `guild_settings`
@@ -616,6 +617,7 @@ needs one of these three channels must go through it**; a fresh
 | Drawing on one, sharing it, posting it — web only | ❌ | ✅ | ✅ |
 | Uploading or deleting a terrain — web only | ❌ | ❌ | ✅ |
 | Campaign planner — web only | ❌ | ✅ with the planner's unit role | ✅ |
+| Approving drops, **Start sign-ups now** — web only | ❌ | ✅ with the planner's unit role | ✅ |
 | Editing an ORBAT a planner mission links — web only | ❌ (✅ with a role the setting adds) | ✅ planners, unless the setting says admins only | ✅ |
 | Editing the objectives library — web only | ❌ | ❌ | ✅ |
 | Campaign planner settings — web only | ❌ | ❌ | ✅ |
@@ -1059,7 +1061,7 @@ On fire: sets `reminder_fired = 1`, DMs all approved members, posts mention in `
    intervals left open by a crash are closed at their last heartbeat before
    anything new is recorded
 2. Load `cogs.slots`, `cogs.admin`, `cogs.gameroles`, `cogs.events`, `cogs.voicelog`,
-   `cogs.memberlog`, `cogs.purge` and `cogs.redditfeed`. Each is wrapped in its own
+   `cogs.memberlog`, `cogs.purge`, `cogs.redditfeed`, `cogs.campaigns` and `cogs.killtracker`. Each is wrapped in its own
    `try`, so one cog failing to import doesn't take the others down
 3. Re-register persistent views:
    - `OrbatRequestButton` and `GameRolePanelView` — one global instance each
@@ -1088,7 +1090,8 @@ being built in milestones:
 3. **The ORBAT link and PDF/DOCX export** — link, copy or create a mission's
    ORBAT, edit it from the planner, and the three briefing packs as PDF and
    Word. *Done.*
-4. Drops and approvals — scheduled posting, holds and pings.
+4. **Drops and approvals** — approving, scheduled posting, holds and pings,
+   edits after posting, sign-ups at the opening drop. *Done.*
 5. Maps — the campaign map, AO maps, phases as layers.
 6. After action and the Kill Tracker link.
 
@@ -1130,7 +1133,7 @@ and the bot's own posting can never disagree. In particular:
 | Campaigns (`campaigns`) | Every campaign as a folder: its missions with date, steps locked and what is next; empty slots up to `planned_missions`; archived ones folded away |
 | Campaign | Missions in order (↑ ↓), **Plan the next mission**, the AOs, the details form, delete (type the name) |
 | Mission wizard | The six steps, one at a time; tips, checks and the step's drop preview beside it. **JavaScript** |
-| Back-schedule | Every lock and drop with its status, the checks, and every drop as it will post, in read-only boxes to copy. **No JavaScript** — the fallback for the wizard |
+| Back-schedule | Every lock and drop with its status, the checks, every drop as it will post with its state and **Approve / Withdraw / Don't post**, and **Start sign-ups now**. **No JavaScript** — the fallback for the wizard |
 | Objectives (`cpobjectives`) | The library by category. Admins edit, add and remove |
 
 ### The wizard
@@ -1183,11 +1186,17 @@ away, so everything about it is arranged for that:
   public dashboard.
 - **One press deletes it** (no typing the name), and **Delete all test
   campaigns** on the list clears every one.
-- **Its drops never post publicly, and it never starts an operation.** That is
-  a rule for milestone 4 to keep: a test campaign's drops go to the mission
-  team channel at most, and the sign-up start at the opening drop is skipped.
+- **Its drops never post publicly, and it never starts an operation.** Its
+  drops go to the mission team channel (`campaign.drop_channel()`), or nowhere
+  without one; `start_signups()` refuses outright. Deleting it — or one of its
+  missions — deletes those messages from Discord too (`clear_test_posts()`).
 - **Make it real** gives it its Kill Tracker campaign then, exactly as if it had
-  been created real (`make_cp_campaign_real()`).
+  been created real (`make_cp_campaign_real()`), deletes its test posts and
+  clears its `cp_drops`, so every drop is approved again and posts publicly.
+
+A **real** campaign's posted drops stay in Discord when it is deleted — they
+are the public record, and partner servers may have followed them — and the
+flash message says so.
 
 `delete_cp_campaign()` removes the campaign and, by cascade, every AO, mission,
 phase, objective, drop and image in it. **Its Kill Tracker campaign goes too
@@ -1197,6 +1206,58 @@ it. Anything else is kept and the flash message says so — those numbers are
 public, and an admin may have built that campaign by hand. ORBATs, maps and
 operations a mission links to (milestones 3–5) are links, not contents: a
 delete drops the link and leaves them.
+
+### Drops: approval, posting, holds (`cogs/campaigns.py`)
+
+`campaign.drop_state(row, current_hash, due, now, channel)` is the whole
+decision, tested, and both the drops panel and the loop read it — so what the
+page says will happen is what the bot does. Its `action` is `post`, `edit`,
+`ping` or nothing. `cogs/campaigns.mission_drops()` gathers its inputs (text,
+parts, images, `approval_hash()`, due time, the row) for one mission; the web
+calls the same function, so there is no second copy of that either.
+
+- **An approval is for one version at one time.** `approve_cp_drop()` stores
+  the hash *and* the due time. A change to the words or images, or a moved op
+  date (which moves every drop not yet posted), reads as **Needs
+  re-approval**. Approving checks the hash the person was looking at
+  (`seen_hash`) and refuses a stale one: an approval is a statement about
+  words somebody read.
+- **Held** = due and not validly approved. The mission team channel is told
+  once (`held_pinged_at`), and only for a drop that fell due within
+  `HOLD_PING_WINDOW` — a mission planned late should not ping about a WARNO
+  that went by two weeks before it existed. It posts the minute it is approved:
+  `drop_action()` runs `CampaignsCog.process_mission_id()` straight away rather
+  than waiting for the next tick.
+- **After posting**, only the words matter. An approved change (`posted_hash`
+  ≠ `approved_hash` = current) edits the messages in place; extra parts are
+  sent after them, surplus ones deleted, a message deleted in Discord sent
+  again. Moving the op date makes a posted WARNO read **Changed** — it names
+  the op night — and approving it updates the post.
+- **Images ride on the last text part**, grouped by `image_groups()` under ten
+  files and the guild's upload limit; any left over follow in messages of their
+  own, which `message_ids` records too.
+- **A half-posted drop is taken back.** If one part fails, the parts already
+  sent are deleted, so the retry posts it whole. A failed post or edit leaves
+  that drop alone for `FAILURE_BACKOFF` (30 min, in memory) and tells the team
+  channel, rather than failing every minute.
+- **One lock** around a mission's processing, so the loop and an approval on
+  the website can never post the same drop twice. The loop looks at missions
+  dated `LOOK_BACK_DAYS` before to `LOOK_AHEAD_DAYS` after today in campaigns
+  that are not archived; an archived campaign posts nothing and its drops
+  cannot be approved.
+- **Don't post** (`skipped`) is for a drop posted by hand or not wanted at all.
+- `allowed_mentions` is none: a drop quotes the mission team's text, which is
+  not a licence to ping.
+
+**Sign-ups at the opening drop.** When the drop named by `orbat_opens` posts
+for the first time, `start_signups()` calls `start_operation()` on the
+mission's ORBAT with `h_hour_utc()` as the start — exactly `/setup-slots
+orbat:`. It does nothing for a test campaign, a mission that already started
+one (`cp_missions.operation_id`), or one with no ORBAT, and **never replaces a
+running operation**: `operation_running()` counts an active operation as
+running until `OPERATION_OVER_AFTER` (6 h) past its start, and forever when it
+has none. Any refusal is posted in the team channel; **Start sign-ups now** on
+the Schedule page runs the same function later.
 
 ### The mission's ORBAT
 
@@ -1654,10 +1715,13 @@ POST /g/{guild}/campaigns/{id}/missions create one, copying the last one's stabl
 GET  /g/{guild}/campaigns/{id}/missions/{m}           the wizard (needs JavaScript)
 GET  /g/{guild}/campaigns/{id}/missions/{m}/schedule  back-schedule, checks, every drop
 POST /g/{guild}/campaigns/{id}/missions/{m}/orbat     action=link | copy | new | unlink
+POST /g/{guild}/campaigns/{id}/missions/{m}/drops/{kind}/{action}  approve | unapprove | skip | unskip
+POST /g/{guild}/campaigns/{id}/missions/{m}/signups   Start sign-ups now — the same rules as the opening drop
 GET  /g/{guild}/campaigns/{id}/missions/{m}/export/{pack}.{pdf|docx}  a briefing pack
 POST /g/{guild}/campaigns/{id}/missions/{m}/move      up / down;  …/delete
 GET  /g/{guild}/cp/api/missions/{m}     the wizard's state, as JSON
 PATCH /g/{guild}/cp/api/missions/{m}    save changed fields (+ phases); X-CSRF-Token header
+POST /g/{guild}/cp/api/missions/{m}/drops/{kind}/{action}  the wizard's Approve; {hash} seen; answers the state
 POST /g/{guild}/cp/api/images           upload one image (multipart, csrf + campaign_id)
 GET  /g/{guild}/cp/images/{id}          an uploaded image — planner access only
 GET  /g/{guild}/cp/api/objectives       the library with its pairings, for the picker
@@ -1806,7 +1870,7 @@ Three things about it are deliberate:
 
 ### The help pages (`utils/help.py`)
 
-Forty-one how-tos — one per thing somebody might want to do — served at `/help`
+Fifty-five how-tos — one per thing somebody might want to do — served at `/help`
 and written into the README by `scripts/gen_help.py`. The module is data plus a
 renderer; there is no `web/help.py`, because the two routes have no permissions
 to check and no form to translate, which is all such a module has ever been for
@@ -1840,7 +1904,7 @@ Four things about it are deliberate:
   future how-to about `<Insert Name>` markers must render the `<` rather than
   eat the rest of the sentence, and the result is marked safe on the way out.
   `test_every_topic_renders_without_stray_markup` catches an unbalanced `**`
-  or backtick across all forty-one, which is the kind of thing nobody spots by
+  or backtick across all of them, which is the kind of thing nobody spots by
   reading.
 
 `utils/help.py` imports nothing but the standard library, like `utils/orbat.py`,
