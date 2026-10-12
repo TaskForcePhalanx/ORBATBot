@@ -817,6 +817,152 @@ def approval_hash(body: str, image_ids) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Drop state: approved, held, posted
+#
+# The database row (`cp_drops`) records three decisions — who approved which
+# version for which time, that the team was pinged about a hold, and what was
+# posted — and everything a person or the posting loop needs to know is worked
+# out from that row and what the drop would post *now*. Both the drops panel
+# and the loop call `drop_state()`, so what the page says will happen is what
+# the bot does.
+# ---------------------------------------------------------------------------
+
+# A held drop pings the mission team once — but not for a drop that went past
+# long before anybody was watching, such as the WARNO of a mission planned two
+# weeks out. Those just show as held on the page.
+HOLD_PING_WINDOW = timedelta(days=2)
+
+# An active operation whose start is further in the past than this has been
+# played; starting the next mission's sign-ups may replace it. One with no
+# start time at all is treated as running, because nothing says it is over.
+OPERATION_OVER_AFTER = timedelta(hours=6)
+
+# Drop states: key → (tone, label). Tones are the page's chip classes.
+DROP_STATES = {
+    'nodate':     ('', 'No op date yet'),
+    'unapproved': ('', 'Not approved yet'),
+    'reapprove':  ('warn', 'Needs re-approval'),
+    'approved':   ('ok', 'Approved'),
+    'posting':    ('acc', 'Posting now'),
+    'nochannel':  ('crit', 'Approved — no channel to post in'),
+    'held':       ('crit', 'Held — not approved'),
+    'heldchange': ('crit', 'Held — changed since approval'),
+    'posted':     ('ok', 'Posted'),
+    'updating':   ('acc', 'Approved change — updating the post'),
+    'changed':    ('warn', 'Changed since posting — approve to update the post'),
+    'skipped':    ('', 'Skipped'),
+}
+
+
+def _aware(moment: datetime | None) -> datetime | None:
+    """Naive datetimes in this codebase are UTC; make one comparable."""
+    if moment is None:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def drop_state(row: dict | None, *, current_hash: str, due: datetime | None,
+               now: datetime, channel: str | None = 'set') -> dict:
+    """What one drop is doing, and what the posting loop should do about it.
+
+    `row` is the drop's `cp_drops` row (None when nothing was ever decided);
+    `current_hash` is `approval_hash()` of what it would post now; `due` is
+    when it goes out (aware UTC, from `drop_times()`); `channel` is where it
+    would go, or None when there is nowhere.
+
+    An approval is for one version **at one time**: the hash and the due time
+    are stored together, so moving the op date — which moves every drop not
+    yet posted — asks for approval again even when the words are unchanged.
+    A posted drop no longer cares about its time; only a change to what it
+    says matters, and an approved change edits the posted messages.
+
+    `action` is `post`, `edit`, `ping` or None.
+    """
+    row = row or {}
+    due, now = _aware(due), _aware(now)
+    approved_hash = row.get('approved_hash')
+    action = None
+
+    if row.get('skipped'):
+        key = 'skipped'
+    elif row.get('posted_at'):
+        if approved_hash == current_hash == row.get('posted_hash'):
+            key = 'posted'
+        elif approved_hash == current_hash:
+            key, action = 'updating', 'edit'
+        else:
+            key = 'changed'
+    elif due is None:
+        key = 'nodate'
+    else:
+        valid = (approved_hash == current_hash
+                 and _aware(row.get('due_at')) == due)
+        is_due = due <= now
+        if valid and is_due:
+            key, action = ('posting', 'post') if channel else ('nochannel', None)
+        elif valid:
+            key = 'approved'
+        elif is_due:
+            key = 'heldchange' if approved_hash else 'held'
+            if not row.get('held_pinged_at') and now - due <= HOLD_PING_WINDOW:
+                action = 'ping'
+        else:
+            key = 'reapprove' if approved_hash else 'unapproved'
+
+    tone, label = DROP_STATES[key]
+    return {'key': key, 'tone': tone, 'label': label, 'action': action,
+            'approved': key in ('approved', 'posting', 'nochannel', 'posted', 'updating'),
+            'posted': bool(row.get('posted_at')) and not row.get('skipped'),
+            'can_approve': key in ('unapproved', 'reapprove', 'held', 'heldchange',
+                                   'changed', 'nochannel'),
+            'can_unapprove': key in ('approved', 'nochannel'),
+            'can_skip': key not in ('posted', 'updating', 'changed', 'skipped', 'posting')}
+
+
+def drop_channel(settings: dict, is_test: bool) -> str | None:
+    """Where a campaign's drops go. A test campaign's drops never post
+    publicly: they go to the mission team channel, or nowhere."""
+    return settings.get('team_channel_id') if is_test else settings.get('drop_channel_id')
+
+
+def operation_running(operation: dict | None, now: datetime) -> bool:
+    """Whether an active operation is still to be played (or being played).
+    Starting a mission's sign-ups must never replace one that is."""
+    if operation is None:
+        return False
+    start = _aware(operation.get('event_time'))
+    if start is None:
+        return True
+    return start + OPERATION_OVER_AFTER > _aware(now)
+
+
+def h_hour_utc(mission: dict, settings: dict, guild_tz: str | None = None) -> datetime | None:
+    """The op's start as naive UTC — what an operation's `event_time` holds."""
+    moment = to_utc(mission.get('op_date'), mission.get('h_hour'),
+                    mission_tz(mission, settings, guild_tz))
+    return moment.replace(tzinfo=None) if moment else None
+
+
+def image_groups(sizes: list[int], *, limit_bytes: int, per_message: int = 10) -> list[list[int]]:
+    """Image indexes grouped into messages Discord will take: at most
+    `per_message` files and `limit_bytes` in all per message. An image over
+    the limit on its own still gets a message of its own, where Discord's
+    refusal names it rather than taking a whole drop down."""
+    groups: list[list[int]] = []
+    current: list[int] = []
+    total = 0
+    for i, size in enumerate(sizes):
+        if current and (len(current) >= per_message or total + size > limit_bytes):
+            groups.append(current)
+            current, total = [], 0
+        current.append(i)
+        total += size
+    if current:
+        groups.append(current)
+    return groups
+
+
+# ---------------------------------------------------------------------------
 # Consistency checks
 # ---------------------------------------------------------------------------
 

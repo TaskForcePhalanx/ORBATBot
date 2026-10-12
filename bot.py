@@ -113,6 +113,13 @@ class ORBATBot(commands.Bot):
             traceback.print_exc()
 
         try:
+            await self.load_extension('cogs.campaigns')
+            print("✅ Loaded cogs.campaigns")
+        except Exception:
+            print("❌ Failed to load cogs.campaigns:")
+            traceback.print_exc()
+
+        try:
             await self.load_extension('cogs.killtracker')
             print("✅ Loaded cogs.killtracker")
         except Exception:

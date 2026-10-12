@@ -1197,3 +1197,13 @@ textarea.cppost { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace
 .cppacklinks { display: flex; gap: 6px; }
 .cppacklinks .button { padding: 4px 10px; font-size: 14px; }
 .cppackdesc { grid-column: 1 / -1; font-size: 13px; }
+
+/* Drops and approvals (campaign planner, milestone 4) */
+.button.small { padding: 5px 11px; font-size: 13px; }
+form.inline { display: inline; margin: 0; }
+.cpdropbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cpdropbar > .muted { flex: 1 1 220px; }
+details.panel > summary .cpstatus { margin-left: 8px; font-size: 13px; font-weight: 600; }
+.cpsignups { margin: 6px 0 14px; }
+.cpsignups .inlineform { margin-top: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cpdropstate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 10px; }

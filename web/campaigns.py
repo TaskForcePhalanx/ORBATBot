@@ -12,6 +12,7 @@ calls and shapes the answers for a template or for the wizard's JSON. A
 
 from datetime import date, datetime, timedelta
 
+from cogs.campaigns import mission_drops, post_context
 from utils import campaign as rules
 from utils import database
 from web.guilds import mentionable_roles, postable_channels
@@ -162,13 +163,20 @@ def _deleted_note(name: str, outcome: dict) -> str:
     return f'Deleted {name}, its missions and images. Nothing of it is left.'
 
 
-async def delete_campaign(campaign: dict) -> str:
-    return _deleted_note(campaign['name'], await database.delete_cp_campaign(campaign['id']))
+async def delete_campaign(bot, campaign: dict) -> str:
+    posted = bool(await database.cp_posted_messages(campaign_id=campaign['id']))
+    if campaign['is_test']:
+        await clear_test_posts(bot, campaign_id=campaign['id'])
+    note = _deleted_note(campaign['name'], await database.delete_cp_campaign(campaign['id']))
+    if posted and not campaign['is_test']:
+        note += ' The drops it posted stay in Discord.'
+    return note
 
 
-async def delete_test_campaigns(guild) -> str:
+async def delete_test_campaigns(bot, guild) -> str:
     ids = await database.test_cp_campaign_ids(str(guild.id))
     for campaign_id in ids:
+        await clear_test_posts(bot, campaign_id=campaign_id)
         await database.delete_cp_campaign(campaign_id)
     if not ids:
         return 'There were no test campaigns to delete.'
@@ -176,10 +184,12 @@ async def delete_test_campaigns(guild) -> str:
             'everything in them. Nothing of them is left.')
 
 
-async def make_real(campaign: dict, member) -> str:
+async def make_real(bot, campaign: dict, member) -> str:
+    # What it posted as a test goes; as a real campaign every drop starts again.
+    await clear_test_posts(bot, campaign_id=campaign['id'])
     kt_name = await database.make_cp_campaign_real(campaign['id'], member.display_name)
     return (f"{campaign['name']} is a real campaign now, linked to the Kill Tracker "
-            f'campaign {kt_name}.')
+            f'campaign {kt_name}. Its drops need approving again, and now post publicly.')
 
 
 # ---------------------------------------------------------------------------
@@ -260,11 +270,32 @@ def _jsonable_item(item: dict) -> dict:
     return out
 
 
-async def post_context(guild_id: str, plan: dict, tz: str) -> rules.PostContext:
-    channels = await database.get_guild_channels(guild_id)
-    orbat = channels.get('orbat')
-    return rules.PostContext(settings=plan, guild_tz=tz,
-                             orbat_channel=f'<#{orbat}>' if orbat else '#orbat')
+def _when(moment) -> dict | None:
+    """A stored (naive UTC) or computed (aware) time, for the page and JSON."""
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        from datetime import timezone
+        moment = moment.replace(tzinfo=timezone.utc)
+    return {'iso': moment.isoformat(), 'ts': int(moment.timestamp())}
+
+
+def _drop_json(drop: dict, tz: str) -> dict:
+    """One drop as the page and the wizard see it: the text and its parts, and
+    what the posting loop is going to do with it."""
+    row = drop['row'] or {}
+    return {
+        'key': drop['key'], 'label': drop['label'], 'step': drop['step'],
+        'text': drop['text'], 'chars': drop['chars'], 'parts': drop['parts'],
+        'images': drop['images'], 'due': _when(drop['due']), 'hash': drop['hash'],
+        'due_label': (rules.date_label(drop['due'].astimezone(rules.zone(tz)).date()) + ' '
+                      + drop['due'].astimezone(rules.zone(tz)).strftime('%H:%M')
+                      if drop['due'] else ''),
+        'state': drop['state'],
+        'approved_by': row.get('approved_by_name'), 'approved_at': _when(row.get('approved_at')),
+        'posted_at': _when(row.get('posted_at')), 'skipped_by': row.get('skipped_by_name'),
+        'pinged_at': _when(row.get('held_pinged_at')),
+    }
 
 
 async def mission_state(guild, mission: dict, tz: str) -> dict:
@@ -273,20 +304,23 @@ async def mission_state(guild, mission: dict, tz: str) -> dict:
     wizard (as JSON) and the schedule page (as a template), so they cannot
     disagree."""
     plan = await settings(guild.id)
-    phases = await database.get_cp_phases(mission['id'])
-    data = {**mission['fields'], 'phases': phases}
+    campaign = await database.get_cp_campaign(mission['campaign_id'])
+    is_test = bool(campaign and campaign['is_test'])
+    worked = await mission_drops(str(guild.id), mission, is_test=is_test, plan=plan, tz=tz)
+    data = worked['data']
+    phases = data['phases']
     ctx = await post_context(str(guild.id), plan, tz)
     today = today_in(tz)
-
-    drops = []
-    for drop in rules.DROPS:
-        body = rules.build_post(data, drop.key, ctx)
-        parts = rules.split_message(body)
-        drops.append({'key': drop.key, 'label': drop.label, 'step': drop.step,
-                      'text': body, 'chars': len(body), 'parts': parts,
-                      'images': rules.drop_images(data, drop.key)})
+    drops = [_drop_json(d, tz) for d in worked['drops']]
 
     schedule = rules.schedule(data, plan, today, tz)
+    # Layer each drop's state over the schedule, which only knows readiness.
+    by_key = {d['key']: d for d in drops}
+    for item in schedule:
+        if item['kind'] == 'drop':
+            st = by_key[item['key']]['state']
+            if st['key'] not in ('unapproved', 'nodate'):
+                item['status'] = (st['tone'], st['label'])
     image_meta = await database.cp_image_meta(mission['campaign_id'],
                                               rules.image_ids(mission['fields']))
     return {
@@ -306,7 +340,11 @@ async def mission_state(guild, mission: dict, tz: str) -> dict:
         'tz': tz,
         'settings': {'drop_weekday': rules.WEEKDAYS[plan['drop_weekday']],
                      'drop_time': plan['drop_time'],
-                     'orbat_opens': rules.DROP[plan['orbat_opens']].label},
+                     'orbat_opens': rules.DROP[plan['orbat_opens']].label,
+                     'channel_set': bool(worked['channel'])},
+        'is_test': is_test,
+        'operation_id': mission.get('operation_id'),
+        'orbat_id': mission.get('orbat_id'),
     }
 
 
@@ -367,6 +405,107 @@ async def schedule_page(guild, mission: dict, tz: str) -> dict:
     return {'campaign': campaign, 'mission': mission, 'state': state,
             'orbat': await orbat_panel(guild, mission), 'packs': rules.PACKS,
             'steps': {s.key: s for s in rules.STEPS}}
+
+
+# ---------------------------------------------------------------------------
+# Drops: approve, unapprove, skip — and sign-ups (milestone 4)
+# ---------------------------------------------------------------------------
+
+DROP_ACTIONS = ('approve', 'unapprove', 'skip', 'unskip')
+
+
+async def drop_action(bot, guild, mission: dict, kind: str, action: str, member,
+                      seen_hash: str | None = None) -> str:
+    """Approve, unapprove, skip or un-skip one drop, then let the posting loop
+    act at once — so a held drop goes out the moment it is approved instead of
+    at the next minute.
+
+    `seen_hash` is the version the person was looking at. Approving is
+    refused when the drop has changed since (somebody else saved meanwhile),
+    because an approval is a statement about the words somebody read.
+    """
+    if kind not in rules.DROP or action not in DROP_ACTIONS:
+        raise NotFound('No such drop.')
+    campaign = await database.get_cp_campaign(mission['campaign_id'])
+    if campaign and campaign['status'] == 'archived' and action in ('approve', 'unskip'):
+        raise ValueError('This campaign is archived, so nothing in it posts. Set it back '
+                         'to active on the campaign page first.')
+    worked = await mission_drops(str(guild.id), mission,
+                                 is_test=bool(campaign and campaign['is_test']))
+    drop = next(d for d in worked['drops'] if d['key'] == kind)
+    state = drop['state']
+    label = drop['label']
+
+    if action == 'approve':
+        if not state['can_approve']:
+            raise ValueError(f"{label} has nothing to approve ({state['label'].lower()}).")
+        if seen_hash and seen_hash != drop['hash']:
+            raise ValueError(f'{label} changed while you were reading it. Read it again, '
+                             'then approve.')
+        if drop['due'] is None:
+            raise ValueError('Set the op date first: an approval is for a time as well as words.')
+        await database.approve_cp_drop(mission['id'], kind, drop['hash'],
+                                       drop['due'].replace(tzinfo=None),
+                                       str(member.id), member.display_name)
+        note = f'Approved {label}.'
+    elif action == 'unapprove':
+        if not state['can_unapprove']:
+            raise ValueError(f'{label} is not waiting to post, so there is nothing to withdraw.')
+        await database.unapprove_cp_drop(mission['id'], kind)
+        return f'Withdrew the approval of {label}. It will not post until approved again.'
+    elif action == 'skip':
+        if not state['can_skip']:
+            raise ValueError(f"{label} can't be skipped now ({state['label'].lower()}).")
+        await database.skip_cp_drop(mission['id'], kind, member.display_name, True)
+        return f'{label} will not be posted by the bot.'
+    else:
+        await database.skip_cp_drop(mission['id'], kind, member.display_name, False)
+        return f'{label} is back in the schedule. It still needs approving.'
+
+    cog = bot.get_cog('CampaignsCog') if bot else None
+    done = []
+    if cog is not None:
+        try:
+            done = await cog.process_mission_id(mission['id'])
+        except Exception as e:      # the loop retries; the approval stands
+            print(f"⚠️ campaigns: processing after approval failed: {e!r}")
+    if any(line.startswith(('posted', 'updated')) for line in done):
+        note += ' ' + ' '.join(line[0].upper() + line[1:] + ('' if line.endswith('.') else '.')
+                               for line in done)
+    elif cog is not None and (mission['id'], kind) in getattr(cog, '_failed', {}):
+        note += (' It is due, but posting failed — the mission team channel says why. '
+                 'I will try again in half an hour.')
+    elif not worked['channel']:
+        note += (' There is no channel to post it in yet — set one in Campaigns → Settings.')
+    elif drop['due'] > datetime.now(drop['due'].tzinfo):
+        local = drop['due'].astimezone(rules.zone(worked['tz']))
+        note += f" It posts {rules.date_label(local.date())} at {local:%H:%M}."
+    return note
+
+
+async def start_signups_now(bot, guild, mission: dict) -> str:
+    """The planner's "Start sign-ups now" button — the same rules as the
+    automatic start at the opening drop."""
+    from cogs.campaigns import start_signups
+    campaign = await database.get_cp_campaign(mission['campaign_id'])
+    plan = await settings(guild.id)
+    tz = await database.get_guild_timezone(str(guild.id))
+    started, note = await start_signups(bot, mission, plan, tz,
+                                        is_test=bool(campaign and campaign['is_test']))
+    if not started:
+        raise ValueError(note)
+    return note
+
+
+async def clear_test_posts(bot, *, campaign_id=None, mission_id=None) -> int:
+    """Delete the drop messages a test campaign posted in the team channel —
+    part of leaving no trace. Real campaigns' posts stay: they are the public
+    record, and partner servers may have followed them."""
+    from cogs.campaigns import delete_messages
+    pairs = await database.cp_posted_messages(campaign_id=campaign_id, mission_id=mission_id)
+    if not pairs or bot is None:
+        return 0
+    return await delete_messages(bot, pairs)
 
 
 # ---------------------------------------------------------------------------

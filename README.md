@@ -170,7 +170,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
 
-**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs)
+**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs) · [Approve and post the drops](#approve-and-post-the-drops)
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
@@ -819,7 +819,7 @@ Six steps from concept to after action, saved as you type, with each drop previe
 2. Fill in the step. Fields marked * are needed to lock it; the step's chip turns into 🔒 when they are all filled.
 3. Watch the panel on the right: the **drop preview** is exactly what the bot will post, and **Checks** flags mistakes as you go.
 4. In **Orders**, add the phases in order. Give each its AO and press **+ Add objective** to pick from the objectives library.
-5. Until automatic posting arrives, copy each drop into the drop channel with **Copy**, or from the mission's **Schedule & all drops** page.
+5. When a drop reads right, press **Approve** under its preview. It posts by itself at its time — see *Approve and post the drops*.
 
 > Everything saves a moment after you stop typing — the top right says when. Leave the page while a save is pending and the browser asks first.
 >
@@ -835,7 +835,7 @@ Six steps from concept to after action, saved as you type, with each drop previe
 >
 > The wizard needs JavaScript. The **Schedule** page shows the mission, its drops and checks without it.
 
-See also: [Plan a campaign](#plan-a-campaign) · [Use and edit the objectives library](#use-and-edit-the-objectives-library)
+See also: [Plan a campaign](#plan-a-campaign) · [Approve and post the drops](#approve-and-post-the-drops) · [Use and edit the objectives library](#use-and-edit-the-objectives-library)
 
 #### Use and edit the objectives library
 
@@ -895,6 +895,30 @@ The mission as a PDF or Word file, in three versions for three audiences.
 > Each download is made from what is saved at that moment, so download again after an edit.
 
 See also: [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Write a mission in the wizard](#write-a-mission-in-the-wizard)
+
+#### Approve and post the drops
+
+**Who:** Admin, or Unit Leader with the unit role · **Where:** Web — a mission's **Schedule** page → **Drops**, or the drop preview in the wizard
+
+Each drop posts by itself at its time once somebody has approved it.
+
+1. Open the mission's **Schedule** page and open a drop, or look at the preview beside a step in the wizard.
+2. Read it, then press **Approve**. If its time has already come it posts at once; otherwise it shows **Approved** and posts on the day.
+3. Changed your mind before it posts? **Withdraw approval**. A drop you will not use at all, or posted by hand, gets **Don't post**.
+
+> An approval is for exactly the words and images you read, at that time. Edit the drop afterwards, or move the op date, and it says **Needs re-approval** and will not post until somebody approves it again.
+>
+> A drop whose time comes without an approval is **Held**: the mission team channel is pinged once, and it posts the minute it is approved.
+>
+> Approving a change to a drop that already posted edits the posted message in place, Part 1/2 and images included.
+>
+> When the drop that opens the ORBAT posts, sign-ups start by themselves on the mission's ORBAT, with H-Hour as the start time. They never replace an operation that is still to be played: then the team channel is told, and **Start sign-ups now** on the Schedule page does it once that one is over.
+>
+> A test campaign's drops go to the mission team channel only, never start sign-ups, and are deleted from Discord with the campaign. A real campaign's posted drops stay in Discord when it is deleted.
+>
+> Set the drop channel and the mission team channel in **Campaigns → Settings** — nothing posts without them.
+
+See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Set up the campaign planner](#set-up-the-campaign-planner) · [Give a mission its ORBAT](#give-a-mission-its-orbat)
 
 ### Reddit announcements
 

@@ -1742,7 +1742,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     async def campaigns_delete_tests(request: Request, guild_id: str):
         context = await planner_context(request, guild_id)
         await planner_form(request, context)
-        note = await campaign_service.delete_test_campaigns(context['guild'])
+        note = await campaign_service.delete_test_campaigns(bot, context['guild'])
         return redirect(request, campaign_url(guild_id), 'ok', note)
 
     @app.get('/g/{guild_id}/campaigns/objectives', response_class=HTMLResponse)
@@ -1828,7 +1828,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
                 and str(form.get('confirm_name') or '').strip().lower() != name.lower()):
             return redirect(request, campaign_url(guild_id, campaign_id), 'warn',
                             f'Type the campaign name ({name}) to delete it.')
-        note = await campaign_service.delete_campaign(context['campaign'])
+        note = await campaign_service.delete_campaign(bot, context['campaign'])
         return redirect(request, campaign_url(guild_id), 'ok', note)
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/make-real')
@@ -1837,7 +1837,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         await planner_form(request, context)
         if not context['campaign']['is_test']:
             return redirect(request, campaign_url(guild_id, campaign_id))
-        note = await campaign_service.make_real(context['campaign'], context['member'])
+        note = await campaign_service.make_real(bot, context['campaign'], context['member'])
         return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/aos')
@@ -1944,9 +1944,45 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     async def mission_delete(request: Request, guild_id: str, campaign_id: int, mission_id: int):
         context = await mission_ctx(request, guild_id, mission_id, campaign_id)
         await planner_form(request, context)
+        campaign = await database.get_cp_campaign(campaign_id)
+        if campaign and campaign['is_test']:
+            await campaign_service.clear_test_posts(bot, mission_id=mission_id)
         await database.delete_cp_mission(mission_id, campaign_id)
         return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
                         f"Deleted {context['mission']['name']}.")
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/drops/{kind}/{action}')
+    async def mission_drop_action(request: Request, guild_id: str, campaign_id: int,
+                                  mission_id: int, kind: str, action: str):
+        """Approve, unapprove, skip or un-skip a drop from the schedule page —
+        the form twin of the wizard's API call below."""
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        form = await planner_form(request, context)
+        url = campaign_url(guild_id, campaign_id, f'/missions/{mission_id}/schedule')
+        try:
+            note = await campaign_service.drop_action(
+                bot, context['guild'], context['mission'], kind, action, context['member'],
+                form.get('hash') or None)
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        except ValueError as e:
+            return redirect(request, url + f'#drop-{kind}', 'warn', str(e))
+        return redirect(request, url + f'#drop-{kind}', 'ok', note)
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/signups')
+    async def mission_signups(request: Request, guild_id: str, campaign_id: int,
+                              mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        form = await planner_form(request, context)
+        url = campaign_url(guild_id, campaign_id, f'/missions/{mission_id}')
+        if form.get('back') == 'schedule':
+            url += '/schedule'
+        try:
+            note = await campaign_service.start_signups_now(bot, context['guild'],
+                                                            context['mission'])
+        except ValueError as e:
+            return redirect(request, url, 'warn', str(e))
+        return redirect(request, url, 'ok', note)
 
     # -- the wizard's JSON --------------------------------------------------
 
@@ -1976,6 +2012,30 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         except ValueError as e:
             return api_error(str(e))
         return JSONResponse({'ok': True, 'state': state})
+
+    @app.post('/g/{guild_id}/cp/api/missions/{mission_id}/drops/{kind}/{action}')
+    async def cp_api_drop(request: Request, guild_id: str, mission_id: int, kind: str,
+                          action: str):
+        """approve / unapprove / skip / unskip one drop; answers with the
+        recomputed state and a note to show."""
+        context = await mission_ctx(request, guild_id, mission_id)
+        auth.check_csrf(context['session'], request.headers.get('x-csrf-token'))
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        seen = payload.get('hash') if isinstance(payload, dict) else None
+        try:
+            note = await campaign_service.drop_action(
+                bot, context['guild'], context['mission'], kind, action, context['member'],
+                seen if isinstance(seen, str) else None)
+        except campaign_service.NotFound as e:
+            return api_error(str(e), 404)
+        except ValueError as e:
+            return api_error(str(e))
+        fresh = await database.get_cp_mission(mission_id)
+        state = await campaign_service.mission_state(context['guild'], fresh, context['tz'])
+        return JSONResponse({'ok': True, 'note': note, 'state': state})
 
     @app.post('/g/{guild_id}/cp/api/images')
     async def cp_api_image(request: Request, guild_id: str):

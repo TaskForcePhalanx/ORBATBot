@@ -515,3 +515,96 @@ def test_export_filename():
     assert cp.export_filename({'name': 'Iron Gate / 2'}, 'leaders', 'pdf') == \
         'Iron_Gate_2_Leaders_Pack.pdf'
     assert cp.export_filename({}, 'full', 'docx') == 'op_Op_File.docx'
+
+
+# -- drop state (milestone 4) -------------------------------------------------
+
+from datetime import timedelta  # noqa: E402
+
+DUE = datetime(2026, 10, 21, 17, 0, tzinfo=timezone.utc)
+NAIVE_DUE = DUE.replace(tzinfo=None)
+
+
+def state(row, *, h='abc', due=DUE, now=None, channel='1'):
+    return cp.drop_state(row, current_hash=h, due=due,
+                         now=now or DUE - timedelta(days=1), channel=channel)
+
+
+def test_nothing_decided_is_unapproved_then_held_and_pinged_once():
+    assert state(None)['key'] == 'unapproved'
+    held = state(None, now=DUE + timedelta(minutes=1))
+    assert (held['key'], held['action']) == ('held', 'ping')
+    pinged = state({'held_pinged_at': DUE}, now=DUE + timedelta(minutes=2))
+    assert (pinged['key'], pinged['action']) == ('held', None)
+
+
+def test_an_old_hold_shows_but_does_not_ping():
+    late = state(None, now=DUE + cp.HOLD_PING_WINDOW + timedelta(minutes=1))
+    assert (late['key'], late['action']) == ('held', None)
+
+
+def test_an_approval_is_for_one_version_at_one_time():
+    row = {'approved_hash': 'abc', 'due_at': NAIVE_DUE}
+    assert state(row)['key'] == 'approved'
+    assert state(row, h='xyz')['key'] == 'reapprove'
+    moved = state(row, due=DUE + timedelta(days=7))
+    assert moved['key'] == 'reapprove'          # op date moved: approve again
+    due = state(row, now=DUE)
+    assert (due['key'], due['action']) == ('posting', 'post')
+    changed = state(row, h='xyz', now=DUE + timedelta(minutes=1))
+    assert (changed['key'], changed['action']) == ('heldchange', 'ping')
+
+
+def test_nowhere_to_post_is_said_rather_than_posted():
+    row = {'approved_hash': 'abc', 'due_at': NAIVE_DUE}
+    out = state(row, now=DUE, channel=None)
+    assert (out['key'], out['action']) == ('nochannel', None)
+
+
+def test_after_posting_only_an_approved_change_edits():
+    row = {'approved_hash': 'abc', 'posted_hash': 'abc', 'posted_at': NAIVE_DUE,
+           'due_at': NAIVE_DUE}
+    assert state(row, now=DUE + timedelta(days=9))['key'] == 'posted'
+    assert state(row, h='xyz')['key'] == 'changed'
+    assert state(row, h='xyz')['action'] is None
+    edit = state({**row, 'approved_hash': 'xyz'}, h='xyz', due=DUE + timedelta(days=7))
+    assert (edit['key'], edit['action']) == ('updating', 'edit')
+
+
+def test_a_skipped_drop_stays_skipped():
+    out = state({'skipped': 1, 'posted_at': NAIVE_DUE}, now=DUE + timedelta(hours=1))
+    assert (out['key'], out['action'], out['posted']) == ('skipped', None, False)
+
+
+def test_no_date_no_state():
+    assert state(None, due=None)['key'] == 'nodate'
+
+
+def test_test_campaign_drops_go_to_the_team_channel_only():
+    plan = {**SETTINGS, 'drop_channel_id': '601', 'team_channel_id': '602'}
+    assert cp.drop_channel(plan, False) == '601'
+    assert cp.drop_channel(plan, True) == '602'
+    assert cp.drop_channel({**plan, 'team_channel_id': None}, True) is None
+
+
+def test_operation_running():
+    now = datetime(2026, 10, 21, 12, tzinfo=timezone.utc)
+    assert not cp.operation_running(None, now)
+    assert cp.operation_running({'event_time': None}, now)
+    assert cp.operation_running({'event_time': datetime(2026, 10, 24, 18)}, now)
+    assert cp.operation_running({'event_time': datetime(2026, 10, 21, 8)}, now)
+    assert not cp.operation_running({'event_time': datetime(2026, 10, 20, 18)}, now)
+
+
+def test_h_hour_is_naive_utc_in_the_mission_zone():
+    m = full_mission()            # 20:15 Berlin, 14 Nov (CET, UTC+1)
+    assert cp.h_hour_utc(m, SETTINGS) == datetime(2026, 11, 14, 19, 15)
+    assert cp.h_hour_utc(full_mission(h_hour=''), SETTINGS) is None
+
+
+def test_image_groups():
+    mb = 1024 * 1024
+    assert cp.image_groups([], limit_bytes=10 * mb) == []
+    assert cp.image_groups([mb] * 12, limit_bytes=100 * mb) == [list(range(10)), [10, 11]]
+    assert cp.image_groups([6 * mb, 6 * mb, mb], limit_bytes=10 * mb) == [[0], [1, 2]]
+    assert cp.image_groups([20 * mb], limit_bytes=10 * mb) == [[0]]
