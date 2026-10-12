@@ -1175,3 +1175,11 @@ textarea.cppost { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace
 .cpfielderr { color: var(--err); font-size: 14px; margin: 6px 0 0; }
 .cpaddao { display: flex; gap: 8px; margin-top: 10px; }
 .cpaddao button, .cpao button { white-space: nowrap; }
+
+.testchip { border-color: var(--warn); color: var(--warn); }
+.cptestbar, .cptestbanner {
+  display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+}
+.cptestbar { background: var(--panel); border: 1px dashed var(--warn); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
+.cptestactions { display: flex; gap: 8px; }
+.cptestactions form { margin: 0; }

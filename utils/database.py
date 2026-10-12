@@ -738,7 +738,9 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
             summary TEXT NOT NULL DEFAULT '',
             planned_missions INTEGER NOT NULL DEFAULT 4,
             status TEXT NOT NULL DEFAULT 'active',
+            is_test BOOLEAN NOT NULL DEFAULT FALSE,
             kt_campaign_id INTEGER REFERENCES kt_campaigns(id) ON DELETE SET NULL,
+            kt_created BOOLEAN NOT NULL DEFAULT FALSE,
             map_id INTEGER REFERENCES tac_maps(id) ON DELETE SET NULL,
             created_by TEXT,
             created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
@@ -751,7 +753,14 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
     for column, definition in (('era', "TEXT NOT NULL DEFAULT ''"),
                                ('theatre', "TEXT NOT NULL DEFAULT ''"),
                                ('planned_missions', 'INTEGER NOT NULL DEFAULT 4'),
-                               ('status', "TEXT NOT NULL DEFAULT 'active'")):
+                               ('status', "TEXT NOT NULL DEFAULT 'active'"),
+                               # A test campaign has no Kill Tracker campaign and,
+                               # from milestone 4, never posts publicly.
+                               ('is_test', 'BOOLEAN NOT NULL DEFAULT FALSE'),
+                               # Whether the planner made its Kill Tracker campaign
+                               # (rather than linking one that existed) — the only
+                               # kind a delete may take with it.
+                               ('kt_created', 'BOOLEAN NOT NULL DEFAULT FALSE')):
         await db.execute(
             f'ALTER TABLE cp_campaigns ADD COLUMN IF NOT EXISTS {column} {definition}')
     await db.execute('ALTER TABLE cp_campaigns DROP COLUMN IF EXISTS archived')
@@ -1900,30 +1909,57 @@ async def get_cp_campaign(campaign_id: int):
     return dict(row) if row else None
 
 
-async def create_cp_campaign(guild_id: str, values: dict, user_id: str, user_name: str) -> int:
-    """A new campaign, linked to the Kill Tracker campaign of the same name —
-    found when one exists (names are unique regardless of case), created
-    when it does not. Raises ValueError when the guild already has a planner
-    campaign of that name."""
+async def _link_kt_campaign(db, name: str, user_name: str) -> tuple:
+    """(kt id, created) — the Kill Tracker campaign of this name, created when
+    there is none. `created` is what lets a later delete take it along."""
+    created = await db.fetchval(
+        """INSERT INTO kt_campaigns (name, updated_by_name) VALUES ($1, $2)
+           ON CONFLICT ((lower(name))) DO NOTHING RETURNING id""", name, user_name)
+    if created:
+        return created, True
+    return await db.fetchval(
+        'SELECT id FROM kt_campaigns WHERE lower(name) = lower($1)', name), False
+
+
+async def create_cp_campaign(guild_id: str, values: dict, user_id: str, user_name: str,
+                             is_test: bool = False) -> int:
+    """A new campaign. A real one is linked to the Kill Tracker campaign of the
+    same name — found when one exists (names are unique regardless of case),
+    created when it does not. A test campaign gets none, so nothing about it
+    reaches the public dashboard. Raises ValueError when the guild already has
+    a planner campaign of that name."""
     pool = await get_pool()
     async with pool.acquire() as db:
         async with db.transaction():
-            await db.execute(
-                """INSERT INTO kt_campaigns (name, updated_by_name) VALUES ($1, $2)
-                   ON CONFLICT ((lower(name))) DO NOTHING""", values['name'], user_name)
-            kt_id = await db.fetchval(
-                'SELECT id FROM kt_campaigns WHERE lower(name) = lower($1)', values['name'])
+            kt_id, kt_created = (None, False) if is_test else \
+                await _link_kt_campaign(db, values['name'], user_name)
             try:
                 return await db.fetchval(
                     """INSERT INTO cp_campaigns
                          (guild_id, name, era, theatre, summary, planned_missions, status,
-                          kt_campaign_id, created_by, updated_by_name)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id""",
+                          is_test, kt_campaign_id, kt_created, created_by, updated_by_name)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id""",
                     guild_id, values['name'], values['era'], values['theatre'],
                     values['summary'], values['planned_missions'], values['status'],
-                    kt_id, user_id, user_name)
+                    is_test, kt_id, kt_created, user_id, user_name)
             except asyncpg.UniqueViolationError:
                 raise ValueError(f"There's already a campaign called {values['name']}.")
+
+
+async def make_cp_campaign_real(campaign_id: int, user_name: str) -> str:
+    """Turn a test campaign into a real one: it gets its Kill Tracker campaign
+    now, exactly as if it had been created real. Returns that campaign's name."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            name = await db.fetchval('SELECT name FROM cp_campaigns WHERE id = $1 FOR UPDATE',
+                                     campaign_id)
+            kt_id, kt_created = await _link_kt_campaign(db, name, user_name)
+            await db.execute(
+                """UPDATE cp_campaigns SET is_test = FALSE, kt_campaign_id = $2, kt_created = $3,
+                       updated_by_name = $4, updated_at = (NOW() AT TIME ZONE 'UTC')
+                    WHERE id = $1""", campaign_id, kt_id, kt_created, user_name)
+            return name
 
 
 async def update_cp_campaign(campaign_id: int, values: dict, user_name: str):
@@ -1940,12 +1976,46 @@ async def update_cp_campaign(campaign_id: int, values: dict, user_name: str):
             raise ValueError(f"There's already a campaign called {values.get('name')}.")
 
 
-async def delete_cp_campaign(campaign_id: int):
-    """Deletes the campaign, its AOs, missions, phases and images. The Kill
-    Tracker campaign it was linked to is left alone — its stats are public."""
+async def delete_cp_campaign(campaign_id: int) -> dict:
+    """Deletes the campaign with every AO, mission, phase, objective, drop and
+    image in it (they cascade). Returns what happened to its Kill Tracker
+    campaign: `{'kt_removed': name}` when that went too, `{'kt_kept': name}`
+    when it stayed, or `{}` when there was none.
+
+    The Kill Tracker campaign goes only when it is provably a leftover: the
+    planner created it (`kt_created`), no recording has been put in it, it has
+    no name patterns or imported missions, and no other planner campaign points
+    at it. One an admin made, or one holding stats, is always kept — those
+    numbers are public.
+    """
     pool = await get_pool()
     async with pool.acquire() as db:
-        await db.execute('DELETE FROM cp_campaigns WHERE id = $1', campaign_id)
+        async with db.transaction():
+            row = await db.fetchrow(
+                """SELECT c.kt_campaign_id, c.kt_created, k.name AS kt_name,
+                          (k.patterns = '[]' AND k.extra_missions = '[]'
+                           AND NOT EXISTS (SELECT 1 FROM kt_campaign_missions m
+                                            WHERE m.campaign_id = k.id)
+                           AND NOT EXISTS (SELECT 1 FROM cp_campaigns o
+                                            WHERE o.kt_campaign_id = k.id AND o.id <> c.id))
+                            AS kt_empty
+                     FROM cp_campaigns c LEFT JOIN kt_campaigns k ON k.id = c.kt_campaign_id
+                    WHERE c.id = $1 FOR UPDATE OF c""", campaign_id)
+            await db.execute('DELETE FROM cp_campaigns WHERE id = $1', campaign_id)
+            if not row or not row['kt_name']:
+                return {}
+            if row['kt_created'] and row['kt_empty']:
+                await db.execute('DELETE FROM kt_campaigns WHERE id = $1', row['kt_campaign_id'])
+                return {'kt_removed': row['kt_name']}
+            return {'kt_kept': row['kt_name']}
+
+
+async def test_cp_campaign_ids(guild_id: str) -> list:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT id FROM cp_campaigns WHERE guild_id = $1 AND is_test ORDER BY id', guild_id)
+    return [r['id'] for r in rows]
 
 
 async def touch_cp_campaign(db, campaign_id: int, user_name: str):

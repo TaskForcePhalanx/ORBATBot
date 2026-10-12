@@ -797,9 +797,13 @@ Set up a campaign of three to five missions, its AOs, and the missions in the or
 >
 > The next mission's date is suggested four weeks after the last one, the length of one cycle of drops.
 >
-> Creating a campaign also sets one up in the Kill Tracker under the same name, or links the one that already exists, so stats land in one place. Deleting the planner campaign leaves the Kill Tracker one alone.
+> Creating a real campaign also sets one up in the Kill Tracker under the same name, or links the one that already exists, so stats land in one place.
 >
 > Set the campaign to **Archived** to fold it away on the list without deleting anything.
+>
+> Tick **Test campaign** to try things out. A test campaign is not added to the Kill Tracker and its drops never post publicly. **Delete test campaign** removes it with one press, and **Delete all test campaigns** on the list clears every one — nothing of them is left. **Make it real** keeps a test you want after all.
+>
+> Deleting a real campaign asks you to type its name. Its Kill Tracker campaign goes too if the planner created it and no recordings have been added; one holding stats, or set up in the Kill Tracker by hand, is kept.
 
 See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Set up the campaign planner](#set-up-the-campaign-planner)
 
