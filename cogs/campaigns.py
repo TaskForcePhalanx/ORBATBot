@@ -266,6 +266,39 @@ async def start_signups(bot, mission: dict, plan: dict, tz: str, *, is_test: boo
 
 
 # ---------------------------------------------------------------------------
+# After the op: which OCAP recording is the mission (milestone 6)
+# ---------------------------------------------------------------------------
+
+async def candidate_recordings(op_date) -> list:
+    """The recordings that could be a mission played on `op_date`."""
+    if not op_date:
+        return []
+    day = op_date if not isinstance(op_date, str) else rules.parse_date(op_date)
+    if day is None:
+        return []
+    found = await database.kt_recordings_between(
+        (day - timedelta(days=1)).isoformat(), (day + timedelta(days=1)).isoformat())
+    return rules.recording_candidates(day, found)
+
+
+async def match_recordings(today) -> list[str]:
+    """Link the recording to every mission of the past week that has an
+    unambiguous one (`campaign.auto_recording()`), which also puts it in the
+    campaign's Kill Tracker campaign. A mission somebody already decided for
+    is left alone. The Kill Tracker counts recordings every ten minutes, so a
+    mission is tried again each minute until its recording turns up."""
+    done = []
+    for mission in await database.cp_missions_awaiting_recording(
+            today - timedelta(days=LOOK_BACK_DAYS), today):
+        found = await candidate_recordings(mission['op_date'])
+        ocap_id = rules.auto_recording(mission['op_date'], found)
+        if ocap_id:
+            await database.set_cp_mission_recording(mission['id'], ocap_id, manual=False)
+            done.append(f"linked recording {ocap_id} to mission {mission['id']}")
+    return done
+
+
+# ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
 
@@ -376,6 +409,11 @@ class CampaignsCog(commands.Cog):
                     print(f"✅ campaigns: {line}")
             except Exception as e:
                 print(f"❌ campaigns: mission {mission['id']} failed: {e!r}")
+        try:
+            for line in await match_recordings(today):
+                print(f"✅ campaigns: {line}")
+        except Exception as e:
+            print(f"❌ campaigns: matching recordings failed: {e!r}")
 
     @drops.error
     async def _drops_error(self, error: BaseException):

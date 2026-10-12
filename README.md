@@ -170,7 +170,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
 
-**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs) · [Plan on the campaign and AO maps](#plan-on-the-campaign-and-ao-maps) · [Approve and post the drops](#approve-and-post-the-drops)
+**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs) · [Plan on the campaign and AO maps](#plan-on-the-campaign-and-ao-maps) · [Link the OCAP recording and use its numbers](#link-the-ocap-recording-and-use-its-numbers) · [Approve and post the drops](#approve-and-post-the-drops)
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
@@ -921,6 +921,27 @@ One campaign map with an outline per AO, a detailed map per AO with a layer per 
 > Removing an AO removes its map. Deleting a campaign deletes its maps.
 
 See also: [Plan a campaign](#plan-a-campaign) · [Download the briefing packs](#download-the-briefing-packs) · [Write a mission in the wizard](#write-a-mission-in-the-wizard)
+
+#### Link the OCAP recording and use its numbers
+
+**Who:** Admin, or Unit Leader with the unit role · **Where:** Web — a mission's wizard or **Schedule** page → **OCAP recording**
+
+Which OCAP recording is the mission, so its stats land in the campaign's Kill Tracker campaign and its numbers in the AAR.
+
+1. Play the op. The Kill Tracker reads the recording from OCAP by itself within about ten minutes.
+2. Open the mission. When there is exactly one recording on the op date that is at least half an hour long, the **OCAP recording** card has already linked it and put it in the campaign's Kill Tracker campaign.
+3. If there are several, or the op ran past midnight, open **Choose one** and **Link** the right one.
+4. Press **Use in the AAR stats** to put its numbers — players, length, enemy killed, vehicles, deaths, teamkills, longest kill, most kills — into the AAR's Stats field, then edit them as you like.
+
+> The bot only links a recording by itself in the week after the op, and never one somebody changed or said **None of these** to. **Let the bot choose** hands the choice back.
+>
+> Unlinking, linking another, or deleting the mission takes the recording back out of the Kill Tracker campaign — but only if the planner put it there. One an admin added by hand stays.
+>
+> A test campaign links recordings so you can try the numbers, but adds nothing to the Kill Tracker. **Make it real** adds them then.
+>
+> Zeus is not counted as a player, as on the dashboard.
+
+See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Plan a campaign](#plan-a-campaign)
 
 #### Approve and post the drops
 

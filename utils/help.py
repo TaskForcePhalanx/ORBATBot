@@ -1764,6 +1764,40 @@ _CAMPAIGNS: tuple[Topic, ...] = (
         related=('plan-campaign', 'briefing-packs', 'mission-wizard'),
     ),
     Topic(
+        key='aar-recording',
+        title='Link the OCAP recording and use its numbers',
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — a mission\'s wizard or **Schedule** page → **OCAP recording**',
+        summary="Which OCAP recording is the mission, so its stats land in the campaign's "
+                'Kill Tracker campaign and its numbers in the AAR.',
+        steps=(
+            'Play the op. The Kill Tracker reads the recording from OCAP by itself within '
+            'about ten minutes.',
+            'Open the mission. When there is exactly one recording on the op date that is '
+            'at least half an hour long, the **OCAP recording** card has already linked it '
+            'and put it in the campaign\'s Kill Tracker campaign.',
+            'If there are several, or the op ran past midnight, open **Choose one** and '
+            '**Link** the right one.',
+            'Press **Use in the AAR stats** to put its numbers — players, length, enemy '
+            'killed, vehicles, deaths, teamkills, longest kill, most kills — into the AAR\'s '
+            'Stats field, then edit them as you like.',
+        ),
+        notes=(
+            'The bot only links a recording by itself in the week after the op, and never '
+            'one somebody changed or said **None of these** to. **Let the bot choose** '
+            'hands the choice back.',
+            'Unlinking, linking another, or deleting the mission takes the recording back out '
+            'of the Kill Tracker campaign — but only if the planner put it there. One an '
+            'admin added by hand stays.',
+            'A test campaign links recordings so you can try the numbers, but adds nothing to '
+            'the Kill Tracker. **Make it real** adds them then.',
+            'Zeus is not counted as a player, as on the dashboard.',
+        ),
+        page='campaigns',
+        related=('mission-wizard', 'plan-campaign'),
+    ),
+    Topic(
         key='campaign-drops',
         title='Approve and post the drops',
         group='campaigns',

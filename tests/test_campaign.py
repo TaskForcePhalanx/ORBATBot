@@ -723,3 +723,59 @@ def test_render_can_crop_and_swap_tile_addresses():
     assert 'viewBox="0 0 400 300"' in svg and 'width="800"' in svg
     assert 'data:2-0-0' in svg and 'data:2-1-1' in svg and 'data:2-2-0' not in svg
     assert tacmap.visible_tiles(doc, 1) == [(0, 0), (0, 1), (1, 0), (1, 1)]
+
+
+# -- after action: the recording (milestone 6) --------------------------------
+
+from utils import killtracker  # noqa: E402
+
+
+def rec(ocap_id, played_on, duration=3 * 3600, counted=True, **more):
+    return {'ocap_id': ocap_id, 'played_on': played_on, 'duration': duration,
+            'counted': counted, 'mission': f'M{ocap_id}', **more}
+
+
+def test_candidates_are_the_op_date_and_the_day_either_side():
+    recs = [rec(1, '2026-12-05', 600), rec(2, '2026-12-05'), rec(3, '2026-12-06'),
+            rec(4, '2026-12-08'), rec(5, '')]
+    out = cp.recording_candidates('2026-12-05', recs)
+    assert [r['ocap_id'] for r in out] == [2, 1, 3]       # exact first, longest first
+    assert [r['exact'] for r in out] == [True, True, False]
+    assert cp.recording_candidates('', recs) == []
+
+
+def test_only_an_unambiguous_recording_links_itself():
+    assert cp.auto_recording('2026-12-05', [rec(1, '2026-12-05'), rec(2, '2026-12-05', 300)]) == 1
+    assert cp.auto_recording('2026-12-05', [rec(1, '2026-12-05'), rec(2, '2026-12-05')]) is None
+    assert cp.auto_recording('2026-12-05', [rec(1, '2026-12-05', counted=False)]) is None
+    assert cp.auto_recording('2026-12-05', [rec(1, '2026-12-06')]) is None   # near is a choice
+
+
+def _row(name, group='Alpha', **cols):
+    row = [''] * len(killtracker.HEADER)
+    row[killtracker.HEADER.index('Username')] = name
+    row[killtracker.HEADER.index('Group')] = group
+    for col, value in cols.items():
+        row[killtracker.HEADER.index(col)] = value
+    return row
+
+
+def test_recording_summary_and_stats_line():
+    rows = [
+        _row('Andy', **{'Kills (On Foot)': 7, 'Kills (In Vehicle)': '2', 'Deaths (On Foot)': 1,
+                        'Longest Kill On Foot (m)': '412.6',
+                        'Longest Kill Weapon (On Foot)': 'SVD'}),
+        _row('Lee', **{'Kills (On Foot)': 3, 'Teamkills (On Foot)': 1,
+                       'Vehicle Kills (In Vehicle)': 2, 'Longest Kill In Vehicle (m)': 900,
+                       'Longest Kill Weapon (In Vehicle)': '2A42'}),
+        _row('Zeus', group='Zeus', **{'Kills (On Foot)': 50}),
+    ]
+    s = cp.recording_summary(rows, killtracker.HEADER, duration=8040)
+    assert (s['players'], s['kills'], s['deaths'], s['teamkills'], s['vehicles']) == (2, 12, 1, 1, 2)
+    assert s['longest'] == {'metres': 900, 'who': 'Lee', 'weapon': '2A42'}
+    assert s['top'] == {'who': 'Andy', 'kills': 9}
+    assert cp.stats_line(s) == ('2 players · 2h 14m · 12 enemy killed · 2 vehicles destroyed · '
+                                '1 friendly death · 1 teamkill · longest kill 900 m (Lee, 2A42) · '
+                                'most kills Andy (9)')
+    empty = cp.recording_summary([], killtracker.HEADER)
+    assert cp.stats_line(empty) == '0 players · 0 enemy killed · 0 friendly deaths'

@@ -920,6 +920,16 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
     # than linked — the only kind deleting a test mission may take with it.
     await db.execute('ALTER TABLE cp_missions ADD COLUMN IF NOT EXISTS orbat_created '
                      'BOOLEAN NOT NULL DEFAULT FALSE')
+    # Milestone 6: the OCAP recording that is this mission. `ocap_manual`
+    # says a person chose it (or chose none), so the loop stops guessing;
+    # `ocap_kt_added` says the planner put it in the Kill Tracker campaign,
+    # which is the only case in which unlinking may take it out again.
+    await db.execute('ALTER TABLE cp_missions ADD COLUMN IF NOT EXISTS ocap_id INTEGER '
+                     'REFERENCES kt_missions(ocap_id) ON DELETE SET NULL')
+    await db.execute('ALTER TABLE cp_missions ADD COLUMN IF NOT EXISTS ocap_manual '
+                     'BOOLEAN NOT NULL DEFAULT FALSE')
+    await db.execute('ALTER TABLE cp_missions ADD COLUMN IF NOT EXISTS ocap_kt_added '
+                     'BOOLEAN NOT NULL DEFAULT FALSE')
 
 
 async def get_active_operation(guild_id: str):
@@ -2317,6 +2327,106 @@ async def cp_campaign_map_ids(campaign_id: int) -> list:
                UNION SELECT map_id FROM cp_aos WHERE campaign_id = $1 AND map_id IS NOT NULL""",
             campaign_id)
     return [r['map_id'] for r in rows]
+
+
+# -- the OCAP recording (milestone 6) ---------------------------------------
+
+async def kt_recordings_between(first: str, last: str) -> list:
+    """Recordings played between two dates ('YYYY-MM-DD', inclusive), without
+    their rows — what matching a mission looks at."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT ocap_id, filename, mission, label, name_override, world, tag, played_on,
+                      duration, status, rows <> '[]' AS counted
+                 FROM kt_missions WHERE played_on BETWEEN $1 AND $2
+                ORDER BY played_on, ocap_id""", first, last)
+    return [dict(r) for r in rows]
+
+
+async def kt_recording(ocap_id: int):
+    """One recording with its rows parsed, or None."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow(
+            """SELECT ocap_id, mission, label, name_override, world, tag, played_on, duration,
+                      status, rows FROM kt_missions WHERE ocap_id = $1""", ocap_id)
+    if row is None:
+        return None
+    out = dict(row)
+    try:
+        out['rows'] = _json.loads(row['rows'] or '[]')
+    except (TypeError, ValueError):
+        out['rows'] = []
+    return out
+
+
+async def set_cp_mission_recording(mission_id: int, ocap_id, *, manual: bool):
+    """Say which recording a mission is (None for none) and keep the campaign's
+    Kill Tracker campaign in step: the new recording is added to it, and the
+    old one taken out — but only when the planner was the one who put it in
+    and no other mission of the campaign is that recording. A test campaign
+    has no Kill Tracker campaign, so nothing there changes."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            current = await db.fetchrow(
+                """SELECT m.ocap_id, m.ocap_kt_added, m.campaign_id, c.kt_campaign_id
+                     FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
+                    WHERE m.id = $1 FOR UPDATE OF m""", mission_id)
+            if current is None:
+                return
+            kt = current['kt_campaign_id']
+            if (current['ocap_id'] and current['ocap_kt_added'] and kt
+                    and current['ocap_id'] != ocap_id):
+                shared = await db.fetchval(
+                    """SELECT 1 FROM cp_missions WHERE campaign_id = $1 AND ocap_id = $2
+                          AND id <> $3 LIMIT 1""",
+                    current['campaign_id'], current['ocap_id'], mission_id)
+                if not shared:
+                    await db.execute(
+                        'DELETE FROM kt_campaign_missions WHERE campaign_id = $1 AND ocap_id = $2',
+                        kt, current['ocap_id'])
+            added = bool(current['ocap_kt_added'] and current['ocap_id'] == ocap_id)
+            if ocap_id and kt and current['ocap_id'] != ocap_id:
+                added = await db.fetchval(
+                    """INSERT INTO kt_campaign_missions (campaign_id, ocap_id) VALUES ($1, $2)
+                       ON CONFLICT DO NOTHING RETURNING 1""", kt, ocap_id) is not None
+                await db.execute(
+                    """UPDATE kt_campaigns SET updated_at = (NOW() AT TIME ZONE 'UTC')
+                        WHERE id = $1""", kt)
+            await db.execute(
+                """UPDATE cp_missions SET ocap_id = $2, ocap_manual = $3, ocap_kt_added = $4
+                    WHERE id = $1""", mission_id, ocap_id, manual, bool(ocap_id) and added)
+
+
+async def cp_missions_awaiting_recording(first, last) -> list:
+    """Missions played between two days whose recording nobody has chosen yet,
+    in campaigns that are not archived — what the loop tries to match."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT m.id, m.op_date FROM cp_missions m
+                 JOIN cp_campaigns c ON c.id = m.campaign_id
+                WHERE m.ocap_id IS NULL AND NOT m.ocap_manual
+                  AND m.op_date BETWEEN $1 AND $2 AND c.status <> 'archived'""", first, last)
+    return [dict(r) for r in rows]
+
+
+async def link_cp_campaign_recordings(campaign_id: int):
+    """After a test campaign is made real: put the recordings its missions are
+    into its new Kill Tracker campaign."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT id, ocap_id, ocap_manual FROM cp_missions WHERE campaign_id = $1 '
+            'AND ocap_id IS NOT NULL', campaign_id)
+    for r in rows:
+        # Re-linking from nothing is what adds it; the ocap_id is put back.
+        async with pool.acquire() as db:
+            await db.execute('UPDATE cp_missions SET ocap_id = NULL, ocap_kt_added = FALSE '
+                             'WHERE id = $1', r['id'])
+        await set_cp_mission_recording(r['id'], r['ocap_id'], manual=r['ocap_manual'])
 
 
 # -- phases -----------------------------------------------------------------
