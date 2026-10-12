@@ -259,6 +259,13 @@ DROP_ORDER = tuple(drop.key for drop in DROPS)
 ORBAT_OPENERS = ('situation', 'intsum', 'opord')
 DEFAULT_ORBAT_OPENS = 'situation'
 
+# Who may edit an ORBAT that a campaign mission links (copying and deleting
+# ORBATs stay admin-only whatever this says). Extra roles in `orbat_role_ids`
+# are added on top of either choice.
+ORBAT_ACCESS = {'admins': 'Server admins only',
+                'planners': 'Server admins and campaign planners'}
+DEFAULT_ORBAT_ACCESS = 'planners'
+
 
 # ---------------------------------------------------------------------------
 # Reading values
@@ -398,13 +405,29 @@ def settings_with_defaults(row: dict | None) -> dict:
         else DEFAULT_DROP_TIME,
         'orbat_opens': opens if opens in ORBAT_OPENERS else DEFAULT_ORBAT_OPENS,
         'survey_url': row.get('survey_url') or DEFAULT_SURVEY_URL,
+        'orbat_access': row.get('orbat_access') if row.get('orbat_access') in ORBAT_ACCESS
+        else DEFAULT_ORBAT_ACCESS,
+        'orbat_role_ids': [r for r in str(row.get('orbat_role_ids') or '').split(',') if r],
     }
 
 
-def clean_settings(form: dict, *, role_ids=(), channel_ids=()) -> dict:
+def may_edit_orbats(settings: dict, *, is_admin: bool, may_plan: bool, role_ids=()) -> bool:
+    """Whether a member may edit the ORBATs campaign missions link: admins
+    always; planners when the setting says so; and anybody holding one of the
+    extra roles the setting names."""
+    if is_admin:
+        return True
+    if settings.get('orbat_access') == 'planners' and may_plan:
+        return True
+    allowed = set(settings.get('orbat_role_ids') or [])
+    return any(str(r) in allowed for r in role_ids)
+
+
+def clean_settings(form: dict, *, role_ids=(), channel_ids=(), orbat_role_ids=()) -> dict:
     """The settings form, validated. Raises ValueError with a message meant for
     a person. `role_ids` and `channel_ids` are what the page offered, so a
-    hand-edited form cannot store a role or channel the guild does not have."""
+    hand-edited form cannot store a role or channel the guild does not have.
+    `orbat_role_ids` is the ticked extra ORBAT roles (a form list)."""
     role_ids = {str(r) for r in role_ids}
     channel_ids = {str(c) for c in channel_ids}
 
@@ -435,6 +458,17 @@ def clean_settings(form: dict, *, role_ids=(), channel_ids=()) -> dict:
     if len(survey) > 500:
         raise ValueError('The survey link is too long.')
 
+    access = str(form.get('orbat_access') or DEFAULT_ORBAT_ACCESS)
+    if access not in ORBAT_ACCESS:
+        raise ValueError('Pick who may edit mission ORBATs.')
+    extra = []
+    for role in orbat_role_ids:
+        role = str(role).strip()
+        if role and role not in role_ids:
+            raise ValueError("One of the ORBAT roles isn't one I can use — tick them again.")
+        if role and role not in extra:
+            extra.append(role)
+
     drop_channel = pick('drop_channel_id', channel_ids, 'drop channel')
     team_channel = pick('team_channel_id', channel_ids, 'mission team channel')
     if drop_channel and drop_channel == team_channel:
@@ -449,6 +483,8 @@ def clean_settings(form: dict, *, role_ids=(), channel_ids=()) -> dict:
         'drop_time': clock.strftime('%H:%M'),
         'orbat_opens': opens,
         'survey_url': survey or None,
+        'orbat_access': access,
+        'orbat_role_ids': ','.join(extra) or None,
     }
 
 
@@ -1262,3 +1298,259 @@ def check_image(data: bytes) -> str:
 def date_label(day: date | None) -> str:
     """'Wed 21 Oct' — how a schedule date is shown."""
     return day.strftime('%a %d %b') if day else ''
+
+
+# ---------------------------------------------------------------------------
+# Briefing packs
+#
+# A pack is a list of blocks — headings, key/value lists, paragraphs, tables,
+# images — and nothing else. The PDF and the Word file are two renderers of the
+# same list (web/exports.py), so they cannot say different things, and what a
+# pack contains is decided here, under test, like everything else.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Pack:
+    key: str
+    label: str
+    description: str
+    filename: str
+
+
+PACKS: tuple[Pack, ...] = (
+    Pack('player', 'Player briefing',
+         'Warning order, situation, intelligence and the OPORD. Safe to share with '
+         'everyone signed up.', 'Player_Briefing'),
+    Pack('leaders', "Leaders' pack",
+         'Everything in the player briefing plus the FragO, timings, tasks, the ORBAT '
+         'and the ops traces.', 'Leaders_Pack'),
+    Pack('full', 'Full op file',
+         "The whole op for the mission team's archive: the leaders' pack, the "
+         'complications, the back-schedule and the after action.', 'Op_File'),
+)
+PACK = {p.key: p for p in PACKS}
+EXPORT_FORMATS = ('pdf', 'docx')
+
+
+def tz_abbrev(day, tz_name: str | None) -> str:
+    """'CET', 'BST' — the zone's short name on that date, or the IANA name when
+    the zone has no abbreviation (some report '+03')."""
+    d = parse_date(day) or date.today()
+    name = datetime.combine(d, time(12), tzinfo=zone(tz_name)).tzname() or ''
+    return name if name and not name[0] in '+-' else (tz_name or DEFAULT_TZ)
+
+
+def local_clock(day, clock, from_tz: str | None, to_tz: str | None) -> str:
+    """A time typed in one zone, as the clock reads in another ('19:30')."""
+    moment = to_utc(day, clock, from_tz)
+    if moment is None:
+        return ''
+    return moment.astimezone(zone(to_tz)).strftime('%H:%M')
+
+
+def export_filename(mission: dict, pack_key: str, fmt: str) -> str:
+    base = re.sub(r'[^\w-]+', '_', text(mission, 'name') or 'op').strip('_') or 'op'
+    return f'{base}_{PACK[pack_key].filename}.{fmt}'
+
+
+def _objective_rows(phase: dict, roles) -> list[str]:
+    out = []
+    for o in phase.get('objectives') or []:
+        if isinstance(o, dict) and o.get('role') in roles and str(o.get('name') or '').strip():
+            label = ROLE_LABELS[o['role']]
+            line = f"{label}: {o['name'].strip()}"
+            done = str(o.get('complete_when') or '').strip()
+            if done and o['role'] != 'complication':
+                line += f' — complete when {done[0].lower()}{done[1:]}'
+            out.append(line)
+    return out
+
+
+def document_blocks(mission: dict, pack_key: str, ctx: PostContext, *,
+                    orbat: dict | None = None, aos: dict | None = None,
+                    today: date | None = None) -> list[dict]:
+    """The pack's contents, as blocks.
+
+    `mission` is the fields with `phases` filled in, as for the posts. `orbat`
+    is `{'name', 'squads': [...], 'nets': [...]}` in the database's shapes, or
+    None; `aos` maps AO id → name. Private fields are never read. Complications
+    are Zeus's plan, so only the full op file — the mission team's own copy —
+    carries them; the INTSUM's hints are what players get.
+
+    Block kinds: h1, h2, kv (rows of [label, value]), p, note, list (items),
+    table (head, rows, widths as fractions), img (id, caption, big), break.
+    """
+    if pack_key not in PACK:
+        raise ValueError(f'Unknown pack: {pack_key}')
+    aos = aos or {}
+    blocks: list[dict] = []
+    tz = mission_tz(mission, ctx.settings, ctx.guild_tz)
+    abbrev = tz_abbrev(mission.get('op_date'), tz)
+
+    def kv(rows):
+        rows = [[k, v if isinstance(v, str) else ', '.join(v)] for k, v in rows
+                if filled(v)]
+        if rows:
+            blocks.append({'t': 'kv', 'rows': rows})
+
+    def para(value):
+        if filled(value):
+            blocks.append({'t': 'p', 'text': str(value).strip()})
+
+    def image(key, caption, big=False):
+        if mission.get(key):
+            blocks.append({'t': 'img', 'id': mission[key], 'caption': caption, 'big': big})
+
+    op_day = parse_date(mission.get('op_date'))
+    when = []
+    if op_day:
+        when.append(op_day.strftime('%A %d %B %Y'))
+    for label, key in (('orders', 'orders_time'), ('H-Hour', 'h_hour')):
+        if parse_time(mission.get(key)):
+            when.append(f"{label} {parse_time(mission.get(key)).strftime('%H:%M')} {abbrev}")
+
+    # 1. Warning order
+    blocks.append({'t': 'h1', 'text': '1. Warning order'})
+    kv([['Op night', ' · '.join(when)],
+        ['In-universe DTG', text(mission, 'dtg')],
+        ['Area of operations', ' · '.join(x for x in (text(mission, 'ao'), text(mission, 'map')) if x)],
+        ['We are', text(mission, 'we_are')],
+        ['Enemy', text(mission, 'enemy_short')],
+        ['Expect', text(mission, 'expect')],
+        ['Prepare', text(mission, 'modpack')],
+        ['Groups', lines(mission, 'groups_in')]])
+    if filled(mission.get('hook')):
+        blocks.append({'t': 'note', 'text': text(mission, 'hook')})
+
+    # 2. Situation
+    blocks.append({'t': 'h1', 'text': '2. Situation'})
+    if text(mission, 'source_label'):
+        blocks.append({'t': 'h2', 'text': text(mission, 'source_label')})
+    para(mission.get('situation'))
+    if lines(mission, 'fronts'):
+        blocks.append({'t': 'list', 'items': lines(mission, 'fronts')})
+    if text(mission, 'who_we_are'):
+        blocks.append({'t': 'h2', 'text': 'Who we are'})
+        para(mission.get('who_we_are'))
+    image('unit_img', 'Unit')
+
+    # 3. Intelligence
+    blocks.append({'t': 'h1', 'text': '3. Intelligence'})
+    kv([['Enemy forces', text(mission, 'enemy_who')],
+        ['Strength', text(mission, 'enemy_strength')],
+        ['Equipment', text(mission, 'equipment')],
+        ['Tactics', text(mission, 'tactics')],
+        ['Most likely course of action', text(mission, 'mlcoa')],
+        ['Most dangerous course of action', text(mission, 'mdcoa')]])
+    if text(mission, 'ground'):
+        blocks.append({'t': 'h2', 'text': 'Ground'})
+        para(mission.get('ground'))
+    kv([['Weather and light', text(mission, 'weather')],
+        ['Key places', ' · '.join(lines(mission, 'objectives'))]])
+    image('map_img', 'Area of operations')
+    image('recog_img', 'Recognition sheet: enemy vehicles, weapons and uniforms. Learn '
+                       'these to tell friend from foe at a glance and report contacts by type.')
+
+    # 4. Operation order
+    blocks.append({'t': 'h1', 'text': '4. Operation order'})
+    success = text(mission, 'end_state') or '; '.join(success_conditions(mission))
+    kv([['Mission', text(mission, 'mission')],
+        ["Commander's intent", text(mission, 'intent')],
+        ['Success looks like', success]])
+    phases = rows(mission, 'phases')
+    if phases:
+        roles = ROLES if pack_key == 'full' else ('primary', 'secondary')
+        blocks.append({'t': 'h2', 'text': 'Phases'})
+        table = []
+        for i, phase in enumerate(phases, 1):
+            what = '\n'.join([phase.get('detail', '')] + _objective_rows(phase, roles)).strip()
+            try:
+                ao = aos.get(int(phase.get('ao_id'))) or ''
+            except (TypeError, ValueError):
+                ao = ''
+            table.append([str(i), phase.get('title', ''), ao, what])
+        blocks.append({'t': 'table', 'head': ['#', 'Phase', 'AO', 'What happens'],
+                       'widths': [0.06, 0.28, 0.14, 0.52], 'rows': table})
+    blocks.append({'t': 'h2', 'text': 'Service support and command'})
+    kv([['Field support', text(mission, 'support')],
+        ['Resupply', text(mission, 'resupply')],
+        ['Respawn and re-insert', text(mission, 'respawn')],
+        ['Chain of command', text(mission, 'coc')],
+        ['Technical', text(mission, 'technical')],
+        ['Modpack', text(mission, 'modpack_link')]])
+    nets = [[n.get('net', ''), n.get('channel', '')] for n in rows(mission, 'nets')]
+    if nets:
+        blocks.append({'t': 'table', 'head': ['Net', 'Channel'], 'widths': [0.5, 0.5],
+                       'rows': nets})
+
+    if pack_key != 'player':
+        # 5. FragO
+        blocks.append({'t': 'break'})
+        blocks.append({'t': 'h1', 'text': f"5. FragO {text(mission, 'frago_no')}".strip()})
+        timings = rows(mission, 'timings')
+        if timings:
+            guild_abbrev = tz_abbrev(mission.get('op_date'), ctx.guild_tz)
+            two = guild_abbrev != abbrev
+            head = ['Event', f'Time ({abbrev})'] + ([f'Time ({guild_abbrev})'] if two else [])
+            table = []
+            for t in timings:
+                clock = parse_time(t.get('time'))
+                row = [t.get('event', ''), clock.strftime('%H:%M') if clock else t.get('time', '')]
+                if two:
+                    row.append(local_clock(mission.get('op_date'), t.get('time'), tz, ctx.guild_tz))
+                table.append(row)
+            blocks.append({'t': 'h2', 'text': 'Timings'})
+            blocks.append({'t': 'table', 'head': head, 'rows': table,
+                           'widths': [0.56, 0.22, 0.22] if two else [0.7, 0.3]})
+        tasks = rows(mission, 'tasks')
+        if tasks:
+            blocks.append({'t': 'h2', 'text': 'Tasks'})
+            blocks.append({'t': 'table', 'head': ['Callsign', 'Tasks'], 'widths': [0.22, 0.78],
+                           'rows': [[t.get('callsign', ''), t.get('tasks', '')] for t in tasks]})
+        kv([['Actions on', text(mission, 'actions_on')],
+            ['Loadout minimums', text(mission, 'loadout')],
+            ['Medical', text(mission, 'medical')]])
+        if orbat and orbat.get('squads'):
+            blocks.append({'t': 'h2', 'text': f"ORBAT — {orbat.get('name', '')}".rstrip(' —')})
+            table = []
+            for squad in orbat['squads']:
+                slots = [s.get('role_name', '') for s in squad.get('slots') or []]
+                table.append([squad.get('name', ''), squad.get('reserved_unit') or '',
+                              squad.get('radio') or '', '\n'.join(slots)])
+            blocks.append({'t': 'table', 'head': ['Squad', 'Unit', 'Radio', 'Slots'],
+                           'widths': [0.26, 0.14, 0.2, 0.4], 'rows': table})
+            orbat_nets = [[n.get('name', ''), n.get('channel') or '']
+                          for n in orbat.get('nets') or [] if not n.get('inactive')]
+            if orbat_nets and not nets:
+                blocks.append({'t': 'table', 'head': ['Net', 'Channel'], 'widths': [0.5, 0.5],
+                               'rows': orbat_nets})
+        for i, image_id in enumerate(mission.get('traces') or []):
+            blocks.append({'t': 'img', 'id': image_id, 'big': True,
+                           'caption': f'Annex {chr(65 + i) if i < 26 else i + 1} · ops trace'})
+
+    if pack_key == 'full':
+        blocks.append({'t': 'break'})
+        blocks.append({'t': 'h1', 'text': '6. Back-schedule'})
+        items = schedule(mission, ctx.settings, today or date.today(), ctx.guild_tz)
+        if items:
+            blocks.append({'t': 'table', 'head': ['Date', 'Day', 'Item', 'Status'],
+                           'widths': [0.22, 0.12, 0.42, 0.24],
+                           'rows': [[date_label(i['date']), d_label(i['d']), i['label'],
+                                     i['status'][1]] for i in items]})
+        else:
+            para('No op date yet, so no schedule.')
+        blocks.append({'t': 'h1', 'text': '7. After action'})
+        para(mission.get('outcome'))
+        results = [[r.get('objective', ''), r.get('result', '')] for r in rows(mission, 'results')]
+        if results:
+            blocks.append({'t': 'table', 'head': ['Objective', 'Result'], 'widths': [0.6, 0.4],
+                           'rows': results})
+        kv([['Stats', text(mission, 'stats')], ['Next', text(mission, 'next_hook')]])
+        for image_id in mission.get('aar_imgs') or []:
+            blocks.append({'t': 'img', 'id': image_id, 'caption': 'Screenshot'})
+    return blocks
+
+
+def block_images(blocks: list[dict]) -> list:
+    """The image ids a pack needs, in order, once each."""
+    return list(dict.fromkeys(b['id'] for b in blocks if b['t'] == 'img'))

@@ -22,3 +22,7 @@ python-multipart>=0.0.9
 # the tile sets passed around for OCAP are as often 7z — imported where it is
 # used, so a deployment without it still reads zips.
 py7zr>=1.0.0
+# The campaign planner's briefing packs (web/exports.py): PDF and Word, laid out
+# on the server. reportlab brings Pillow, which also reads WebP screenshots.
+reportlab>=4.2,<5
+python-docx>=1.1,<2

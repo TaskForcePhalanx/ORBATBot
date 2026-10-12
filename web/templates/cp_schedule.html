@@ -29,6 +29,10 @@
   Until automatic posting arrives, copy each drop below into the drop channel by hand.
 </p>
 
+<div class="cptools">
+  {% with back = 'schedule' %}{% include '_cp_mission_tools.html' %}{% endwith %}
+</div>
+
 {% if state.schedule %}
   <div class="tablewrap">
     <table class="cptable cpschedule">

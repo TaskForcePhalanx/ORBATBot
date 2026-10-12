@@ -1546,6 +1546,11 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'can **Follow** it to get each drop in their own server.',
             'The survey link may contain `{op}`, which becomes the mission name '
             'with spaces as `%20`.',
+            '**Who can edit mission ORBATs** decides who may open the ORBATs campaign '
+            'missions use in the ORBAT editor: server admins only, or admins and '
+            'planners. **Also allow these roles** adds anybody else — they find those '
+            'ORBATs under **Operations → ORBATs**. Creating, copying and deleting '
+            'ORBATs always stays with admins.',
         ),
         page='cpsettings',
     ),
@@ -1656,6 +1661,65 @@ _CAMPAIGNS: tuple[Topic, ...] = (
         ),
         page='cpobjectives',
         related=('mission-wizard',),
+    ),
+    Topic(
+        key='mission-orbat',
+        title="Give a mission its ORBAT",
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — a mission\'s wizard or **Schedule** page → **ORBAT**',
+        summary='Link the roster a mission is signed up on: last mission\'s copied, '
+                'one reused as it is, or a new blank one.',
+        steps=(
+            'Open the mission and find the **ORBAT** card — beside the wizard, or at '
+            'the top of the **Schedule** page.',
+            'Under **Link one**, the list starts on the ORBAT the previous mission '
+            'used. **Copy it** makes a copy named after this mission; **Use as is** '
+            'links that ORBAT unchanged; **New blank** starts an empty one.',
+            'Press **Edit ORBAT** to write or adjust the roster in the ORBAT editor.',
+        ),
+        notes=(
+            'A copy takes the structure — squads, slots, radios, nets — and none of '
+            'the bookings.',
+            'Who may edit mission ORBATs is up to the planner\'s settings: admins '
+            'only, or admins and planners (the default), plus any extra roles ticked '
+            'there. It covers only ORBATs a campaign mission uses, and copying and '
+            'deleting ORBATs stay with admins.',
+            'An ORBAT can be edited at any time, even while sign-ups are open: the '
+            'editor asks before a change would unseat anybody.',
+            '**Unlink** only removes the link; the ORBAT itself stays.',
+        ),
+        page='campaigns',
+        related=('mission-wizard', 'briefing-packs'),
+    ),
+    Topic(
+        key='briefing-packs',
+        title='Download the briefing packs',
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — a mission\'s wizard or **Schedule** page → **Briefing packs**',
+        summary='The mission as a PDF or Word file, in three versions for three '
+                'audiences.',
+        steps=(
+            'Open the mission and find **Briefing packs**.',
+            'Press **PDF** or **Word** beside the pack you want. It downloads straight away.',
+        ),
+        notes=(
+            "**Player briefing** — warning order, situation, intelligence and the "
+            "OPORD; safe for everyone signed up. **Leaders' pack** — that plus the "
+            "FragO, timings, tasks, the ORBAT and the ops traces. **Full op file** — "
+            "everything, plus the complications, the back-schedule and the after action.",
+            'Complications appear only in the full op file, and **Held back for Zeus** '
+            'is never in any pack.',
+            'Times are in the op\'s time zone, with the server\'s beside them in the '
+            'FragO timings when the two differ.',
+            'The cover carries the site\'s name and logo. Word files open straight into '
+            'Google Docs.',
+            'Each download is made from what is saved at that moment, so download again '
+            'after an edit.',
+        ),
+        page='campaigns',
+        related=('mission-orbat', 'mission-wizard'),
     ),
 )
 

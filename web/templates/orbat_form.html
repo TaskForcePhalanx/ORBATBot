@@ -210,6 +210,7 @@ A leading number ("1. Rifleman") is stripped.</pre>
   </div>
 </form>
 
+{% if is_admin %}
 <h2 style="margin-top:32px">Copy this ORBAT</h2>
 <p class="hint">A copy takes the structure and none of the bookings — which is
   what duplicating the sheet used to be for.</p>
@@ -218,6 +219,12 @@ A leading number ("1. Rifleman") is stripped.</pre>
   <input name="name" value="{{ record.name }} (copy)" required maxlength="120">
   <button class="button" type="submit">Copy</button>
 </form>
+{% else %}
+<p class="hint" style="margin-top:32px">You can edit this ORBAT because a campaign
+  mission uses it and the planner's settings allow you to. To start a mission from
+  a copy, use the ORBAT card on the mission. Copying and deleting ORBATs here is
+  for server admins.</p>
+{% endif %}
 
 <h2 style="margin-top:32px">Export to a Google Sheet</h2>
 <p class="hint">Writes this roster into a <strong>new tab</strong> of the sheet you
@@ -239,11 +246,13 @@ A leading number ("1. Rifleman") is stripped.</pre>
   </div>
 </form>
 
+{% if is_admin %}
 <h2 style="margin-top:28px">Delete</h2>
 <form class="inlineform" method="post" action="/g/{{ guild.id }}/orbats/{{ record.id }}/delete"
       onsubmit="return confirm('Delete “{{ record.name }}” and all of its squads and slots?')">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <button class="button danger" type="submit">Delete this ORBAT</button>
 </form>
+{% endif %}
 </div>
 {% endblock %}

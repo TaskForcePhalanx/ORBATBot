@@ -461,7 +461,8 @@ h3 { font-size: 15px; margin: 0 0 8px; }
 .field > span, .field > legend { font-size: 14px; color: var(--muted); }
 
 input[type='text'], input:not([type]), input[type='number'],
-input[type='datetime-local'], textarea, select {
+input[type='datetime-local'], input[type='time'], input[type='url'],
+input[type='date'], input[type='search'], textarea, select {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;
@@ -1183,3 +1184,16 @@ textarea.cppost { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace
 .cptestbar { background: var(--panel); border: 1px dashed var(--warn); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
 .cptestactions { display: flex; gap: 8px; }
 .cptestactions form { margin: 0; }
+
+.cptools { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.cptool .cardbody { padding: 12px 14px; display: grid; gap: 8px; }
+.cptoolrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cptoolrow form { margin: 0; }
+.cporbat { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.cporbatform { display: grid; gap: 8px; margin-top: 8px; }
+.cpsub > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.cppacks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.cppacks li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+.cppacklinks { display: flex; gap: 6px; }
+.cppacklinks .button { padding: 4px 10px; font-size: 14px; }
+.cppackdesc { grid-column: 1 / -1; font-size: 13px; }
