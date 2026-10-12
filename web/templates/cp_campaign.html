@@ -1,0 +1,162 @@
+{% extends 'base.html' %}
+{% block title %}{{ campaign.name }} · Campaigns{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <p class="crumbs"><a href="/g/{{ guild.id }}/campaigns">Campaigns</a> ›</p>
+    <h1>🗂️ {{ campaign.name }}</h1>
+    <p class="muted">
+      {{ campaign.era }}{% if campaign.era and campaign.theatre %} · {% endif %}{{ campaign.theatre }}
+      {% if campaign.status != 'active' %} · <span class="chip">{{ campaign.status }}</span>{% endif %}
+    </p>
+  </div>
+</div>
+
+{% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
+
+{% if campaign.summary %}
+  <div class="card"><div class="cardbody cpsummary">{{ campaign.summary }}</div></div>
+{% endif %}
+
+<h2>Missions</h2>
+{% if missions or open_slots %}
+  <ol class="cplist">
+    {% for m in missions %}
+      <li class="cprow {{ 'past' if m.past }}">
+        <span class="cpnum">{{ loop.index }}</span>
+        <div class="cprowmain">
+          <a class="cprowtitle" href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ m.id }}">{{ m.name }}</a>
+          <span class="muted">{{ m.op_label or 'No op date yet' }}</span>
+          {% if m.next and not m.past %}
+            <span class="cpnext {{ m.next.status[0] }}">Next: {{ m.next.label }} · {{ m.next.date }}</span>
+          {% endif %}
+        </div>
+        <span class="chip {{ 'okchip' if m.locked == m.total }}">{{ m.locked }}/{{ m.total }} locked</span>
+        <a class="button" href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ m.id }}/schedule">Schedule</a>
+        <div class="rowactions">
+          {% for direction, label in (('up', '↑'), ('down', '↓')) %}
+            <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ m.id }}/move">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="direction" value="{{ direction }}">
+              <button class="linkish" type="submit" title="Move {{ direction }}">{{ label }}</button>
+            </form>
+          {% endfor %}
+        </div>
+      </li>
+    {% endfor %}
+    {% for n in open_slots %}
+      <li class="cprow cpopen">
+        <span class="cpnum">{{ n }}</span>
+        <div class="cprowmain muted">Not planned yet</div>
+      </li>
+    {% endfor %}
+  </ol>
+{% endif %}
+
+<details class="panel" {% if not missions %}open{% endif %}>
+  <summary>Plan the next mission</summary>
+  <div class="panelbody">
+    <form class="form" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="row">
+        <label class="field">
+          <span>Operation name</span>
+          <input name="name" required maxlength="300" placeholder="GRENZFEST">
+        </label>
+        <label class="field">
+          <span>Op date</span>
+          <input type="date" name="op_date" value="{{ suggested_date }}">
+        </label>
+      </div>
+      <p class="hint">
+        {% if carries_from %}
+          Starts with the details that carry from week to week — time zone,
+          orders time and H-Hour, AO, unit, support, radio plan, loadout and the
+          rest — copied from <strong>{{ carries_from }}</strong>. The story,
+          intel, orders and AAR start empty.
+        {% else %}
+          The wizard opens on the first step. Later missions copy the details
+          that stay the same from this one.
+        {% endif %}
+      </p>
+      <div class="actions"><button class="button primary" type="submit">Create mission</button></div>
+    </form>
+  </div>
+</details>
+
+<h2 style="margin-top:28px">Areas of operations</h2>
+<p class="hint">
+  The regions the campaign is fought over. A mission's phases are each fought in
+  one AO; from milestone 5 each AO gets its own detailed map with the phases as layers.
+</p>
+{% if aos %}
+  <ul class="cpaos">
+    {% for ao in aos %}
+      <li class="cpao">
+        <form class="inlineform" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/aos/{{ ao.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input name="name" value="{{ ao.name }}" maxlength="80" aria-label="AO name">
+          <button class="button" type="submit">Rename</button>
+        </form>
+        <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/aos/{{ ao.id }}/delete"
+              onsubmit="return confirm('Remove this AO? Phases fought in it keep their place without an AO.')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="button danger" type="submit">Remove</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">No AOs yet.</p>
+{% endif %}
+<form class="cpaddao" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/aos">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input name="name" maxlength="80" placeholder="New AO, e.g. Cham" required aria-label="New AO name">
+  <button class="button" type="submit">Add AO</button>
+</form>
+
+<details class="panel" style="margin-top:28px">
+  <summary>Campaign details</summary>
+  <div class="panelbody">
+    <form class="form" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="field"><span>Name</span>
+        <input name="name" required maxlength="80" value="{{ campaign.name }}"></label>
+      <div class="row">
+        <label class="field"><span>Era</span>
+          <input name="era" maxlength="120" value="{{ campaign.era }}"></label>
+        <label class="field"><span>Theatre</span>
+          <input name="theatre" maxlength="120" value="{{ campaign.theatre }}"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Missions planned</span>
+          <input type="number" name="planned_missions" min="1" max="8" value="{{ campaign.planned_missions }}"></label>
+        <label class="field"><span>Status</span>
+          <select name="status">
+            {% for s in statuses %}<option value="{{ s }}" {% if campaign.status == s %}selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}
+          </select></label>
+      </div>
+      <label class="field"><span>Running summary</span>
+        <textarea name="summary" rows="5">{{ campaign.summary }}</textarea></label>
+      <p class="hint">
+        Kill Tracker campaign:
+        {% if campaign.kt_name %}<strong>{{ campaign.kt_name }}</strong>{% if is_admin %} —
+          <a href="/g/{{ guild.id }}/killtracker/campaigns">manage it there</a>{% endif %}.
+          Renaming here does not rename it.
+        {% else %}none linked.{% endif %}
+      </p>
+      <div class="actions"><button class="button primary" type="submit">Save</button></div>
+    </form>
+
+    <form class="form" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/delete" style="margin-top:24px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3 class="bad">Delete the campaign</h3>
+      <p class="hint">Deletes every mission, phase and image in it. This cannot be undone. Archiving keeps it out of the way instead.</p>
+      <label class="field"><span>Type the campaign name to confirm</span>
+        <input name="confirm_name" autocomplete="off" required></label>
+      <div class="actions"><button class="button danger" type="submit">Delete campaign</button></div>
+    </form>
+  </div>
+</details>
+{% endblock %}

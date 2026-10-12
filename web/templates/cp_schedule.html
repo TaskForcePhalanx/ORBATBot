@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}{{ mission.name }} · Schedule{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <p class="crumbs">
+      <a href="/g/{{ guild.id }}/campaigns">Campaigns</a> ›
+      <a href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}">{{ campaign.name }}</a> ›
+    </p>
+    <h1>{{ mission.name }} — back-schedule</h1>
+    <p class="muted">
+      {% if mission.fields.op_date %}Op day {{ mission.fields.op_date }}{% if mission.fields.h_hour %}, H-Hour {{ mission.fields.h_hour }}{% endif %}{% else %}No op date yet{% endif %}
+      · {{ state.locked[0] }}/{{ state.locked[1] }} steps locked
+    </p>
+  </div>
+  <a class="button primary" href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}">Open the wizard</a>
+</div>
+
+{% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
+
+<p class="hint">
+  Drops go out on <strong>{{ state.settings.drop_weekday }}s at {{ state.settings.drop_time }}</strong>
+  ({{ tz }}), and the ORBAT opens with <strong>{{ state.settings.orbat_opens }}</strong>.
+  Until automatic posting arrives, copy each drop below into the drop channel by hand.
+</p>
+
+{% if state.schedule %}
+  <div class="tablewrap">
+    <table class="cptable cpschedule">
+      <thead><tr><th>Date</th><th></th><th>What</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for item in state.schedule %}
+          <tr class="cpk-{{ item.kind }}">
+            <td>{{ item.date_label }}{% if item.ts %} <span class="muted">{{ state.settings.drop_time }}</span>{% endif %}</td>
+            <td class="muted">{{ item.d_label }}</td>
+            <td>
+              {% if item.kind == 'gate' %}🔒 {% elif item.kind == 'drop' %}📣 {% else %}🎖️ {% endif %}{{ item.label }}
+              {% if item.note %}<span class="muted"> — {{ item.note }}</span>{% endif %}
+            </td>
+            <td><span class="cpstatus {{ item.status[0] }}">{{ item.status[1] }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="empty">Set an op date in the wizard's first step and the schedule fills in.</p>
+{% endif %}
+
+<h2 style="margin-top:28px">Checks</h2>
+{% if state.checks %}
+  <ul class="cpchecks">
+    {% for c in state.checks %}
+      <li class="{{ c.level }}">{{ '⛔' if c.level == 'crit' else '⚠️' }} {{ c.text }}
+        {% if c.step %}<span class="muted"> · {{ steps[c.step].title }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="empty">Nothing to flag.</p>
+{% endif %}
+
+<h2 style="margin-top:28px">Drops</h2>
+{% for drop in state.drops %}
+  <details class="panel">
+    <summary>{{ drop.label }}
+      <span class="note">{{ drop.chars }} characters{% if drop.parts|length > 1 %} · {{ drop.parts|length }} messages{% endif %}{% if drop.images %} · {{ drop.images|length }} image{{ 's' if drop.images|length > 1 }}{% endif %}</span>
+    </summary>
+    <div class="panelbody">
+      {% for part in drop.parts %}
+        {% if drop.parts|length > 1 %}<p class="muted nospace">Message {{ loop.index }} of {{ loop.length }}</p>{% endif %}
+        <textarea class="cppost" readonly rows="{{ [part.count('\n') + 2, 24]|min }}">{{ part }}</textarea>
+      {% endfor %}
+      {% if drop.images %}
+        <div class="cpthumbs">
+          {% for image_id in drop.images %}
+            <a href="/g/{{ guild.id }}/cp/images/{{ image_id }}" target="_blank" rel="noopener">
+              <img src="/g/{{ guild.id }}/cp/images/{{ image_id }}" alt="Attached image" loading="lazy"></a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </details>
+{% endfor %}
+
+<details class="panel" style="margin-top:28px">
+  <summary>Delete this mission</summary>
+  <div class="panelbody">
+    <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/delete"
+          onsubmit="return confirm('Delete this mission and everything written in it?')">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p class="hint">Deletes every step written for it. Its ORBAT and maps are not touched.</p>
+      <button class="button danger" type="submit">Delete mission</button>
+    </form>
+  </div>
+</details>
+{% endblock %}

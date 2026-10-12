@@ -1036,3 +1036,142 @@ svg.tacmap.tm-drawing { cursor: crosshair; }
   border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel-2);
 }
 .ktpick label { display: flex; gap: 8px; align-items: baseline; }
+
+/* -- campaign planner ------------------------------------------------------ */
+
+.okchip { border-color: var(--ok); color: var(--ok); }
+.cpcard .cardbody { padding: 14px 16px; }
+.cpcardhead { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.cpcardtitle { font-weight: 600; font-size: 18px; text-decoration: none; }
+.cpcardtitle:hover { text-decoration: underline; }
+.cpmissions { margin: 10px 0 0; padding-left: 22px; display: grid; gap: 6px; }
+.cpmissions li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.cpmissions li.past, .cprow.past { opacity: .7; }
+.cpopen { font-style: italic; }
+.cpnext { font-size: 13px; color: var(--muted); }
+.cpnext.warn, .cpstatus.warn { color: var(--warn); }
+.cpnext.crit, .cpstatus.crit { color: var(--err); }
+.cpstatus.ok { color: var(--ok); }
+.cpstatus.acc { color: var(--accent); }
+.cpsummary { white-space: pre-wrap; padding: 14px 16px; }
+
+.cplist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cplist .cprow {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+}
+.cplist .cprow.cpopen { border-style: dashed; background: transparent; }
+.cpnum {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--panel-2); border: 1px solid var(--line); font-weight: 600; flex: none;
+}
+.cprowmain { flex: 1; min-width: 180px; display: flex; flex-direction: column; }
+.cprowtitle { font-weight: 600; text-decoration: none; }
+.cprowtitle:hover { text-decoration: underline; }
+.cpaos { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cpao {
+  display: flex; gap: 8px; align-items: center; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.cpao form { margin: 0; }
+.cpao .inlineform { flex: 1; display: flex; gap: 8px; align-items: center; }
+
+.cptable { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cptable th, .cptable td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.cptable th { color: var(--muted); font-weight: 500; }
+.cpschedule tr.cpk-op td { font-weight: 600; }
+.cpjump { display: flex; flex-wrap: wrap; gap: 6px; }
+.cpjump .chip { text-decoration: none; }
+
+.cpchecks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+.cpchecks li.crit { color: var(--err); }
+textarea.cppost { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 10px; }
+.cpthumbs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.cpthumbs img { max-height: 110px; max-width: 180px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+
+/* the wizard */
+.cpheadactions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.cpsave { font-size: 14px; color: var(--muted); }
+.cpsave.ok { color: var(--ok); }
+.cpsave.err { color: var(--err); }
+.cpsteps { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 16px; }
+.cpstep {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; font: inherit;
+}
+.cpstep:hover { border-color: var(--accent); }
+.cpstep.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cpstep.complete:not(.active) { border-color: var(--ok); }
+.cpstepnum { font-weight: 700; }
+.cpstepcount { font-size: 12px; opacity: .85; }
+.cpwork { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+@media (max-width: 980px) { .cpwork { grid-template-columns: 1fr; } }
+.cpside { display: grid; gap: 12px; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+.cpside .cardbody { padding: 12px 14px; }
+.cptips { margin: 6px 0 0; padding-left: 18px; font-size: 14px; color: var(--muted); }
+.cpstephead { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.cpstephead h2 { margin: 0; }
+.cpgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+@media (max-width: 700px) { .cpgrid { grid-template-columns: 1fr; } }
+.cpfield { display: grid; gap: 6px; align-content: start; }
+.cpfield.wide { grid-column: 1 / -1; }
+.cpfield.private { background: var(--panel-2); border: 1px dashed var(--warn); border-radius: 10px; padding: 10px; }
+.cplabel { font-size: 14px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.cpreq { color: var(--accent); font-weight: 700; }
+.cpfield input[type='date'], .cpfield input[type='time'] {
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit;
+}
+.cprows { display: grid; gap: 6px; }
+.cprows .cprow { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: start; }
+.cprows .cprow.cols2 { grid-template-columns: auto 1fr 1fr auto; }
+.cprowtools { display: flex; gap: 2px; white-space: nowrap; }
+.cprowtools .linkish { padding: 4px 6px; }
+.cprowtools .linkish[disabled] { opacity: .3; cursor: default; }
+.cpremove { color: var(--err); }
+.cpdrag { cursor: grab; color: var(--muted); padding: 8px 2px; user-select: none; }
+.dragging { opacity: .45; }
+.dropover { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.cpadd { justify-self: start; }
+.cpgroups { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.cpgroupsextra { flex: 1; min-width: 200px; }
+.cpimages { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; }
+.cpimages:focus { outline: 2px solid var(--accent); }
+.cpimagebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cpthumb { margin: 0; display: grid; gap: 4px; }
+.cpthumb figcaption { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.cpthumb figcaption .muted { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cppart { position: relative; margin-top: 8px; }
+.cppre {
+  white-space: pre-wrap; word-break: break-word; margin: 0; padding: 10px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-height: 420px; overflow-y: auto;
+}
+
+.cpphases { display: grid; gap: 12px; margin-bottom: 8px; }
+.cpphase { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.cpphasehead { display: grid; grid-template-columns: auto auto 1fr 200px auto; gap: 8px; align-items: center; }
+@media (max-width: 700px) { .cpphasehead { grid-template-columns: auto auto 1fr auto; } .cpphasehead select { grid-column: 3 / 4; } }
+.cpphasenum {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 14px;
+}
+.cpobjectives { display: grid; gap: 8px; }
+.cpobjective { border-left: 4px solid var(--accent); background: var(--panel-2); border-radius: 8px; padding: 8px; display: grid; gap: 6px; }
+.cpobjective.role-secondary { border-left-color: var(--ok); }
+.cpobjective.role-complication { border-left-color: var(--warn); }
+.cpobjhead { display: grid; grid-template-columns: auto 150px 1fr auto; gap: 6px; align-items: center; }
+.cpphaseactions { display: flex; gap: 8px; }
+.cppicker { border: 1px solid var(--accent); border-radius: 10px; padding: 10px; background: var(--panel-2); }
+.cppickbar { display: flex; gap: 10px; align-items: center; }
+.cppickbar input { flex: 1; }
+.cppicklist { max-height: 340px; overflow-y: auto; margin-top: 8px; display: grid; gap: 2px; }
+.cppickcat { margin: 10px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.cppick {
+  text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px;
+  padding: 6px 8px; color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+}
+.cppick:hover { border-color: var(--accent); background: var(--panel); }
+.cppick.suggested { border-color: var(--ok); }
+.cpfielderr { color: var(--err); font-size: 14px; margin: 6px 0 0; }
+.cpaddao { display: flex; gap: 8px; margin-top: 10px; }
+.cpaddao button, .cpao button { white-space: nowrap; }

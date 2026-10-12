@@ -47,7 +47,8 @@ utils/
   embeds.py             # Builder-made rich messages → discord.Embed, post and edit
   reddit.py             # One Reddit feed, read and rendered — no Discord, no database
   killtracker.py        # One OCAP recording → the Kill Tracker's per-player rows. Stdlib only
-  campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks. Stdlib only
+  campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks, cleaning. Stdlib only
+  objectives_seed.py    # The Objectives Library as first written — what a guild's library is seeded from
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
   tiles.py              # A terrain's tile pyramid, read out of an uploaded archive
@@ -75,7 +76,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   voice.py              # Voice leaderboard shaping, the settings form and posting
   invites.py            # Invite labels — where each link was published
   helpers.py            # Guild-timezone formatting and datetime-local parsing
-  templates/ static/    # Jinja2 templates, one stylesheet, one script (the map editor)
+  templates/ static/    # Jinja2 templates, one stylesheet, two scripts (the map editor, the mission wizard)
 lab/                    # Standalone ORBAT-editor playground — no Discord, no Postgres
   # (inside scripts/ below)
 dashboard/              # The Kill Tracker's public page — static, hosted on GitHub Pages, not by the bot
@@ -97,7 +98,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(461 cases), and every one of them covers a module that imports nothing beyond
+(529 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -111,7 +112,7 @@ all:
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form and the consistency checks |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, and the library seed and its pairings |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -375,16 +376,16 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 
 | Table | What it holds |
 |---|---|
-| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()` |
-| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `summary`, `kt_campaign_id` → `kt_campaigns`, `map_id` → `tac_maps` (the campaign map), `archived` |
+| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again |
+| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `kt_campaign_id` → `kt_campaigns` (found or created by name on creation), `map_id` → `tac_maps` (the campaign map) |
 | `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (its outline on the campaign map), `map_id` → its detailed `tac_maps` |
-| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS`), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started |
+| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
 | `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
-| `cp_phases` | A mission phase: `title`, `detail`, `ao_id`, `layer_id` (the layer of the AO's map it is drawn on) |
-| `cp_objective_library` | Admin-edited objectives: `category`, `name`, `wording`, `pairs_with` (JSON ids — a suggestion, never a rule) |
-| `cp_phase_objectives` | An objective chosen for a phase, with its own copy of `name` and `wording` |
+| `cp_phases` | A mission phase: `position`, `title`, `detail`, `ao_id`, `layer_id` (the layer of the AO's map it is drawn on, milestone 5). A row, not part of `fields`, because a layer hangs off it — `save_cp_phases()` keeps a phase's id across saves for exactly that reason |
+| `cp_objective_library` | Per guild, seeded from `utils/objectives_seed.py`, admin-edited: `category`, `kind` (`objective` / `complication`), `name`, `players_do`, `complete_when`, `pairs_with` (free text; `campaign.pairing_ids()` turns it into the picker's suggestions — never a rule), `intsum_hint`, `position` |
+| `cp_phase_objectives` | An objective chosen for a phase: `library_id` (where it was picked from, or NULL), `role` (`primary` / `secondary` / `complication`), and its own copy of `name`, `players_do`, `complete_when`, `intsum_hint`; `result` for the AAR. Replaced wholesale on each save — nothing hangs off one |
 | `cp_drops` | PK (`mission_id`, `kind`). `due_at` (naive UTC), `approved_hash`/`approved_by`/`approved_at`, `held_pinged_at`, `posted_at`, `channel_id`, `message_ids` (JSON, one per part), `posted_hash` |
-| `cp_images` | Uploaded images for drops and exports: `campaign_id`, `filename`, `content_type`, `data` (BYTEA) |
+| `cp_images` | Uploaded images for drops and exports: `campaign_id`, `filename`, `content_type` (sniffed from the bytes, `campaign.image_type()`), `data` (BYTEA), `bytes`, `created_by_name`. Never changed once stored, so served `immutable`. Per campaign, so a mission carrying over the unit image shares the same row |
 
 ### `guild_settings`
 | Column | Type | Notes |
@@ -614,6 +615,7 @@ needs one of these three channels must go through it**; a fresh
 | Drawing on one, sharing it, posting it — web only | ❌ | ✅ | ✅ |
 | Uploading or deleting a terrain — web only | ❌ | ❌ | ✅ |
 | Campaign planner — web only | ❌ | ✅ with the planner's unit role | ✅ |
+| Editing the objectives library — web only | ❌ | ❌ | ✅ |
 | Campaign planner settings — web only | ❌ | ❌ | ✅ |
 
 **Admin** = `manage_guild` or `administrator` Discord permission.
@@ -1077,7 +1079,10 @@ tactical maps. The design is in the *TFP Campaign Planner — Design Spec*; it i
 being built in milestones:
 
 1. **Foundations** — the rules module, the `cp_` tables, access, settings. *Done.*
-2. Campaigns, missions and the wizard.
+2. **Campaigns, missions and the wizard** — campaign folders, the campaign
+   page, AOs, missions (carrying over stable details), the interactive
+   six-step wizard, the objective picker with the library, the back-schedule
+   with checks and every drop ready to copy. *Done.*
 3. The ORBAT link and PDF/DOCX export.
 4. Drops and approvals — scheduled posting, holds and pings.
 5. Maps — the campaign map, AO maps, phases as layers.
@@ -1114,12 +1119,68 @@ and the bot's own posting can never disagree. In particular:
 - **Private fields** (`Field.private`, e.g. *Held back for Zeus*) are never read
   by `build_post()` or the checks.
 
-### JavaScript
+### The pages
 
-The planner's editing pages will be the **second deliberate exception** to the
-no-JavaScript rule (after `tacmap.js`, below): vanilla, no build step, no CDN.
-Unlike the map, they need scripting to edit; the read-only pages stay
-server-rendered. Milestone 1 adds no script.
+| Page | |
+|---|---|
+| Campaigns (`campaigns`) | Every campaign as a folder: its missions with date, steps locked and what is next; empty slots up to `planned_missions`; archived ones folded away |
+| Campaign | Missions in order (↑ ↓), **Plan the next mission**, the AOs, the details form, delete (type the name) |
+| Mission wizard | The six steps, one at a time; tips, checks and the step's drop preview beside it. **JavaScript** |
+| Back-schedule | Every lock and drop with its status, the checks, and every drop as it will post, in read-only boxes to copy. **No JavaScript** — the fallback for the wizard |
+| Objectives (`cpobjectives`) | The library by category. Admins edit, add and remove |
+
+### The wizard
+
+`web/static/campaign.js` is the **second deliberate exception** to the
+no-JavaScript rule (after `tacmap.js`, below), for the same reason — the editor
+*is* the feature: autosave, drag to reorder, paste a screenshot, switch steps
+without a reload. Vanilla, no build step, no CDN. It decides nothing:
+
+- **The page is drawn empty and filled from JSON.** `wizard_page()` renders a
+  blank editor per field (`campaign.STEPS` is the field list) and the state is
+  handed over as `<script type="application/json">` (Jinja's `tojson`, which
+  escapes `<`). The same `mission_state()` answers the API and draws the
+  schedule page, so the two cannot disagree.
+- **Saving is a PATCH of what changed**, a quarter of a second after the last
+  edit, with the CSRF token in `X-CSRF-Token`. Edits made while one is in
+  flight wait for the next. The answer is the recomputed state — progress,
+  schedule, drops, checks — and **inputs are never overwritten from it**, only
+  what is derived from them, so a reply landing mid-word eats nothing. A
+  refused save puts the batch back and says why; a network failure retries.
+- **What may be stored is decided on the server** — `campaign.clean_fields()`
+  (known keys, their shapes, cut to length) and `clean_phases()` (at most 12,
+  the layers a tactical map holds; an AO or library id that isn't the
+  campaign's is dropped). Every image id is checked against the campaign
+  (`cp_image_meta`) before a save, so a hand-made request cannot point a
+  mission at another server's image.
+- **Phases go whole.** The phase list is sent entire whenever it changes;
+  `save_cp_phases()` keeps the ids of phases it already has, inserts the new
+  and deletes the missing. The script takes the new ids from the reply only
+  when nothing was edited in the meantime.
+- **Nested drag.** Objectives sit inside phases; a drop only counts in the list
+  the drag started from, and none of the drag events bubble.
+- **Images** are sniffed from their bytes (`campaign.check_image()` — PNG,
+  JPEG, GIF, WebP, 8 MB, what Discord takes) and served behind planner access
+  with `nosniff`. An upload error is shown beside the field: the status line is
+  overwritten by the next save.
+
+**A new mission copies `campaign.CARRY_OVER`** from the last one in the
+campaign — the details that stay the same week to week. The next date is
+suggested four weeks on, one cycle of drops. **With "Success looks like" left
+empty, the OPORD uses the primary objectives' success conditions**, as the
+library tells mission makers to write it.
+
+### The objectives library
+
+Seeded once per guild, the first time anybody opens it
+(`ensure_objective_library()`, under `cp_settings.library_seeded` so an admin
+who empties it gets an empty one, not the seed again). Picking an entry copies
+its wording into the phase, so editing either never changes the other. The
+picker lifts the entries the phase's existing picks pair with to the top
+(`campaign.pairing_ids()` — forgiving prefix matching on names, bracketed
+acronyms and initials, so "BDA", "OP" and "IED" find their entries).
+**The checks warn** when a phase with objectives has other than one primary,
+or no secondary or complication — the library's own rule, as a suggestion.
 
 ---
 
@@ -1489,7 +1550,23 @@ POST /g/{guild}/reddit/{id}/announce    post one of them by hand
 POST /g/{guild}/reddit/{id}/mark        mark the ticked posts as announced — posts nothing
 POST /g/{guild}/reddit/{id}/delete      stop watching
 GET  /g/{guild}/logs                    admin — member log settings, POST to save
+GET  /g/{guild}/campaigns               planner — campaigns, POST to create one
+GET  /g/{guild}/campaigns/objectives    planner — the library; admins POST to add
+GET  /g/{guild}/campaigns/objectives/{id}  admin — edit one entry, POST to save
+POST /g/{guild}/campaigns/objectives/{id}/delete
 GET  /g/{guild}/campaigns/settings      admin — campaign planner settings, POST to save
+GET  /g/{guild}/campaigns/{id}          planner — one campaign, POST to save its details
+POST /g/{guild}/campaigns/{id}/delete   confirmed by typing the name
+POST /g/{guild}/campaigns/{id}/aos      add an AO;  …/aos/{ao} rename, …/aos/{ao}/delete
+POST /g/{guild}/campaigns/{id}/missions create one, copying the last one's stable details
+GET  /g/{guild}/campaigns/{id}/missions/{m}           the wizard (needs JavaScript)
+GET  /g/{guild}/campaigns/{id}/missions/{m}/schedule  back-schedule, checks, every drop
+POST /g/{guild}/campaigns/{id}/missions/{m}/move      up / down;  …/delete
+GET  /g/{guild}/cp/api/missions/{m}     the wizard's state, as JSON
+PATCH /g/{guild}/cp/api/missions/{m}    save changed fields (+ phases); X-CSRF-Token header
+POST /g/{guild}/cp/api/images           upload one image (multipart, csrf + campaign_id)
+GET  /g/{guild}/cp/images/{id}          an uploaded image — planner access only
+GET  /g/{guild}/cp/api/objectives       the library with its pairings, for the picker
 GET  /g/{guild}/voice                   voice leaderboard; admins also get the settings
 POST /g/{guild}/voice                   admin — save the voice settings
 POST /g/{guild}/voice/post              admin — post the top 10 into a channel

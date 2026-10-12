@@ -170,7 +170,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
 
-**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner)
+**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library)
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
@@ -781,6 +781,73 @@ Choose who may plan, where the weekly drops are posted, and when they go out.
 > Make the drop channel an Announcement channel and partner servers can **Follow** it to get each drop in their own server.
 >
 > The survey link may contain `{op}`, which becomes the mission name with spaces as `%20`.
+
+#### Plan a campaign
+
+**Who:** Admin, or Unit Leader with the unit role · **Where:** Web — **🗂️ Campaigns → Campaigns**
+
+Set up a campaign of three to five missions, its AOs, and the missions in the order they will be played.
+
+1. Go to **🗂️ Campaigns** and fill in **New campaign**: a name, the era and theatre, and how many missions you plan.
+2. On the campaign page, add the **areas of operations** it is fought over.
+3. Under **Plan the next mission**, give the operation a name and its op date, and press **Create mission**. The wizard opens.
+4. Back on the campaign page, ↑ and ↓ put the missions in order, and **Schedule** opens each one's back-schedule and drops.
+
+> A new mission copies the details that stay the same week to week (time zone, orders time and H-Hour, AO, unit, support, radio plan, loadout and so on) from the mission before it. The story, intel, orders and AAR start empty.
+>
+> The next mission's date is suggested four weeks after the last one, the length of one cycle of drops.
+>
+> Creating a campaign also sets one up in the Kill Tracker under the same name, or links the one that already exists, so stats land in one place. Deleting the planner campaign leaves the Kill Tracker one alone.
+>
+> Set the campaign to **Archived** to fold it away on the list without deleting anything.
+
+See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Set up the campaign planner](#set-up-the-campaign-planner)
+
+#### Write a mission in the wizard
+
+**Who:** Admin, or Unit Leader with the unit role · **Where:** Web — **🗂️ Campaigns →** a campaign **→** a mission
+
+Six steps from concept to after action, saved as you type, with each drop previewed exactly as it will post.
+
+1. Open a mission from its campaign. The wizard starts on the first step that is not locked yet.
+2. Fill in the step. Fields marked * are needed to lock it; the step's chip turns into 🔒 when they are all filled.
+3. Watch the panel on the right: the **drop preview** is exactly what the bot will post, and **Checks** flags mistakes as you go.
+4. In **Orders**, add the phases in order. Give each its AO and press **+ Add objective** to pick from the objectives library.
+5. Until automatic posting arrives, copy each drop into the drop channel with **Copy**, or from the mission's **Schedule & all drops** page.
+
+> Everything saves a moment after you stop typing — the top right says when. Leave the page while a save is pending and the browser asks first.
+>
+> Paste a screenshot straight into an image field, drop a file on it, or use **Upload**. PNG, JPEG, GIF or WebP, up to 8 MB.
+>
+> Drag rows and phases by their ⠿ handle, or use ↑ and ↓.
+>
+> **Held back for Zeus** in the Intelligence step is never posted or exported.
+>
+> A phase reads best with one primary objective, one secondary and one complication; Checks says when one is missing. With **Success looks like** left empty, the OPORD uses the primary objectives' success conditions.
+>
+> Two people editing the same field at once: the last save wins. Different fields are fine.
+>
+> The wizard needs JavaScript. The **Schedule** page shows the mission, its drops and checks without it.
+
+See also: [Plan a campaign](#plan-a-campaign) · [Use and edit the objectives library](#use-and-edit-the-objectives-library)
+
+#### Use and edit the objectives library
+
+**Who:** Everyone with planner access; editing is Admin only · **Where:** Web — **🗂️ Campaigns → Objectives**
+
+The list of objectives and complications the wizard's picker draws from.
+
+1. Go to **🗂️ Campaigns → Objectives** to browse it by category.
+2. In a mission's **Orders** step, **+ Add objective** opens it as a picker. Search, then click an entry to add it to the phase.
+3. Admins: **Edit** beside an entry changes it, and **Add to the library** at the bottom adds a new one.
+
+> Entries that pair well with what the phase already has are lifted to the top of the picker and outlined. That is a suggestion only.
+>
+> Picking an objective copies its wording into the mission, where it can be edited freely. Changing the library later does not change missions that already picked from it, and nor does removing an entry.
+>
+> The library starts as the TFP Mission Objectives Library: 57 objectives in eight categories, plus 12 complications.
+
+See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard)
 
 ### Reddit announcements
 
