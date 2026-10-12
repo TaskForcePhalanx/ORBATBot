@@ -1944,6 +1944,22 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             return redirect(request, url, 'warn', str(e))
         return redirect(request, url, 'ok', note)
 
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/recording')
+    async def mission_recording(request: Request, guild_id: str, campaign_id: int,
+                                mission_id: int):
+        """The recording card: link · none · auto · stats."""
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        form = await planner_form(request, context)
+        url = campaign_url(guild_id, campaign_id, f'/missions/{mission_id}')
+        if form.get('back') == 'schedule':
+            url += '/schedule'
+        try:
+            note = await campaign_service.set_recording(context['mission'], form,
+                                                        context['member'])
+        except ValueError as e:
+            return redirect(request, url, 'warn', str(e))
+        return redirect(request, url, 'ok', note)
+
     @app.get('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/export/{filename}')
     async def mission_export(request: Request, guild_id: str, campaign_id: int,
                              mission_id: int, filename: str):

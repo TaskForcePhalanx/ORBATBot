@@ -101,7 +101,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(557 cases), and every one of them covers a module that imports nothing beyond
+(560 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -115,7 +115,7 @@ all:
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO map starts from, which layers an ops trace shows, where it crops and how deep its terrain goes |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO map starts from, which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -382,7 +382,7 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 | `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again. `orbat_access` (`admins` / `planners`, NULL = planners) and `orbat_role_ids` (comma-separated extra roles) — who may edit mission ORBATs, read through `campaign.may_edit_orbats()` |
 | `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it, and the only kind a rename carries over to), `map_id` → `tac_maps` (the campaign map, made by the planner and deleted with the campaign) |
 | `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (the campaign-map **layer** its outline is on, `cpao<id>`), `map_id` → its detailed `tac_maps` (made by the planner; deleted with the AO) |
-| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `orbat_created` (the card's New or Copy made it, rather than Link — the only kind deleting a *test* mission may take along), `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
+| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `orbat_created` (the card's New or Copy made it, rather than Link — the only kind deleting a *test* mission may take along), `ocap_id` → `kt_missions` (the recording that is this mission), `ocap_manual` (a person chose it, or chose none — the loop stops guessing), `ocap_kt_added` (the planner put it in the Kill Tracker campaign — the only case unlinking takes it out), `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
 | `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
 | `cp_phases` | A mission phase: `position`, `title`, `detail`, `ao_id`, `layer_id` (the layer of its AO's map it is drawn on, always `cpp<phase id>`). A row, not part of `fields`, because a layer hangs off it — `save_cp_phases()` keeps a phase's id across saves for exactly that reason |
 | `cp_objective_library` | Per guild, seeded from `utils/objectives_seed.py`, admin-edited: `category`, `kind` (`objective` / `complication`), `name`, `players_do`, `complete_when`, `pairs_with` (free text; `campaign.pairing_ids()` turns it into the picker's suggestions — never a rule), `intsum_hint`, `position` |
@@ -1096,7 +1096,9 @@ being built in milestones:
 5. **Maps** — the campaign map with an outline per AO, a detailed map per
    AO with a layer per phase, and each phase's layer drawn into the leaders'
    pack as its ops trace. *Done.*
-6. After action and the Kill Tracker link.
+6. **After action and the Kill Tracker** — the OCAP recording matched to the
+   mission, added to the campaign's Kill Tracker campaign, its numbers offered
+   to the AAR. *Done.*
 
 ### Who can plan
 
@@ -1332,6 +1334,38 @@ OCAP one, eight at a time) and handed in as a data URI; a tile that cannot be
 had is a transparent pixel, as a 404 is on the site. Labels use Bitstream Vera
 from reportlab's own fonts folder, so traces and PDFs share a font. resvg is
 imported where it is used: without it, packs render without traces.
+
+### After action: the recording (`utils/campaign.py` → *After action*)
+
+The Kill Tracker counts every OCAP recording on its own; the planner's part is
+saying which recording **is** a mission, so that recording lands in the
+campaign's Kill Tracker campaign and the AAR can quote it.
+
+- **Matched by date.** `recording_candidates()` are the recordings played on
+  the op date or the day either side (OCAP dates a recording by its start, and
+  a late op crosses midnight), exact dates first, longest first.
+- **`auto_recording()` links only the unambiguous one**: exactly one counted
+  recording on the op date at least `MIN_OP_SECONDS` (30 min) long. Two on the
+  same night is a choice for a person. `cogs/campaigns.match_recordings()` runs
+  it each minute for missions of the past `LOOK_BACK_DAYS` with no recording
+  and nobody's decision (`cp_missions_awaiting_recording()`), so the link
+  appears once the Kill Tracker has counted the file.
+- **`set_cp_mission_recording()` keeps the Kill Tracker campaign in step**, in
+  one transaction: the new recording is inserted into `kt_campaign_missions`
+  (`ocap_kt_added` says whether that insert did it), and the old one is taken
+  out **only** if the planner put it there and no other mission of the campaign
+  is that recording. One an admin added by hand is never removed. A test
+  campaign has no Kill Tracker campaign, so it links but adds nothing;
+  `link_cp_campaign_recordings()` adds them on **Make it real**. Deleting a
+  mission unlinks first.
+- **The card** (`recording_panel()`, `set_recording()`): link one of the
+  candidates (anything else is refused), **None of these** (`ocap_manual`, the
+  bot stops), **Let the bot choose**, and **Use in the AAR stats**, which writes
+  `stats_line()` of `recording_summary()` — players (Zeus excluded, as on the
+  dashboard), length, enemy killed, vehicles, friendly deaths, teamkills, the
+  longest kill with its weapon, the top killer — into the Stats field.
+  `recording_summary()` takes `killtracker.HEADER` as an argument so
+  `utils/campaign.py` stays standalone.
 
 ### The mission's ORBAT
 
@@ -1793,6 +1827,7 @@ GET  /g/{guild}/campaigns/{id}/missions/{m}/schedule  back-schedule, checks, eve
 POST /g/{guild}/campaigns/{id}/missions/{m}/orbat     action=link | copy | new | unlink
 POST /g/{guild}/campaigns/{id}/missions/{m}/drops/{kind}/{action}  approve | unapprove | skip | unskip
 POST /g/{guild}/campaigns/{id}/missions/{m}/signups   Start sign-ups now — the same rules as the opening drop
+POST /g/{guild}/campaigns/{id}/missions/{m}/recording  action=link | none | auto | stats — the OCAP recording card
 GET  /g/{guild}/campaigns/{id}/missions/{m}/export/{pack}.{pdf|docx}  a briefing pack
 POST /g/{guild}/campaigns/{id}/missions/{m}/move      up / down;  …/delete
 GET  /g/{guild}/cp/api/missions/{m}     the wizard's state, as JSON
@@ -1946,7 +1981,7 @@ Three things about it are deliberate:
 
 ### The help pages (`utils/help.py`)
 
-Fifty-six how-tos — one per thing somebody might want to do — served at `/help`
+Fifty-seven how-tos — one per thing somebody might want to do — served at `/help`
 and written into the README by `scripts/gen_help.py`. The module is data plus a
 renderer; there is no `web/help.py`, because the two routes have no permissions
 to check and no form to translate, which is all such a module has ever been for

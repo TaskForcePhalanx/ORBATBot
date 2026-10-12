@@ -81,6 +81,67 @@
 </div></div>
 
 <div class="card cptool"><div class="cardbody">
+  <h3 class="nospace">OCAP recording</h3>
+  {% set rec_url = '/g/' ~ guild.id ~ '/campaigns/' ~ campaign.id ~ '/missions/' ~ mission.id ~ '/recording' %}
+  {% if recording.linked %}
+    <p class="nospace"><strong>{{ recording.linked.name }}</strong>
+      <span class="muted">{% if recording.linked.played_on not in recording.linked.name %}· {{ recording.linked.played_on }} {% endif %}{% if recording.linked.duration_label %}· {{ recording.linked.duration_label }}{% endif %}</span>
+      {% if recording.kt_added %}<span class="chip">in the Kill Tracker campaign</span>{% endif %}</p>
+    {% if recording.linked.line %}
+      <p class="cpstatsline">{{ recording.linked.line }}</p>
+      <div class="cptoolrow">
+        {% if recording.stats_in_use %}
+          <span class="muted">These are the AAR's stats.</span>
+        {% else %}
+          <form method="post" action="{{ rec_url }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="back" value="{{ back }}">
+            <button class="button" type="submit" name="action" value="stats">Use in the AAR stats</button>
+          </form>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="muted nospace">The Kill Tracker has not counted it yet — its numbers follow within minutes.</p>
+    {% endif %}
+  {% elif not recording.has_date %}
+    <p class="muted nospace">Set the op date. The recording is matched to the mission by date.</p>
+  {% elif recording.manual %}
+    <p class="muted nospace">No recording for this mission — somebody said none of them is it.</p>
+  {% else %}
+    <p class="muted nospace">Linked by itself when the Kill Tracker has exactly one recording
+      long enough on the op date{% if not recording.is_test %}, and added to the campaign's Kill
+      Tracker campaign{% endif %}.</p>
+  {% endif %}
+  {% if recording.candidates %}
+    <details class="cpsub" {% if not recording.linked and recording.candidates|length > 1 %}open{% endif %}>
+      <summary>{{ 'Change' if recording.linked else 'Choose one' }}</summary>
+      <form class="cporbatform" method="post" action="{{ rec_url }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="back" value="{{ back }}">
+        <select name="ocap_id" aria-label="Recording">
+          {% for c in recording.candidates %}
+            <option value="{{ c.ocap_id }}" {% if recording.linked and recording.linked.ocap_id == c.ocap_id %}selected{% endif %}>
+              {{ c.name }}{% if c.played_on not in c.name %} · {{ c.played_on }}{% endif %}{% if c.duration_label %} · {{ c.duration_label }}{% endif %}{% if not c.counted %} · not counted yet{% endif %}</option>
+          {% endfor %}
+        </select>
+        <div class="cptoolrow">
+          <button class="button" type="submit" name="action" value="link">Link</button>
+          <button class="linkish" type="submit" name="action" value="none">None of these</button>
+          {% if recording.manual %}<button class="linkish" type="submit" name="action" value="auto">Let the bot choose</button>{% endif %}
+        </div>
+      </form>
+    </details>
+  {% elif recording.linked or recording.manual %}
+    <form method="post" action="{{ rec_url }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="back" value="{{ back }}">
+      {% if recording.linked %}<button class="linkish" type="submit" name="action" value="none">Unlink</button>{% endif %}
+      {% if recording.manual %}<button class="linkish" type="submit" name="action" value="auto">Let the bot choose</button>{% endif %}
+    </form>
+  {% endif %}
+</div></div>
+
+<div class="card cptool"><div class="cardbody">
   <h3 class="nospace">Briefing packs</h3>
   <ul class="cppacks">
     {% for pack in packs %}

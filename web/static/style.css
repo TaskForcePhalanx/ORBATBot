@@ -1215,3 +1215,4 @@ details.panel > summary .cpstatus { margin-left: 8px; font-size: 13px; font-weig
 .cpmaplist { list-style: none; padding: 0; margin: 8px 0; }
 .cpmaplist li { margin: 4px 0; }
 .cpmaplist form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.cpstatsline { font-size: 14px; margin: 6px 0 8px; }

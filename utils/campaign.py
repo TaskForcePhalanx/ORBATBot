@@ -1940,3 +1940,122 @@ def trace_zoom(doc: dict, view: tuple, width_px: int = TRACE_WIDTH) -> int:
     needed = width_px / (256 * fraction)
     zoom = max(0, math.ceil(math.log2(max(needed, 1))))
     return min(zoom, background.get('max_zoom', tacmap.MAX_TILE_ZOOM), tacmap.MAX_TILE_ZOOM)
+
+
+# ---------------------------------------------------------------------------
+# After action: the OCAP recording (milestone 6)
+#
+# The Kill Tracker counts every OCAP recording by itself. The planner's part is
+# to say which recording *is* a mission — matched by date — so the campaign's
+# Kill Tracker campaign gets it and the AAR can quote its numbers. A recording
+# is a `kt_missions` row: `ocap_id`, `played_on` ('YYYY-MM-DD'), `mission`,
+# `label`, `tag`, `duration` (seconds) and `counted` (its rows are in).
+# ---------------------------------------------------------------------------
+
+# A recording shorter than this is a test, a crash or a restart, never the op
+# itself, so it is never linked by itself (a person still may).
+MIN_OP_SECONDS = 30 * 60
+
+
+def recording_candidates(op_date, recordings: list) -> list[dict]:
+    """The recordings that could be this mission: played on the op date, or
+    the day either side (a late op runs past midnight, and OCAP dates a
+    recording by when it started). Exact dates first, then longest first —
+    the op is the long one, the warm-up and the crash are short."""
+    day = parse_date(op_date)
+    if day is None:
+        return []
+    out = []
+    for rec in recordings:
+        played = parse_date(rec.get('played_on'))
+        if played is None or abs((played - day).days) > 1:
+            continue
+        out.append({**rec, 'exact': played == day})
+    out.sort(key=lambda r: (not r['exact'], -(r.get('duration') or 0), r['ocap_id']))
+    return out
+
+
+def auto_recording(op_date, recordings: list):
+    """The recording to link without asking, or None. Only an unambiguous one:
+    exactly one counted recording on the op date long enough to be an op.
+    Two on the same night is a choice for a person."""
+    likely = [r for r in recording_candidates(op_date, recordings)
+              if r['exact'] and r.get('counted') and (r.get('duration') or 0) >= MIN_OP_SECONDS]
+    return likely[0]['ocap_id'] if len(likely) == 1 else None
+
+
+def _num(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def recording_summary(rows: list, header: list, duration: int | None = None) -> dict:
+    """A recording's headline numbers from its Kill Tracker rows (`header` is
+    `killtracker.HEADER`, passed in so this module stays standalone). Zeus is
+    not a player here, as on the dashboard."""
+    col = {name: i for i, name in enumerate(header)}
+
+    def get(row, name):
+        i = col.get(name)
+        return row[i] if i is not None and i < len(row) else None
+
+    def kills_of(row):
+        return _num(get(row, 'Kills (On Foot)')) + _num(get(row, 'Kills (In Vehicle)'))
+
+    players = [r for r in rows
+               if 'zeus' not in f"{get(r, 'Group') or ''} {get(r, 'Role') or ''}".lower()]
+    deaths = sum(_num(get(r, 'Deaths (On Foot)')) + _num(get(r, 'Deaths (In Vehicle)'))
+                 for r in players)
+    teamkills = sum(_num(get(r, 'Teamkills (On Foot)')) + _num(get(r, 'Teamkills (In Vehicle)'))
+                    for r in players)
+    vehicles = sum(_num(get(r, 'Vehicle Kills (On Foot)'))
+                   + _num(get(r, 'Vehicle Kills (In Vehicle)')) for r in players)
+    longest = None
+    for r in players:
+        for dist_col, weapon_col in (
+                ('Longest Kill On Foot (m)', 'Longest Kill Weapon (On Foot)'),
+                ('Longest Kill In Vehicle (m)', 'Longest Kill Weapon (In Vehicle)')):
+            dist = _num(get(r, dist_col))
+            if dist > 0 and (longest is None or dist > longest['metres']):
+                longest = {'metres': round(dist), 'who': get(r, 'Username') or '',
+                           'weapon': get(r, weapon_col) or ''}
+    top = max(players, key=kills_of, default=None)
+    top_kills = kills_of(top) if top is not None else 0
+    return {'players': len(players), 'kills': int(sum(kills_of(r) for r in players)),
+            'deaths': int(deaths), 'teamkills': int(teamkills), 'vehicles': int(vehicles),
+            'longest': longest,
+            'top': {'who': get(top, 'Username') or '', 'kills': int(top_kills)} if top_kills else None,
+            'duration': duration}
+
+
+def duration_label(seconds) -> str:
+    if not seconds:
+        return ''
+    minutes = int(seconds) // 60
+    return f'{minutes // 60}h {minutes % 60:02d}m' if minutes >= 60 else f'{minutes}m'
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def stats_line(summary: dict) -> str:
+    """The numbers as one line for the AAR's Stats field."""
+    parts = [_plural(summary['players'], 'player')]
+    if summary.get('duration'):
+        parts.append(duration_label(summary['duration']))
+    parts.append(f"{summary['kills']} enemy killed")
+    if summary['vehicles']:
+        parts.append(_plural(summary['vehicles'], 'vehicle') + ' destroyed')
+    parts.append(_plural(summary['deaths'], 'friendly death'))
+    if summary['teamkills']:
+        parts.append(_plural(summary['teamkills'], 'teamkill'))
+    if summary.get('longest'):
+        lk = summary['longest']
+        parts.append(f"longest kill {lk['metres']} m ({lk['who']}"
+                     + (f", {lk['weapon']}" if lk['weapon'] else '') + ')')
+    if summary.get('top'):
+        parts.append(f"most kills {summary['top']['who']} ({summary['top']['kills']})")
+    return ' · '.join(parts)

@@ -183,6 +183,9 @@ async def delete_mission(bot, mission: dict, member=None) -> str:
     if is_test:
         await clear_test_posts(bot, mission_id=mission['id'])
         orbats = await database.cp_created_orbats(mission_id=mission['id'])
+    # Take its recording back out of the Kill Tracker campaign, if the planner
+    # put it there — the mission it was counted for no longer exists.
+    await database.set_cp_mission_recording(mission['id'], None, manual=True)
     await database.delete_cp_mission(mission['id'], mission['campaign_id'])
     gone = await _delete_created_orbats(orbats)
     await refresh_ao_maps(mission['campaign_id'], member)
@@ -242,6 +245,7 @@ async def make_real(bot, campaign: dict, member) -> str:
     # What it posted as a test goes; as a real campaign every drop starts again.
     await clear_test_posts(bot, campaign_id=campaign['id'])
     kt_name = await database.make_cp_campaign_real(campaign['id'], member.display_name)
+    await database.link_cp_campaign_recordings(campaign['id'])
     return (f"{campaign['name']} is a real campaign now, linked to the Kill Tracker "
             f'campaign {kt_name}. Its drops need approving again, and now post publicly.')
 
@@ -458,6 +462,7 @@ async def wizard_page(guild, mission: dict, tz: str) -> dict:
         'mission': mission,
         'orbat': await orbat_panel(guild, mission),
         'maps': await maps_panel(guild, campaign, mission),
+        'recording': await recording_panel(mission),
         'packs': rules.PACKS,
         'steps': rules.STEPS,
         'state': state,
@@ -474,7 +479,81 @@ async def schedule_page(guild, mission: dict, tz: str) -> dict:
     return {'campaign': campaign, 'mission': mission, 'state': state,
             'orbat': await orbat_panel(guild, mission), 'packs': rules.PACKS,
             'maps': await maps_panel(guild, campaign, mission),
+            'recording': await recording_panel(mission),
             'steps': {s.key: s for s in rules.STEPS}}
+
+
+# ---------------------------------------------------------------------------
+# After action: the OCAP recording (milestone 6)
+# ---------------------------------------------------------------------------
+
+def _recording_label(rec: dict) -> str:
+    return rec.get('name_override') or rec.get('label') or rec.get('mission') or f"#{rec['ocap_id']}"
+
+
+async def recording_panel(mission: dict) -> dict:
+    """The recording card: which OCAP recording this mission is, its headline
+    numbers and the line they make for the AAR, and the other recordings it
+    could be. Matching is by date, so a mission with no op date has none."""
+    from cogs.campaigns import candidate_recordings
+    from utils import killtracker
+    fresh = await database.get_cp_mission(mission['id'])
+    linked = None
+    if fresh.get('ocap_id'):
+        rec = await database.kt_recording(fresh['ocap_id'])
+        if rec is not None:
+            summary = rules.recording_summary(rec['rows'], killtracker.HEADER, rec['duration'])
+            linked = {**{k: v for k, v in rec.items() if k != 'rows'},
+                      'name': _recording_label(rec), 'counted': bool(rec['rows']),
+                      'summary': summary, 'line': rules.stats_line(summary) if rec['rows'] else '',
+                      'duration_label': rules.duration_label(rec['duration'])}
+    candidates = [{**c, 'name': _recording_label(c),
+                   'duration_label': rules.duration_label(c.get('duration'))}
+                  for c in await candidate_recordings(fresh.get('op_date'))]
+    campaign = await database.get_cp_campaign(mission['campaign_id'])
+    return {'linked': linked, 'candidates': candidates, 'manual': fresh.get('ocap_manual'),
+            'has_date': bool(fresh.get('op_date')), 'kt_added': fresh.get('ocap_kt_added'),
+            'is_test': bool(campaign and campaign['is_test']),
+            'stats_in_use': linked is not None and linked['line']
+                            and rules.text(fresh['fields'], 'stats') == linked['line']}
+
+
+async def set_recording(mission: dict, form, member) -> str:
+    """The recording card's buttons: link one of the candidates, say none of
+    them is it, hand the choice back to the bot, or put the numbers into the
+    AAR's Stats field."""
+    action = form.get('action')
+    if action == 'none':
+        await database.set_cp_mission_recording(mission['id'], None, manual=True)
+        return 'No recording for this mission. The bot will not link one by itself.'
+    if action == 'auto':
+        await database.set_cp_mission_recording(mission['id'], None, manual=False)
+        return ('The bot will link the recording itself when there is exactly one long '
+                'enough on the op date.')
+    if action == 'stats':
+        panel = await recording_panel(mission)
+        if not panel['linked'] or not panel['linked']['line']:
+            raise ValueError('There are no counted numbers to use yet.')
+        await database.patch_cp_mission(mission['id'], mission['campaign_id'],
+                                        {'stats': panel['linked']['line']}, None, None,
+                                        member.display_name)
+        return 'Put the recording\'s numbers in the AAR\'s Stats field.'
+    if action == 'link':
+        try:
+            chosen = int(form.get('ocap_id') or 0)
+        except ValueError:
+            chosen = 0
+        panel = await recording_panel(mission)
+        allowed = {c['ocap_id']: c for c in panel['candidates']}
+        if chosen not in allowed:
+            raise ValueError('Pick one of the recordings from around the op date.')
+        await database.set_cp_mission_recording(mission['id'], chosen, manual=True)
+        fresh = await database.get_cp_mission(mission['id'])
+        note = f"Linked the recording {allowed[chosen]['name']}."
+        if fresh.get('ocap_kt_added'):
+            note += " It is in the campaign's Kill Tracker campaign now."
+        return note
+    raise ValueError('That is not something the recording card does.')
 
 
 # ---------------------------------------------------------------------------
