@@ -133,10 +133,29 @@ def test_clean_settings():
     form = {'unit_role_id': '5', 'drop_channel_id': '10', 'team_channel_id': '11',
             'drop_weekday': '3', 'drop_time': '1830', 'orbat_opens': 'intsum',
             'survey_url': 'https://tally.so/r/x?op={op}'}
-    clean = cp.clean_settings(form, role_ids=[5], channel_ids=[10, 11])
+    clean = cp.clean_settings(form, role_ids=[5, 6], channel_ids=[10, 11],
+                              orbat_role_ids=['6', '6'])
     assert clean == {'unit_role_id': '5', 'drop_channel_id': '10', 'team_channel_id': '11',
                      'drop_weekday': 3, 'drop_time': '18:30', 'orbat_opens': 'intsum',
-                     'survey_url': 'https://tally.so/r/x?op={op}'}
+                     'survey_url': 'https://tally.so/r/x?op={op}',
+                     'orbat_access': 'planners', 'orbat_role_ids': '6'}
+    with pytest.raises(ValueError):
+        cp.clean_settings(form, role_ids=[5], channel_ids=[10, 11], orbat_role_ids=['99'])
+    with pytest.raises(ValueError):
+        cp.clean_settings({**form, 'orbat_access': 'everyone'}, role_ids=[5], channel_ids=[10, 11])
+
+
+def test_who_may_edit_mission_orbats():
+    planners = cp.settings_with_defaults(None)
+    admins = cp.settings_with_defaults({'orbat_access': 'admins', 'orbat_role_ids': '7,8'})
+    assert planners['orbat_access'] == 'planners' and planners['orbat_role_ids'] == []
+    assert admins['orbat_role_ids'] == ['7', '8']
+    may = cp.may_edit_orbats
+    assert may(admins, is_admin=True, may_plan=False)
+    assert may(planners, is_admin=False, may_plan=True)
+    assert not may(admins, is_admin=False, may_plan=True)
+    assert may(admins, is_admin=False, may_plan=False, role_ids=[8])
+    assert not may(planners, is_admin=False, may_plan=False, role_ids=[9])
 
 
 @pytest.mark.parametrize('change', [

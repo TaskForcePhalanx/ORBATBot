@@ -5,7 +5,7 @@
 <div class="widepage">
 <p class="crumbs">
   <a href="/g/{{ guild.id }}">{{ guild.name }}</a> ›
-  {% if is_admin %}<a href="/g/{{ guild.id }}/orbats">ORBATs</a>{% else %}<a href="/g/{{ guild.id }}/campaigns">Campaigns</a>{% endif %} ›
+  <a href="/g/{{ guild.id }}/orbats">ORBATs</a> ›
   {{ record.name }}
 </p>
 
@@ -221,8 +221,9 @@ A leading number ("1. Rifleman") is stripped.</pre>
 </form>
 {% else %}
 <p class="hint" style="margin-top:32px">You can edit this ORBAT because a campaign
-  mission uses it. To start a mission from a copy, use the ORBAT card on the
-  mission. Copying and deleting ORBATs here is for server admins.</p>
+  mission uses it and the planner's settings allow you to. To start a mission from
+  a copy, use the ORBAT card on the mission. Copying and deleting ORBATs here is
+  for server admins.</p>
 {% endif %}
 
 <h2 style="margin-top:32px">Export to a Google Sheet</h2>

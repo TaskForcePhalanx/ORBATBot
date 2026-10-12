@@ -55,6 +55,7 @@ async def settings_page(guild) -> dict:
         'weekdays': list(enumerate(rules.WEEKDAYS)),
         'openers': [(key, rules.DROP[key].label) for key in rules.ORBAT_OPENERS],
         'default_survey_url': rules.DEFAULT_SURVEY_URL,
+        'orbat_access': rules.ORBAT_ACCESS,
         'problems': problems,
     }
 
@@ -65,6 +66,7 @@ async def save_settings(guild, form) -> str:
         form,
         role_ids=[r.id for r in mentionable_roles(guild)],
         channel_ids=[c.id for c in postable_channels(guild)],
+        orbat_role_ids=form.getlist('orbat_role_ids') if hasattr(form, 'getlist') else [],
     )
     await database.save_cp_settings(str(guild.id), clean)
     if not clean['drop_channel_id']:

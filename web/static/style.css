@@ -461,7 +461,8 @@ h3 { font-size: 15px; margin: 0 0 8px; }
 .field > span, .field > legend { font-size: 14px; color: var(--muted); }
 
 input[type='text'], input:not([type]), input[type='number'],
-input[type='datetime-local'], textarea, select {
+input[type='datetime-local'], input[type='time'], input[type='url'],
+input[type='date'], input[type='search'], textarea, select {
   width: 100%;
   padding: 9px 11px;
   border-radius: 8px;

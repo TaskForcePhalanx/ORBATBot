@@ -259,6 +259,13 @@ DROP_ORDER = tuple(drop.key for drop in DROPS)
 ORBAT_OPENERS = ('situation', 'intsum', 'opord')
 DEFAULT_ORBAT_OPENS = 'situation'
 
+# Who may edit an ORBAT that a campaign mission links (copying and deleting
+# ORBATs stay admin-only whatever this says). Extra roles in `orbat_role_ids`
+# are added on top of either choice.
+ORBAT_ACCESS = {'admins': 'Server admins only',
+                'planners': 'Server admins and campaign planners'}
+DEFAULT_ORBAT_ACCESS = 'planners'
+
 
 # ---------------------------------------------------------------------------
 # Reading values
@@ -398,13 +405,29 @@ def settings_with_defaults(row: dict | None) -> dict:
         else DEFAULT_DROP_TIME,
         'orbat_opens': opens if opens in ORBAT_OPENERS else DEFAULT_ORBAT_OPENS,
         'survey_url': row.get('survey_url') or DEFAULT_SURVEY_URL,
+        'orbat_access': row.get('orbat_access') if row.get('orbat_access') in ORBAT_ACCESS
+        else DEFAULT_ORBAT_ACCESS,
+        'orbat_role_ids': [r for r in str(row.get('orbat_role_ids') or '').split(',') if r],
     }
 
 
-def clean_settings(form: dict, *, role_ids=(), channel_ids=()) -> dict:
+def may_edit_orbats(settings: dict, *, is_admin: bool, may_plan: bool, role_ids=()) -> bool:
+    """Whether a member may edit the ORBATs campaign missions link: admins
+    always; planners when the setting says so; and anybody holding one of the
+    extra roles the setting names."""
+    if is_admin:
+        return True
+    if settings.get('orbat_access') == 'planners' and may_plan:
+        return True
+    allowed = set(settings.get('orbat_role_ids') or [])
+    return any(str(r) in allowed for r in role_ids)
+
+
+def clean_settings(form: dict, *, role_ids=(), channel_ids=(), orbat_role_ids=()) -> dict:
     """The settings form, validated. Raises ValueError with a message meant for
     a person. `role_ids` and `channel_ids` are what the page offered, so a
-    hand-edited form cannot store a role or channel the guild does not have."""
+    hand-edited form cannot store a role or channel the guild does not have.
+    `orbat_role_ids` is the ticked extra ORBAT roles (a form list)."""
     role_ids = {str(r) for r in role_ids}
     channel_ids = {str(c) for c in channel_ids}
 
@@ -435,6 +458,17 @@ def clean_settings(form: dict, *, role_ids=(), channel_ids=()) -> dict:
     if len(survey) > 500:
         raise ValueError('The survey link is too long.')
 
+    access = str(form.get('orbat_access') or DEFAULT_ORBAT_ACCESS)
+    if access not in ORBAT_ACCESS:
+        raise ValueError('Pick who may edit mission ORBATs.')
+    extra = []
+    for role in orbat_role_ids:
+        role = str(role).strip()
+        if role and role not in role_ids:
+            raise ValueError("One of the ORBAT roles isn't one I can use — tick them again.")
+        if role and role not in extra:
+            extra.append(role)
+
     drop_channel = pick('drop_channel_id', channel_ids, 'drop channel')
     team_channel = pick('team_channel_id', channel_ids, 'mission team channel')
     if drop_channel and drop_channel == team_channel:
@@ -449,6 +483,8 @@ def clean_settings(form: dict, *, role_ids=(), channel_ids=()) -> dict:
         'drop_time': clock.strftime('%H:%M'),
         'orbat_opens': opens,
         'survey_url': survey or None,
+        'orbat_access': access,
+        'orbat_role_ids': ','.join(extra) or None,
     }
 
 

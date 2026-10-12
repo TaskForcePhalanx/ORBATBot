@@ -170,7 +170,9 @@ def render_pdf(blocks: list[dict], meta: dict, images: dict) -> bytes:
 
     def picture(data: bytes, max_w: float, max_h: float):
         w, h = _size(data)
-        scale = min(max_w / w, max_h / h)
+        # Never more than one point per pixel (72 dpi): a small screenshot
+        # stays small and sharp instead of being stretched soft across the page.
+        scale = min(max_w / w, max_h / h, 1.0)
         return Image(io.BytesIO(data), width=w * scale, height=h * scale)
 
     story: list = [Spacer(1, 40 * mm)]
@@ -315,7 +317,8 @@ def render_docx(blocks: list[dict], meta: dict, images: dict) -> bytes:
     def add_picture(data: bytes, max_w, max_h):
         data = _png_or_jpeg(data)
         w, h = _size(data)
-        scale = min(max_w / w, max_h / h)
+        # As in the PDF: at most 72 dpi, so a small image is never blown up.
+        scale = min(max_w / w, max_h / h, Mm(25.4) / 72)
         doc.add_picture(io.BytesIO(data), width=int(w * scale))
         doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
         doc.paragraphs[-1].paragraph_format.keep_with_next = True   # with its caption

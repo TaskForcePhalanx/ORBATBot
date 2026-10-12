@@ -99,7 +99,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(534 cases), and every one of them covers a module that imports nothing beyond
+(535 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -377,7 +377,7 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 
 | Table | What it holds |
 |---|---|
-| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again |
+| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again. `orbat_access` (`admins` / `planners`, NULL = planners) and `orbat_role_ids` (comma-separated extra roles) — who may edit mission ORBATs, read through `campaign.may_edit_orbats()` |
 | `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it), `map_id` → `tac_maps` (the campaign map) |
 | `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (its outline on the campaign map), `map_id` → its detailed `tac_maps` |
 | `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
@@ -616,7 +616,7 @@ needs one of these three channels must go through it**; a fresh
 | Drawing on one, sharing it, posting it — web only | ❌ | ✅ | ✅ |
 | Uploading or deleting a terrain — web only | ❌ | ❌ | ✅ |
 | Campaign planner — web only | ❌ | ✅ with the planner's unit role | ✅ |
-| Editing an ORBAT a planner mission links — web only | ❌ | ✅ with the planner's unit role | ✅ |
+| Editing an ORBAT a planner mission links — web only | ❌ (✅ with a role the setting adds) | ✅ planners, unless the setting says admins only | ✅ |
 | Editing the objectives library — web only | ❌ | ❌ | ✅ |
 | Campaign planner settings — web only | ❌ | ❌ | ✅ |
 
@@ -1207,10 +1207,15 @@ and stays an ordinary ORBAT. The card on the wizard and the schedule page
 and starts on the ORBAT the previous mission used. Unlinking leaves the ORBAT;
 deleting the mission leaves it too.
 
-**The ORBAT editor opens to planners for linked ORBATs.** `orbat_context()`
-lets in an admin, or a member with `may_plan` when
-`database.cp_orbat_linked()` finds a planner mission on this guild linking that
-ORBAT — otherwise TFP's Unit Leaders could plan a mission but not its roster.
+**Who may edit mission ORBATs is a planner setting.** `guild_context()` works
+out `may_edit_orbats` with `campaign.may_edit_orbats()`: admins always;
+planners when **Who can edit mission ORBATs** is *admins and planners* (the
+default — otherwise TFP's Unit Leaders could plan a mission but not its roster);
+and anybody holding one of the **Also allow these roles**. `orbat_context()`
+then lets such a member into an ORBAT when `database.cp_orbat_linked()` finds a
+planner mission on this guild linking it, and the **ORBATs** tab and list open
+to them showing only those ORBATs (`cp_linked_orbat_ids()`), with no create
+form. Somebody given a role but no planner access gets there through that tab.
 Copy and delete stay admin-only (`orbat_duplicate`, `orbat_delete` call
 `require_orbat_admin`), the editor hides them, and its crumb points at the
 campaigns instead of the admin-only ORBAT list. A copy made in the editor would
@@ -1504,7 +1509,7 @@ Every permission decision is re-made per request from a live `discord.Member`:
 | Add / remove game roles, post the panel | admin | `default_permissions(manage_guild=True)` on the cog's commands |
 | Build and post embeds, configure the member log and voice tracking | admin | `is_admin()` — `manage_guild` or `administrator` |
 | Build and edit ORBATs | admin | `is_admin()` |
-| Edit an ORBAT that a campaign mission links (not copy or delete it) | planner | `can_plan()` + `cp_orbat_linked()` |
+| Edit an ORBAT that a campaign mission links (not copy or delete it) | planners and/or extra roles, per the planner's settings | `may_edit_orbats()` + `cp_orbat_linked()` |
 | Watch a Reddit feed | admin | `is_admin()` |
 | Start an operation, move its time, post the board or the announcement, empty the queue, choose the channels, set the timezone | admin | `is_admin()` |
 | Assign somebody to a slot outright | Unit Leader (own unit, and must have one) or admin | `check_can_assign()` |

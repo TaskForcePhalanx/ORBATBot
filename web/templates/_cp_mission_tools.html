@@ -9,7 +9,11 @@
       {% if orbat.linked.live_operation %}<span class="chip live">🔴 live · {{ orbat.linked.live_operation }}</span>{% endif %}
     </p>
     <div class="cptoolrow">
-      <a class="button primary" href="/g/{{ guild.id }}/orbats/{{ orbat.linked.id }}">Edit ORBAT</a>
+      {% if may_edit_orbats %}
+        <a class="button primary" href="/g/{{ guild.id }}/orbats/{{ orbat.linked.id }}">Edit ORBAT</a>
+      {% else %}
+        <span class="muted">Editing ORBATs is for server admins.</span>
+      {% endif %}
       <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/orbat">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="back" value="{{ back }}">

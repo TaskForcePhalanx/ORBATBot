@@ -781,6 +781,8 @@ Choose who may plan, where the weekly drops are posted, and when they go out.
 > Make the drop channel an Announcement channel and partner servers can **Follow** it to get each drop in their own server.
 >
 > The survey link may contain `{op}`, which becomes the mission name with spaces as `%20`.
+>
+> **Who can edit mission ORBATs** decides who may open the ORBATs campaign missions use in the ORBAT editor: server admins only, or admins and planners. **Also allow these roles** adds anybody else — they find those ORBATs under **Operations → ORBATs**. Creating, copying and deleting ORBATs always stays with admins.
 
 #### Plan a campaign
 
@@ -865,7 +867,7 @@ Link the roster a mission is signed up on: last mission's copied, one reused as 
 
 > A copy takes the structure — squads, slots, radios, nets — and none of the bookings.
 >
-> Planners who are not server admins can open and edit an ORBAT once a campaign mission links it. Copying and deleting ORBATs in the editor stay with admins.
+> Who may edit mission ORBATs is up to the planner's settings: admins only, or admins and planners (the default), plus any extra roles ticked there. It covers only ORBATs a campaign mission uses, and copying and deleting ORBATs stay with admins.
 >
 > An ORBAT can be edited at any time, even while sign-ups are open: the editor asks before a change would unseat anybody.
 >

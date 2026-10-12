@@ -47,6 +47,11 @@
   <p class="empty">No ORBAT yet. Build the first one below.</p>
 {% endif %}
 
+{% if not is_admin %}
+<p class="hint" style="margin-top:20px">These are the ORBATs campaign missions use,
+  which the planner's settings let you edit. Creating, copying and deleting ORBATs
+  is for server admins.</p>
+{% else %}
 <h2 style="margin-top:28px">New ORBAT</h2>
 <form class="form" method="post" action="/g/{{ guild.id }}/orbats">
   <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -65,4 +70,5 @@
     <button class="button primary" type="submit">Create</button>
   </div>
 </form>
+{% endif %}
 {% endblock %}

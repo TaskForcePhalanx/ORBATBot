@@ -21,7 +21,7 @@ def _item(key: str, label: str, href: str) -> dict:
 
 
 def build(guild_id, *, is_admin: bool, may_action_slots: bool,
-          may_plan: bool = False) -> dict:
+          may_plan: bool = False, may_edit_orbats: bool = False) -> dict:
     """The tab structure for one member of one guild.
 
     Permissions decide what is *in* the structure rather than what the template
@@ -37,7 +37,9 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
         operations.append(_item('operation', 'Operation', f"{base}/operation"))
     if may_action_slots:
         operations.append(_item('slots', 'Slot Approvals', f"{base}/slots"))
-    if is_admin:
+    # Admins see every ORBAT; somebody the planner's settings let edit mission
+    # ORBATs sees the ones campaign missions use (`orbat_list_page`).
+    if is_admin or may_edit_orbats:
         operations.append(_item('orbats', 'ORBATs', f"{base}/orbats"))
     # The plan is for everyone who has to fight it, so the map is the one page
     # in this group with no permission on it — drawing on one still needs the

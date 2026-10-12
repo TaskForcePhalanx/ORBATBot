@@ -20,6 +20,7 @@ from cogs.events import _RECURRENCE_LABELS, _recurrence_text
 from cogs.memberlog import DEFAULT_WELCOME_TEMPLATE, WELCOME_PLACEHOLDERS
 from cogs.redditfeed import POLL_MINUTES
 from cogs.voicelog import refresh_leaderboard_board as refresh_board
+from utils import campaign as campaign_lib
 from utils import database
 from utils import embeds as embedlib
 from utils import help as help_lib
@@ -170,6 +171,11 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         # Leaders; which role counts as "the unit" is a planner setting.
         planner = await database.get_cp_settings(str(guild.id))
         may_plan = can_plan(member, planner['unit_role_id'] if planner else None)
+        # Who may edit the ORBATs campaign missions link — a planner setting,
+        # see utils.campaign.may_edit_orbats().
+        may_edit_orbats = campaign_lib.may_edit_orbats(
+            campaign_lib.settings_with_defaults(planner), is_admin=is_admin(member),
+            may_plan=may_plan, role_ids=[r.id for r in member.roles])
         return {
             'session': session,
             'guild': guild,
@@ -178,6 +184,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             'may_create': can_create_events(member),
             'may_action_slots': can_action_slots(member),
             'may_plan': may_plan,
+            'may_edit_orbats': may_edit_orbats,
             'is_admin': is_admin(member),
             # The tab bar, built from what this member may open — see web/nav.py.
             'nav': nav_service.build(
@@ -185,6 +192,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
                 is_admin=is_admin(member),
                 may_action_slots=can_action_slots(member),
                 may_plan=may_plan,
+                may_edit_orbats=may_edit_orbats,
             ),
         }
 
@@ -759,7 +767,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
                 require_orbat_admin(context)
             raise Forbidden("No such ORBAT on this server.")
         if not context['is_admin']:
-            if not (context['may_plan']
+            if not (context['may_edit_orbats']
                     and await database.cp_orbat_linked(str(context['guild'].id), orbat_id)):
                 require_orbat_admin(context)
         context['record'] = record
@@ -767,9 +775,15 @@ def create_app(bot, config: WebConfig) -> FastAPI:
 
     async def orbat_list_page(request: Request, context: dict, error: str = None,
                               status: int = 200):
+        orbats = await database.get_guild_orbats(str(context['guild'].id))
+        if not context['is_admin']:
+            # Somebody allowed to edit mission ORBATs, and nothing more: the
+            # list is the ORBATs campaign missions use, and they create none.
+            linked = await database.cp_linked_orbat_ids(str(context['guild'].id))
+            orbats = [o for o in orbats if o['id'] in linked]
         return render(request, 'orbats.html', {
             **context,
-            'orbats': await database.get_guild_orbats(str(context['guild'].id)),
+            'orbats': orbats,
             'error': error,
         }, status=status)
 
@@ -794,7 +808,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     @app.get('/g/{guild_id}/orbats', response_class=HTMLResponse)
     async def orbat_list(request: Request, guild_id: str):
         context = await guild_context(request, guild_id)
-        require_orbat_admin(context)
+        if not context['may_edit_orbats']:
+            require_orbat_admin(context)
         return await orbat_list_page(request, context)
 
     @app.post('/g/{guild_id}/orbats')

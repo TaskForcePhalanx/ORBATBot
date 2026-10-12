@@ -719,9 +719,15 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
             orbat_opens TEXT,
             survey_url TEXT,
             library_seeded BOOLEAN NOT NULL DEFAULT FALSE,
+            orbat_access TEXT,
+            orbat_role_ids TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Who may edit mission ORBATs: 'admins' / 'planners' (NULL = planners), and
+    # extra roles, comma-separated — see utils.campaign.may_edit_orbats().
+    for column in ('orbat_access', 'orbat_role_ids'):
+        await db.execute(f'ALTER TABLE cp_settings ADD COLUMN IF NOT EXISTS {column} TEXT')
     await db.execute('''
         ALTER TABLE cp_settings ADD COLUMN IF NOT EXISTS
             library_seeded BOOLEAN NOT NULL DEFAULT FALSE
@@ -1828,7 +1834,7 @@ async def save_log_settings(guild_id: str, values: dict):
 
 _CP_SETTINGS_COLUMNS = (
     'unit_role_id', 'drop_channel_id', 'team_channel_id', 'drop_weekday',
-    'drop_time', 'orbat_opens', 'survey_url',
+    'drop_time', 'orbat_opens', 'survey_url', 'orbat_access', 'orbat_role_ids',
 )
 
 
@@ -2158,6 +2164,17 @@ async def set_cp_mission_orbat(mission_id: int, orbat_id, user_name: str):
             """UPDATE cp_missions SET orbat_id = $2, updated_by_name = $3,
                    updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
             mission_id, orbat_id, user_name)
+
+
+async def cp_linked_orbat_ids(guild_id: str) -> set:
+    """Every ORBAT a planner mission on this guild links."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT DISTINCT m.orbat_id FROM cp_missions m
+                 JOIN cp_campaigns c ON c.id = m.campaign_id
+                WHERE c.guild_id = $1 AND m.orbat_id IS NOT NULL""", guild_id)
+    return {r['orbat_id'] for r in rows}
 
 
 async def cp_orbat_linked(guild_id: str, orbat_id: int) -> bool:
