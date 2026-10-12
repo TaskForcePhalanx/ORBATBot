@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 
 from cogs.campaigns import mission_drops, post_context
 from utils import campaign as rules
-from utils import database
+from utils import database, tacmap
 from web.guilds import mentionable_roles, postable_channels
 
 
@@ -150,26 +150,78 @@ async def create_campaign(guild, form, member) -> int:
         is_test=form.get('is_test') == '1')
 
 
-def _deleted_note(name: str, outcome: dict) -> str:
+def _deleted_note(name: str, outcome: dict, is_test: bool) -> str:
     """What a delete did, in one sentence — including the Kill Tracker side,
     because that is the part somebody would otherwise go and check."""
+    head = f'Deleted {name}, its missions, maps and images'
     if 'kt_removed' in outcome:
-        return (f'Deleted {name}, its missions and images, and its empty Kill Tracker '
-                'campaign. Nothing of it is left.')
+        return f'{head}, and its empty Kill Tracker campaign.'
     if 'kt_kept' in outcome:
-        return (f"Deleted {name}, its missions and images. Its Kill Tracker campaign "
-                f"({outcome['kt_kept']}) was kept: it holds missions or was set up "
-                'there by hand. An admin can remove it under Kill Tracker → Campaigns.')
-    return f'Deleted {name}, its missions and images. Nothing of it is left.'
+        return (f"{head}. Its Kill Tracker campaign ({outcome['kt_kept']}) was kept: it "
+                'holds missions or was set up there by hand. An admin can remove it under '
+                'Kill Tracker → Campaigns.')
+    return f'{head}.' + (' Nothing of it is left.' if is_test else '')
+
+
+async def _delete_created_orbats(orbat_ids: list) -> int:
+    """Delete ORBATs the planner made for a test campaign or mission — never one
+    another mission uses or an operation has run on (`cp_created_orbats()`)."""
+    gone = 0
+    for orbat_id in orbat_ids:
+        if await database.delete_orbat(orbat_id):
+            gone += 1
+    return gone
+
+
+async def delete_mission(bot, mission: dict, member=None) -> str:
+    """Delete a mission. A test mission takes its posts and the ORBAT the
+    planner made for it; a real one leaves both. Either way the AO maps lose
+    its phases' empty layers."""
+    campaign = await database.get_cp_campaign(mission['campaign_id'])
+    is_test = bool(campaign and campaign['is_test'])
+    orbats = []
+    if is_test:
+        await clear_test_posts(bot, mission_id=mission['id'])
+        orbats = await database.cp_created_orbats(mission_id=mission['id'])
+    await database.delete_cp_mission(mission['id'], mission['campaign_id'])
+    gone = await _delete_created_orbats(orbats)
+    await refresh_ao_maps(mission['campaign_id'], member)
+    return f"Deleted {mission['name']}" + (', with the ORBAT made for it.' if gone else '.')
 
 
 async def delete_campaign(bot, campaign: dict) -> str:
+    """Delete a campaign and say exactly what went and what stayed.
+
+    Everything in it goes, with its maps. A test campaign also takes its
+    posts and the ORBATs the planner made for its missions; an ORBAT that was
+    only linked — somebody's roster — stays either way, and so do a real
+    campaign's posted drops, which are the public record."""
     posted = bool(await database.cp_posted_messages(campaign_id=campaign['id']))
+    linked = {m['orbat_id'] for m in await database.list_cp_missions(campaign['id'])
+              if m['orbat_id']}
+    orbats = []
     if campaign['is_test']:
         await clear_test_posts(bot, campaign_id=campaign['id'])
-    note = _deleted_note(campaign['name'], await database.delete_cp_campaign(campaign['id']))
+        orbats = await database.cp_created_orbats(campaign_id=campaign['id'])
+    outcome = await database.delete_cp_campaign(campaign['id'])
+    gone = await _delete_created_orbats(orbats)
+    kept_orbats = len(linked - set(orbats))
+    note = _deleted_note(campaign['name'], outcome,
+                         campaign['is_test'] and not kept_orbats and 'kt_kept' not in outcome)
+    if gone:
+        note = note.replace(' Nothing of it is left.', '')
+        note += (f" The ORBAT{'s' if gone > 1 else ''} made for its missions went too."
+                 + (' Nothing of it is left.' if campaign['is_test'] and not kept_orbats
+                    and 'kt_kept' not in outcome else ''))
+    kept = []
+    if kept_orbats:
+        kept.append(f"the ORBAT{'s' if kept_orbats > 1 else ''} its missions used "
+                    f"{'stay' if kept_orbats > 1 else 'stays'} under Operations → ORBATs")
     if posted and not campaign['is_test']:
-        note += ' The drops it posted stay in Discord.'
+        kept.append('the drops it posted stay in Discord')
+    if kept:
+        sentence = ' and '.join(kept)
+        note += ' ' + sentence[0].upper() + sentence[1:] + '.'
     return note
 
 
@@ -177,7 +229,9 @@ async def delete_test_campaigns(bot, guild) -> str:
     ids = await database.test_cp_campaign_ids(str(guild.id))
     for campaign_id in ids:
         await clear_test_posts(bot, campaign_id=campaign_id)
+        orbats = await database.cp_created_orbats(campaign_id=campaign_id)
         await database.delete_cp_campaign(campaign_id)
+        await _delete_created_orbats(orbats)
     if not ids:
         return 'There were no test campaigns to delete.'
     return (f'Deleted {len(ids)} test campaign{"s" if len(ids) != 1 else ""} with '
@@ -211,6 +265,7 @@ async def campaign_page(guild, campaign: dict, tz: str) -> dict:
         'missions': summaries,
         'open_slots': list(range(len(missions) + 1, campaign['planned_missions'] + 1)),
         'aos': await database.list_cp_aos(campaign['id']),
+        'campaign_map_svg': await campaign_map_svg(guild, campaign),
         'statuses': rules.CAMPAIGN_STATUSES,
         'suggested_date': suggested.isoformat() if suggested else '',
         'carries_from': last['name'] if last else None,
@@ -222,20 +277,29 @@ async def update_campaign(campaign: dict, form, member) -> None:
                                       member.display_name)
 
 
-async def add_ao(campaign: dict, form) -> str:
+async def add_ao(campaign: dict, form, member=None) -> str:
     name = str(form.get('name') or '').strip()[:80]
     if not name:
         raise ValueError('An AO needs a name.')
     await database.add_cp_ao(campaign['id'], name)
-    return f'Added the {name} AO.'
+    notes = await sync_campaign_map(campaign, member)
+    return ' '.join([f'Added the {name} AO.'] + notes)
 
 
-async def rename_ao(campaign: dict, ao_id: int, form) -> str:
+async def rename_ao(campaign: dict, ao_id: int, form, member=None) -> str:
     name = str(form.get('name') or '').strip()[:80]
     if not name:
         raise ValueError('An AO needs a name.')
     await database.rename_cp_ao(ao_id, campaign['id'], name)
+    await sync_campaign_map(campaign, member)
+    await refresh_ao_maps(campaign['id'], member)
     return 'AO renamed.'
+
+
+async def delete_ao(campaign: dict, ao_id: int, member=None) -> str:
+    await database.delete_cp_ao(ao_id, campaign['id'])
+    await sync_campaign_map(campaign, member)
+    return 'AO deleted, with its map. Phases fought there keep their place without an AO.'
 
 
 async def create_mission(campaign: dict, form, member) -> int:
@@ -374,6 +438,10 @@ async def patch_mission(guild, mission: dict, payload: dict, member, tz: str) ->
         await database.patch_cp_mission(mission['id'], mission['campaign_id'], fields,
                                         name, op_date, member.display_name)
 
+    if 'phases' in payload or 'name' in fields:
+        # The AO maps carry a layer per phase, named after the mission.
+        await refresh_ao_maps(mission['campaign_id'], member)
+
     fresh = await database.get_cp_mission(mission['id'])
     return await mission_state(guild, fresh, tz)
 
@@ -389,6 +457,7 @@ async def wizard_page(guild, mission: dict, tz: str) -> dict:
         'campaign': campaign,
         'mission': mission,
         'orbat': await orbat_panel(guild, mission),
+        'maps': await maps_panel(guild, campaign, mission),
         'packs': rules.PACKS,
         'steps': rules.STEPS,
         'state': state,
@@ -404,6 +473,7 @@ async def schedule_page(guild, mission: dict, tz: str) -> dict:
     state = await mission_state(guild, mission, tz)
     return {'campaign': campaign, 'mission': mission, 'state': state,
             'orbat': await orbat_panel(guild, mission), 'packs': rules.PACKS,
+            'maps': await maps_panel(guild, campaign, mission),
             'steps': {s.key: s for s in rules.STEPS}}
 
 
@@ -546,7 +616,8 @@ async def set_orbat(guild, mission: dict, form, member) -> str:
     if action == 'new':
         new_id = await orbat_service.create(guild, member, name,
                                             f"For {mission['name']}")
-        await database.set_cp_mission_orbat(mission['id'], new_id, member.display_name)
+        await database.set_cp_mission_orbat(mission['id'], new_id, member.display_name,
+                                            created=True)
         return f'Created {name} and linked it. Open it to write the roster.'
     if chosen not in orbats:
         raise ValueError('Pick an ORBAT from the list.')
@@ -555,9 +626,136 @@ async def set_orbat(guild, mission: dict, form, member) -> str:
         return f"Linked {orbats[chosen]['name']}."
     if action == 'copy':
         new_id = await orbat_service.duplicate(chosen, member, name)
-        await database.set_cp_mission_orbat(mission['id'], new_id, member.display_name)
+        await database.set_cp_mission_orbat(mission['id'], new_id, member.display_name,
+                                            created=True)
         return f"Copied {orbats[chosen]['name']} as {name} — the structure, not the bookings."
     raise ValueError('That is not something the ORBAT card does.')
+
+
+# ---------------------------------------------------------------------------
+# Maps (milestone 5)
+#
+# The campaign map and the AO maps are ordinary tactical maps; the planner
+# makes them, and keeps their layers in step with its AOs and phases through
+# `rules.sync_campaign_map()` and `rules.sync_phase_layers()`. A sync rewrites
+# the stored document, so somebody with that map open in the editor saves over
+# it — the next sync (opening the map from the planner, saving phases) puts
+# the layers back.
+# ---------------------------------------------------------------------------
+
+def _map_user(member) -> str:
+    return member.display_name if member is not None else 'Campaign planner'
+
+
+async def sync_campaign_map(campaign: dict, member=None) -> list:
+    """Bring the campaign map's AO layers up to date, if it has a map."""
+    campaign = await database.get_cp_campaign(campaign['id'])
+    if not campaign or not campaign.get('map_id'):
+        return []
+    record = await database.get_tac_map(campaign['map_id'])
+    if record is None:
+        await database.set_cp_campaign_map(campaign['id'], None)
+        return []
+    aos = await database.list_cp_aos(campaign['id'])
+    doc = tacmap.parse(record['doc']).doc
+    synced, notes = rules.sync_campaign_map(doc, [{'id': a['id'], 'name': a['name']} for a in aos])
+    if synced != doc:
+        await database.save_tac_map_doc(record['id'], tacmap.dumps(synced), _map_user(member))
+    await database.set_cp_ao_areas({a['id']: rules.ao_layer_id(a['id']) for a in aos})
+    return notes
+
+
+async def open_campaign_map(guild, campaign: dict, member) -> tuple[int, list]:
+    """The campaign map's id, making it first if there is none."""
+    fresh = await database.get_cp_campaign(campaign['id'])
+    if not fresh.get('map_id') or await database.get_tac_map(fresh['map_id']) is None:
+        doc = tacmap.blank_doc()
+        map_id = await database.create_tac_map(
+            str(guild.id), f"{campaign['name']} — campaign map"[:120],
+            f"The campaign map for {campaign['name']}: one outline per AO.",
+            tacmap.dumps(doc), str(member.id), member.display_name)
+        await database.set_cp_campaign_map(campaign['id'], map_id)
+    notes = await sync_campaign_map(campaign, member)
+    return (await database.get_cp_campaign(campaign['id']))['map_id'], notes
+
+
+async def _phase_list(campaign_id: int, ao_id: int) -> list:
+    return [{'id': p['id'], 'name': rules.phase_layer_name(p['mission_name'], p['number'],
+                                                           p['title'])}
+            for p in await database.cp_ao_phases(campaign_id, ao_id)]
+
+
+async def sync_ao_map(campaign_id: int, ao: dict, member=None) -> list:
+    """Bring one AO map's phase layers up to date."""
+    record = await database.get_tac_map(ao['map_id']) if ao.get('map_id') else None
+    if record is None:
+        return []
+    phases = await _phase_list(campaign_id, ao['id'])
+    doc = tacmap.parse(record['doc']).doc
+    synced, notes = rules.sync_phase_layers(doc, phases)
+    if synced != doc:
+        await database.save_tac_map_doc(record['id'], tacmap.dumps(synced), _map_user(member))
+    await database.set_cp_phase_layers({p['id']: rules.phase_layer_id(p['id']) for p in phases})
+    return notes
+
+
+async def refresh_ao_maps(campaign_id: int, member=None) -> list:
+    """Every AO map of a campaign, after phases, missions or AOs changed."""
+    notes = []
+    for ao in await database.list_cp_aos(campaign_id):
+        if ao.get('map_id'):
+            notes += await sync_ao_map(campaign_id, ao, member)
+    return notes
+
+
+async def open_ao_map(guild, campaign: dict, ao_id: int, member) -> tuple[int, list]:
+    """An AO's map id, making it first from the campaign map's terrain."""
+    aos = {a['id']: a for a in await database.list_cp_aos(campaign['id'])}
+    ao = aos.get(ao_id)
+    if ao is None:
+        raise NotFound('No such AO in this campaign.')
+    if not ao.get('map_id') or await database.get_tac_map(ao['map_id']) is None:
+        fresh = await database.get_cp_campaign(campaign['id'])
+        base = None
+        if fresh.get('map_id'):
+            record = await database.get_tac_map(fresh['map_id'])
+            base = tacmap.parse(record['doc']).doc if record else None
+        doc = rules.ao_map_doc(base, ao_id, ao['name'])
+        map_id = await database.create_tac_map(
+            str(guild.id), f"{campaign['name']} — {ao['name']}"[:120],
+            f"The {ao['name']} AO of {campaign['name']}: one layer per phase fought there.",
+            tacmap.dumps(doc), str(member.id), member.display_name)
+        await database.set_cp_ao_map(ao_id, map_id)
+        ao['map_id'] = map_id
+    notes = await sync_ao_map(campaign['id'], ao, member)
+    return ao['map_id'], notes
+
+
+async def maps_panel(guild, campaign: dict, mission: dict | None = None) -> dict:
+    """The maps card: the campaign map, and the AOs — for a mission, the AOs
+    its phases are fought in first."""
+    fresh = await database.get_cp_campaign(campaign['id'])
+    aos = await database.list_cp_aos(campaign['id'])
+    used = []
+    if mission is not None:
+        phases = await database.get_cp_phases(mission['id'])
+        used = list(dict.fromkeys(int(p['ao_id']) for p in phases if p.get('ao_id')))
+    order = {ao_id: i for i, ao_id in enumerate(used)}
+    aos.sort(key=lambda a: (a['id'] not in order, order.get(a['id'], 0), a['position']))
+    return {'campaign_map': fresh.get('map_id'),
+            'aos': [{**a, 'used': a['id'] in order} for a in aos]}
+
+
+async def campaign_map_svg(guild, campaign: dict) -> str | None:
+    """The campaign map, drawn for the campaign page — read only."""
+    fresh = await database.get_cp_campaign(campaign['id'])
+    record = await database.get_tac_map(fresh['map_id']) if fresh.get('map_id') else None
+    if record is None:
+        return None
+    from web.tacmap import places_for
+    doc = tacmap.parse(record['doc']).doc
+    return tacmap.render(doc, places=await places_for(str(guild.id), doc),
+                         extra_class='cpmap')
 
 
 # ---------------------------------------------------------------------------
@@ -585,9 +783,16 @@ async def build_export(guild, mission: dict, pack_key: str, fmt: str, tz: str,
             orbat = {'name': record['name'],
                      'squads': await database.get_orbat_structure(record['id']),
                      'nets': [dict(n) for n in await database.get_orbat_nets(record['id'])]}
+    traces = []
+    if pack_key != 'player':
+        from web import maptrace
+        traces = await maptrace.phase_traces(str(guild.id), mission['campaign_id'],
+                                             data['phases'])
     blocks = rules.document_blocks(data, pack_key, ctx, orbat=orbat, aos=aos,
-                                   today=today_in(tz))
-    images = await database.cp_image_data(mission['campaign_id'], rules.block_images(blocks))
+                                   today=today_in(tz), phase_traces=traces)
+    uploaded = [i for i in rules.block_images(blocks) if not str(i).startswith('trace:')]
+    images = await database.cp_image_data(mission['campaign_id'], uploaded)
+    images.update({t['key']: t['png'] for t in traces})
     campaign = await database.get_cp_campaign(mission['campaign_id'])
     meta = {'brand': brand, 'campaign': campaign['name'] if campaign else '',
             'name': (rules.text(data, 'name') or mission['name']).upper(),

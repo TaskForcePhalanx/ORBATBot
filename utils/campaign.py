@@ -13,7 +13,10 @@ that which can be decided without Discord or a database:
                    two ways, a phase count that disagrees with the phases
     completeness   how many of a step's required fields are filled
     approval       the hash that says whether what a drop would post now is
-                   what somebody approved
+                   what somebody approved, and what a drop is doing (held,
+                   approved, posted)
+    the maps       which layers a campaign map and an AO map hold for the
+                   planner's AOs and phases, and how an ops trace is cropped
 
 **It imports nothing but the standard library**, like `utils/orbat.py` and
 `utils/tacmap.py`, which is what makes it testable (`tests/test_campaign.py`).
@@ -31,11 +34,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from utils import tacmap
 
 # Discord refuses a message longer than this. A post over it goes out as
 # several messages, each ending in a "Part i/n" line.
@@ -1514,12 +1520,15 @@ def _objective_rows(phase: dict, roles) -> list[str]:
 
 def document_blocks(mission: dict, pack_key: str, ctx: PostContext, *,
                     orbat: dict | None = None, aos: dict | None = None,
-                    today: date | None = None) -> list[dict]:
+                    today: date | None = None,
+                    phase_traces: list | None = None) -> list[dict]:
     """The pack's contents, as blocks.
 
     `mission` is the fields with `phases` filled in, as for the posts. `orbat`
     is `{'name', 'squads': [...], 'nets': [...]}` in the database's shapes, or
-    None; `aos` maps AO id → name. Private fields are never read. Complications
+    None; `aos` maps AO id → name; `phase_traces` is `[{key, caption}]`, the
+    phases drawn from their AO maps, which lead the annexes of the leaders'
+    pack and the full op file. Private fields are never read. Complications
     are Zeus's plan, so only the full op file — the mission team's own copy —
     carries them; the INTSUM's hints are what players get.
 
@@ -1617,13 +1626,15 @@ def document_blocks(mission: dict, pack_key: str, ctx: PostContext, *,
             table.append([str(i), phase.get('title', ''), ao, what])
         blocks.append({'t': 'table', 'head': ['#', 'Phase', 'AO', 'What happens'],
                        'widths': [0.06, 0.28, 0.14, 0.52], 'rows': table})
-    blocks.append({'t': 'h2', 'text': 'Service support and command'})
-    kv([['Field support', text(mission, 'support')],
-        ['Resupply', text(mission, 'resupply')],
-        ['Respawn and re-insert', text(mission, 'respawn')],
-        ['Chain of command', text(mission, 'coc')],
-        ['Technical', text(mission, 'technical')],
-        ['Modpack', text(mission, 'modpack_link')]])
+    support_rows = [['Field support', text(mission, 'support')],
+                    ['Resupply', text(mission, 'resupply')],
+                    ['Respawn and re-insert', text(mission, 'respawn')],
+                    ['Chain of command', text(mission, 'coc')],
+                    ['Technical', text(mission, 'technical')],
+                    ['Modpack', text(mission, 'modpack_link')]]
+    if any(filled(v) for _, v in support_rows):
+        blocks.append({'t': 'h2', 'text': 'Service support and command'})
+    kv(support_rows)
     nets = [[n.get('net', ''), n.get('channel', '')] for n in rows(mission, 'nets')]
     if nets:
         blocks.append({'t': 'table', 'head': ['Net', 'Channel'], 'widths': [0.5, 0.5],
@@ -1670,9 +1681,11 @@ def document_blocks(mission: dict, pack_key: str, ctx: PostContext, *,
             if orbat_nets and not nets:
                 blocks.append({'t': 'table', 'head': ['Net', 'Channel'], 'widths': [0.5, 0.5],
                                'rows': orbat_nets})
-        for i, image_id in enumerate(mission.get('traces') or []):
+        annexes = [(t['key'], t['caption']) for t in phase_traces or []]
+        annexes += [(image_id, 'ops trace') for image_id in mission.get('traces') or []]
+        for i, (image_id, caption) in enumerate(annexes):
             blocks.append({'t': 'img', 'id': image_id, 'big': True,
-                           'caption': f'Annex {chr(65 + i) if i < 26 else i + 1} · ops trace'})
+                           'caption': f'Annex {chr(65 + i) if i < 26 else i + 1} · {caption}'})
 
     if pack_key == 'full':
         blocks.append({'t': 'break'})
@@ -1700,3 +1713,230 @@ def document_blocks(mission: dict, pack_key: str, ctx: PostContext, *,
 def block_images(blocks: list[dict]) -> list:
     """The image ids a pack needs, in order, once each."""
     return list(dict.fromkeys(b['id'] for b in blocks if b['t'] == 'img'))
+
+
+# ---------------------------------------------------------------------------
+# Maps (milestone 5)
+#
+# A campaign has one map with an outline per AO, and each AO a detailed map on
+# which every phase fought there is a layer. The maps are ordinary tactical
+# maps (utils/tacmap.py), edited in the existing editor; the planner only
+# keeps their **layers** in step with its AOs and phases.
+#
+# Layers, not items, carry the link, because a layer has an id that survives
+# every save and an item has none: the AO's outline lives on the layer
+# `cpao<ao id>` and a phase's graphics on `cpp<phase id>`. Anything else on a
+# map — the base "Plan" layer, an enemy picture — is the planner's to ignore,
+# and it shows on every ops trace as shared context.
+# ---------------------------------------------------------------------------
+
+AO_LAYER = 'cpao'
+PHASE_LAYER = 'cpp'
+
+
+def ao_layer_id(ao_id) -> str:
+    return f'{AO_LAYER}{int(ao_id)}'
+
+
+def phase_layer_id(phase_id) -> str:
+    return f'{PHASE_LAYER}{int(phase_id)}'
+
+
+def _is_phase_layer(layer_id: str) -> bool:
+    return layer_id.startswith(PHASE_LAYER) and layer_id[len(PHASE_LAYER):].isdigit()
+
+
+def _is_ao_layer(layer_id: str) -> bool:
+    return layer_id.startswith(AO_LAYER) and layer_id[len(AO_LAYER):].isdigit()
+
+
+def phase_layer_name(mission_name: str, index: int, title: str) -> str:
+    """What a phase's layer is called on its AO's map: short, because a map
+    shows its layer names in a narrow panel, and unique enough that two
+    missions fought in one AO can be told apart."""
+    head = (mission_name or 'Mission').strip()
+    body = f'P{index}' + (f' {title.strip()}' if (title or '').strip() else '')
+    name = f'{head} · {body}'
+    if len(name) > tacmap.MAX_LAYER_NAME:
+        room = tacmap.MAX_LAYER_NAME - len(body) - 3
+        name = (f'{head[:max(room, 4)].rstrip()} · {body}')[:tacmap.MAX_LAYER_NAME]
+    return name
+
+
+def _ao_outline(doc: dict, index: int, name: str) -> dict:
+    """A placeholder outline for a new AO: a dashed box in a three-wide grid
+    across the sheet, to be dragged and reshaped onto the real ground."""
+    col, row = index % 3, (index // 3) % 3
+    w, h = doc['width'] / 4.5, doc['height'] / 4.5
+    x = doc['width'] * (0.08 + col * 0.31)
+    y = doc['height'] * (0.08 + row * 0.31)
+    colour = tacmap.LINE_COLOURS[index % 8][0]
+    return {'kind': 'area', 'side': tacmap.DEFAULT_SIDE, 'layer': None, 'label': name[:tacmap.MAX_LABEL],
+            'note': '', 'size': 1.0, 'color': colour, 'style': 'dashed',
+            'points': [[round(x, 1), round(y, 1)], [round(x + w, 1), round(y, 1)],
+                       [round(x + w, 1), round(y + h, 1)], [round(x, 1), round(y + h, 1)]]}
+
+
+def sync_campaign_map(doc: dict, aos: list) -> tuple[dict, list]:
+    """The campaign map with one layer per AO (`aos`: [{id, name}] in order).
+
+    A new AO gets a layer and a placeholder outline; a renamed one has its
+    layer renamed, and its outline's label too when that still read the old
+    name; a deleted one loses its layer and what was drawn on it, since the
+    outline was the planner's. Layers the planner did not make are left
+    alone. Returns the document and notes for whoever asked.
+    """
+    doc = json.loads(json.dumps(doc))
+    notes = []
+    wanted = {ao_layer_id(a['id']): (a['name'] or 'AO')[:tacmap.MAX_LAYER_NAME] for a in aos}
+    gone = [l['id'] for l in doc['layers'] if _is_ao_layer(l['id']) and l['id'] not in wanted]
+    if gone:
+        doc['layers'] = [l for l in doc['layers'] if l['id'] not in gone]
+        doc['items'] = [i for i in doc['items'] if i['layer'] not in gone]
+    by_id = {l['id']: l for l in doc['layers']}
+    for index, ao in enumerate(aos):
+        key, name = ao_layer_id(ao['id']), wanted[ao_layer_id(ao['id'])]
+        layer = by_id.get(key)
+        if layer is None:
+            if len(doc['layers']) >= tacmap.MAX_LAYERS:
+                notes.append(f"No room on the campaign map for {name}: a map holds "
+                             f"{tacmap.MAX_LAYERS} layers.")
+                continue
+            layer = {'id': key, 'name': name, 'visible': True}
+            doc['layers'].append(layer)
+            by_id[key] = layer
+            outline = _ao_outline(doc, index, name)
+            outline['layer'] = key
+            doc['items'].append(outline)
+            continue
+        if layer['name'] != name:
+            for item in doc['items']:
+                if item['layer'] == key and item.get('label') == layer['name']:
+                    item['label'] = name[:tacmap.MAX_LABEL]
+            layer['name'] = name
+    return doc, notes
+
+
+def ao_map_doc(campaign_doc: dict | None, ao_id, ao_name: str) -> dict:
+    """A new detailed map for an AO: the campaign map's terrain, corners and
+    place-name settings, its base layer, and the AO's outline copied in on a
+    layer of its own as a reference to plan inside."""
+    doc = tacmap.blank_doc()
+    if campaign_doc:
+        for key in ('width', 'height', 'background', 'arma', 'places', 'grid'):
+            doc[key] = json.loads(json.dumps(campaign_doc[key]))
+        key = ao_layer_id(ao_id)
+        outline = [json.loads(json.dumps(i)) for i in campaign_doc['items'] if i['layer'] == key]
+        if outline:
+            doc['layers'].append({'id': key, 'name': (ao_name or 'AO')[:tacmap.MAX_LAYER_NAME],
+                                  'visible': True})
+            doc['items'].extend(outline)
+    return tacmap.parse(doc).doc
+
+
+def sync_phase_layers(doc: dict, phases: list) -> tuple[dict, list]:
+    """An AO map with one layer per phase fought there (`phases`: [{id, name}]
+    in campaign order). Phase layers come after every other layer, in phase
+    order, so later phases draw over earlier ones. A phase layer whose phase
+    has gone — deleted, or moved to another AO — is removed when nothing is
+    drawn on it, and kept (and said) when something is: that is somebody's
+    work. Returns the document and the notes."""
+    doc = json.loads(json.dumps(doc))
+    notes = []
+    wanted = [(phase_layer_id(p['id']), p['name'][:tacmap.MAX_LAYER_NAME]) for p in phases]
+    wanted_ids = {k for k, _ in wanted}
+    used = {i['layer'] for i in doc['items']}
+    existing = {l['id']: l for l in doc['layers']}
+    kept_orphans = []
+    others = []
+    for layer in doc['layers']:
+        if _is_phase_layer(layer['id']):
+            if layer['id'] not in wanted_ids and layer['id'] in used:
+                kept_orphans.append(layer)
+                notes.append(f"Kept the layer {layer['name']}: its phase is no longer fought "
+                             'in this AO, but something is drawn on it.')
+            continue
+        others.append(layer)
+    room = tacmap.MAX_LAYERS - len(others) - len(kept_orphans)
+    phase_layers = []
+    for key, name in wanted:
+        if len(phase_layers) >= room:
+            notes.append(f'No room for the layer {name}: a map holds {tacmap.MAX_LAYERS} '
+                         'layers. Delete one you no longer need in the map editor.')
+            continue
+        layer = existing.get(key) or {'id': key, 'name': name, 'visible': True}
+        layer['name'] = name
+        phase_layers.append(layer)
+    doc['layers'] = others + kept_orphans + phase_layers
+    return doc, notes
+
+
+# -- ops traces ---------------------------------------------------------------
+
+TRACE_WIDTH = 1600          # pixels: sharp on an A4 page, small enough to embed
+TRACE_ASPECT = 1.5          # width / height of a trace
+TRACE_MARGIN = 0.15         # of the drawn area, on every side
+TRACE_MIN_FRACTION = 0.12   # of the sheet: the closest a trace zooms in
+
+
+def trace_doc(doc: dict, layer_id: str) -> dict:
+    """The map as one phase's trace shows it: that phase's layer, and every
+    layer that belongs to no phase as it was left switched (the base plan,
+    the AO outline, an enemy picture). Other phases are hidden."""
+    doc = json.loads(json.dumps(doc))
+    for layer in doc['layers']:
+        if layer['id'] == layer_id:
+            layer['visible'] = True
+        elif _is_phase_layer(layer['id']):
+            layer['visible'] = False
+    return doc
+
+
+def _item_bounds(item: dict) -> tuple | None:
+    if item.get('points'):
+        xs = [p[0] for p in item['points']]
+        ys = [p[1] for p in item['points']]
+        return min(xs), min(ys), max(xs), max(ys)
+    if 'x' in item:
+        r = tacmap.UNIT_BOX * item.get('size', 1.0)
+        return item['x'] - r, item['y'] - r, item['x'] + r, item['y'] + r * 1.6
+    return None
+
+
+def trace_view(doc: dict, layer_id: str) -> tuple | None:
+    """Where an ops trace looks: the box around the phase's graphics and the
+    AO outline, with a margin, at `TRACE_ASPECT`, never closer than
+    `TRACE_MIN_FRACTION` of the sheet and never outside it. None when nothing
+    is drawn on the phase's layer — an empty trace is not worth a page."""
+    mine = [_item_bounds(i) for i in doc['items'] if i['layer'] == layer_id]
+    mine = [b for b in mine if b]
+    if not mine:
+        return None
+    context = [_item_bounds(i) for i in doc['items'] if _is_ao_layer(i['layer'])]
+    boxes = mine + [b for b in context if b]
+    x0 = min(b[0] for b in boxes)
+    y0 = min(b[1] for b in boxes)
+    x1 = max(b[2] for b in boxes)
+    y1 = max(b[3] for b in boxes)
+    w, h = (x1 - x0) * (1 + 2 * TRACE_MARGIN), (y1 - y0) * (1 + 2 * TRACE_MARGIN)
+    w = max(w, doc['width'] * TRACE_MIN_FRACTION, h * TRACE_ASPECT)
+    h = w / TRACE_ASPECT
+    w, h = min(w, doc['width']), min(h, doc['height'])
+    if w / h > TRACE_ASPECT:
+        w = h * TRACE_ASPECT
+    else:
+        h = w / TRACE_ASPECT
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    x = min(max(cx - w / 2, 0), doc['width'] - w)
+    y = min(max(cy - h / 2, 0), doc['height'] - h)
+    return round(x, 2), round(y, 2), round(w, 2), round(h, 2)
+
+
+def trace_zoom(doc: dict, view: tuple, width_px: int = TRACE_WIDTH) -> int:
+    """The terrain level that gives a trace about one tile pixel per picture
+    pixel: deep enough to be sharp, never deeper than the terrain has."""
+    background = doc['background']
+    fraction = view[2] / doc['width']
+    needed = width_px / (256 * fraction)
+    zoom = max(0, math.ceil(math.log2(max(needed, 1))))
+    return min(zoom, background.get('max_zoom', tacmap.MAX_TILE_ZOOM), tacmap.MAX_TILE_ZOOM)

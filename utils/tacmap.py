@@ -1560,9 +1560,18 @@ def _empty_sheet(doc: dict) -> str:
             f'fill="#20262e"/>')
 
 
-def _tiles_svg(doc: dict) -> str:
+def _tiles_svg(doc: dict, *, zoom: int = None, view: tuple = None, href=None) -> str:
+    """The tile pyramid as `<image>` elements.
+
+    `zoom` overrides the document's level, `view` (x, y, w, h in sheet units)
+    leaves out the tiles that fall wholly outside it, and `href(z, x, y)`
+    replaces the tile's address — the ops traces in a briefing pack pass the
+    tile's bytes in as a data URI, because the renderer that turns them into a
+    picture fetches nothing.
+    """
     background = doc['background']
-    zoom = background['zoom']
+    zoom = background['zoom'] if zoom is None else zoom
+    address = href or (lambda z, column, row: tile_url(background, z, column, row))
     per_side = 2 ** zoom
     width = doc['width'] / per_side
     height = doc['height'] / per_side
@@ -1570,18 +1579,17 @@ def _tiles_svg(doc: dict) -> str:
     if zoom > BACKDROP_ZOOM:
         parts.append(
             f'<image href='
-            f'{quoteattr(tile_url(background, BACKDROP_ZOOM, 0, 0))} '
+            f'{quoteattr(address(BACKDROP_ZOOM, 0, 0))} '
             f'x="0" y="0" width="{doc["width"]}" height="{doc["height"]}" '
             f'preserveAspectRatio="none"/>'
         )
-    for column in range(per_side):
-        for row in range(per_side):
-            parts.append(
-                f'<image href={quoteattr(tile_url(background, zoom, column, row))} '
-                f'x="{round(column * width, 3)}" y="{round(row * height, 3)}" '
-                f'width="{round(width, 3)}" height="{round(height, 3)}" '
-                f'preserveAspectRatio="none"/>'
-            )
+    for column, row in visible_tiles(doc, zoom, view):
+        parts.append(
+            f'<image href={quoteattr(address(zoom, column, row))} '
+            f'x="{round(column * width, 3)}" y="{round(row * height, 3)}" '
+            f'width="{round(width, 3)}" height="{round(height, 3)}" '
+            f'preserveAspectRatio="none"/>'
+        )
     # The dark sheet stays under both: a tile that 404s draws nothing at all in
     # SVG, and a terrain whose backdrop is missing too should read as terrain
     # we have not got rather than as an empty plan.
@@ -1589,16 +1597,32 @@ def _tiles_svg(doc: dict) -> str:
             f'{"".join(parts)}</g>')
 
 
-def _background_svg(doc: dict) -> str:
+def visible_tiles(doc: dict, zoom: int, view: tuple = None) -> list:
+    """(column, row) of every tile at `zoom` that touches `view` — all of them
+    with no view. Row counts from the top, as everywhere here."""
+    per_side = 2 ** zoom
+    if view is None:
+        return [(c, r) for c in range(per_side) for r in range(per_side)]
+    x, y, w, h = view
+    tile_w, tile_h = doc['width'] / per_side, doc['height'] / per_side
+    first_c = max(0, int(math.floor(x / tile_w)))
+    last_c = min(per_side - 1, int(math.ceil((x + w) / tile_w)) - 1)
+    first_r = max(0, int(math.floor(y / tile_h)))
+    last_r = min(per_side - 1, int(math.ceil((y + h) / tile_h)) - 1)
+    return [(c, r) for c in range(first_c, last_c + 1) for r in range(first_r, last_r + 1)]
+
+
+def _background_svg(doc: dict, *, zoom: int = None, view: tuple = None, href=None) -> str:
     background = doc['background']
     if not background['url']:
         return _empty_sheet(doc)
     if background['kind'] == 'tiles':
-        return _tiles_svg(doc)
+        return _tiles_svg(doc, zoom=zoom, view=view, href=href)
+    url = href(None, None, None) if href else background['url']
     # preserveAspectRatio="none" because the document's own proportions are the
     # authority: the person sized the sheet to the image, not the other way round.
     return (
-        f'<image href={quoteattr(background["url"])} x="0" y="0" '
+        f'<image href={quoteattr(url)} x="0" y="0" '
         f'width="{doc["width"]}" height="{doc["height"]}" '
         f'opacity="{background["opacity"]}" preserveAspectRatio="none"/>'
     )
@@ -1620,24 +1644,34 @@ def _grid_svg(doc: dict) -> str:
 
 
 def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
-           places: list = None) -> str:
+           places: list = None, view: tuple = None, tile_zoom: int = None,
+           tile_href=None, size: tuple = None) -> str:
     """The whole map as one `<svg>` element.
 
     This is what the read-only page, the share link and the no-JavaScript
     fallback show — the editor's canvas is the same markup, kept up to date in
     the browser instead of re-rendered here.
+
+    The rest is for an ops trace drawn into a briefing pack: `view` crops to
+    (x, y, w, h) of the sheet, `tile_zoom` picks the terrain's level and
+    `tile_href` where each tile comes from (see `_tiles_svg()`), and `size`
+    gives the picture's width and height in pixels.
     """
     classes = ('tacmap ' + extra_class).strip()
     namespace = ' xmlns="http://www.w3.org/2000/svg"' if standalone else ''
     body = ''.join(item_svg(item) for item in ordered_items(doc))
     names = places_svg(doc, places or [])
+    box = view or (0, 0, doc['width'], doc['height'])
+    box_text = ' '.join(f'{round(v, 2):g}' for v in box)
+    dims = f' width="{int(size[0])}" height="{int(size[1])}"' if size else ''
     # The sheet and the plan are separate groups so the editor can redraw either
     # on its own — changing the background must not touch what is drawn on it.
     return (
-        f'<svg{namespace} viewBox="0 0 {doc["width"]} {doc["height"]}" '
+        f'<svg{namespace} viewBox="{box_text}"{dims} '
         f'class={quoteattr(classes)} preserveAspectRatio="xMidYMid meet">'
-        f'{defs()}<g id="tm-back">{_background_svg(doc)}{_grid_svg(doc)}'
-        f'{names}</g>'
+        f'{defs()}<g id="tm-back">'
+        f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
+        f'{_grid_svg(doc)}{names}</g>'
         f'<g class="tm-items">{body}</g></svg>'
     )
 

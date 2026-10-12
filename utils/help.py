@@ -1586,14 +1586,16 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'Tick **Test campaign** to try things out. A test campaign is not added '
             'to the Kill Tracker and its drops never post publicly. **Delete test '
             'campaign** removes it with one press, and **Delete all test campaigns** '
-            'on the list clears every one — nothing of them is left. **Make it real** '
+            'on the list clears every one — with its maps, its posts and the ORBATs '
+            'the planner made for it. An ORBAT you only linked stays. **Make it real** '
             'keeps a test you want after all.',
-            'Deleting a real campaign asks you to type its name. Its Kill Tracker '
-            'campaign goes too if the planner created it and no recordings have been '
-            'added; one holding stats, or set up in the Kill Tracker by hand, is kept.',
+            'Deleting a real campaign asks you to type its name. Its maps go with it. '
+            'Its Kill Tracker campaign goes too if the planner created it and no '
+            'recordings have been added; one holding stats, or set up in the Kill '
+            'Tracker by hand, is kept. Its missions\' ORBATs and its posted drops stay.',
         ),
         page='campaigns',
-        related=('mission-wizard', 'campaign-settings'),
+        related=('mission-wizard', 'campaign-maps', 'campaign-settings'),
     ),
     Topic(
         key='mission-wizard',
@@ -1709,6 +1711,9 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             "OPORD; safe for everyone signed up. **Leaders' pack** — that plus the "
             "FragO, timings, tasks, the ORBAT and the ops traces. **Full op file** — "
             "everything, plus the complications, the back-schedule and the after action.",
+            "Each phase drawn on its AO's map goes into the leaders' pack and the full "
+            'op file as an ops trace, before any traces you uploaded — see *Plan on '
+            'the campaign and AO maps*.',
             'Complications appear only in the full op file, and **Held back for Zeus** '
             'is never in any pack.',
             'Times are in the op\'s time zone, with the server\'s beside them in the '
@@ -1720,6 +1725,43 @@ _CAMPAIGNS: tuple[Topic, ...] = (
         ),
         page='campaigns',
         related=('mission-orbat', 'mission-wizard'),
+    ),
+    Topic(
+        key='campaign-maps',
+        title='Plan on the campaign and AO maps',
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — a campaign page → **Maps and areas of operations**, or a mission\'s **Maps** card',
+        summary="One campaign map with an outline per AO, a detailed map per AO with a "
+                "layer per phase, and each phase's layer drawn into the leaders' pack.",
+        steps=(
+            'On the campaign page press **Make the campaign map**. It opens in the map '
+            'editor with one dashed outline per AO, each on its own layer.',
+            'Put the map on its terrain (**Map settings**), then drag and reshape each '
+            'outline over the ground that AO covers, and save.',
+            'Back on the campaign page press **Make its map** beside an AO. Its map '
+            'starts on the same terrain, with the AO\'s outline, and one layer for '
+            'every phase you gave that AO in a mission\'s Orders step.',
+            'Draw each phase on its own layer — the layer picker above the map — '
+            'and save.',
+            'Download the **Leaders\' pack**: each phase drawn on its layer is in it as '
+            'an ops trace, cropped to the phase and the AO.',
+        ),
+        notes=(
+            'The layers keep up with the planner: a new AO gets an outline, a renamed '
+            'phase or mission renames its layer, and a phase moved to another AO or '
+            'deleted loses its layer — unless something is drawn on it, which is kept.',
+            'A trace shows its own phase plus every layer that belongs to no phase, '
+            'such as Plan or an enemy layer you add, so draw shared things there.',
+            'A map holds 12 layers, so an AO with more phases than fit says so; '
+            'delete a layer you no longer need in the editor.',
+            'If you have the map open in the editor while you change phases in the '
+            'wizard, your next save there puts the old layer names back. Opening the '
+            'map from the planner again fixes them.',
+            'Removing an AO removes its map. Deleting a campaign deletes its maps.',
+        ),
+        page='campaigns',
+        related=('plan-campaign', 'briefing-packs', 'mission-wizard'),
     ),
     Topic(
         key='campaign-drops',

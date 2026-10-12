@@ -916,6 +916,10 @@ async def _init_campaign_planner(db):  # noqa: C901 — one table after another
     # or a WARNO for a mission planned too late for one).
     await db.execute('ALTER TABLE cp_drops ADD COLUMN IF NOT EXISTS skipped INTEGER NOT NULL DEFAULT 0')
     await db.execute('ALTER TABLE cp_drops ADD COLUMN IF NOT EXISTS skipped_by_name TEXT')
+    # Milestone 5: an ORBAT the planner's card created (New or Copy) rather
+    # than linked — the only kind deleting a test mission may take with it.
+    await db.execute('ALTER TABLE cp_missions ADD COLUMN IF NOT EXISTS orbat_created '
+                     'BOOLEAN NOT NULL DEFAULT FALSE')
 
 
 async def get_active_operation(guild_id: str):
@@ -2006,7 +2010,8 @@ async def update_cp_campaign(campaign_id: int, values: dict, user_name: str):
 
 async def delete_cp_campaign(campaign_id: int) -> dict:
     """Deletes the campaign with every AO, mission, phase, objective, drop and
-    image in it (they cascade). Returns what happened to its Kill Tracker
+    image in it (they cascade), and the campaign and AO maps the planner made
+    for it. Returns what happened to its Kill Tracker
     campaign: `{'kt_removed': name}` when that went too, `{'kt_kept': name}`
     when it stayed, or `{}` when there was none.
 
@@ -2029,7 +2034,15 @@ async def delete_cp_campaign(campaign_id: int) -> dict:
                             AS kt_empty
                      FROM cp_campaigns c LEFT JOIN kt_campaigns k ON k.id = c.kt_campaign_id
                     WHERE c.id = $1 FOR UPDATE OF c""", campaign_id)
+            # The campaign map and the AO maps were made by the planner for
+            # this campaign and hold its plan, so they go with it.
+            maps = [r['map_id'] for r in await db.fetch(
+                """SELECT map_id FROM cp_campaigns WHERE id = $1 AND map_id IS NOT NULL
+                   UNION SELECT map_id FROM cp_aos WHERE campaign_id = $1
+                                                    AND map_id IS NOT NULL""", campaign_id)]
             await db.execute('DELETE FROM cp_campaigns WHERE id = $1', campaign_id)
+            if maps:
+                await db.execute('DELETE FROM tac_maps WHERE id = ANY($1::int[])', maps)
             if not row or not row['kt_name']:
                 return {}
             if row['kt_created'] and row['kt_empty']:
@@ -2081,11 +2094,16 @@ async def rename_cp_ao(ao_id: int, campaign_id: int, name: str):
 
 
 async def delete_cp_ao(ao_id: int, campaign_id: int):
-    """Phases fought in it keep their place and lose the AO (ON DELETE SET NULL)."""
+    """Phases fought in it keep their place and lose the AO (ON DELETE SET NULL).
+    Its detailed map was made by the planner for it and goes too."""
     pool = await get_pool()
     async with pool.acquire() as db:
-        await db.execute('DELETE FROM cp_aos WHERE id = $1 AND campaign_id = $2',
-                         ao_id, campaign_id)
+        async with db.transaction():
+            map_id = await db.fetchval(
+                'DELETE FROM cp_aos WHERE id = $1 AND campaign_id = $2 RETURNING map_id',
+                ao_id, campaign_id)
+            if map_id:
+                await db.execute('DELETE FROM tac_maps WHERE id = $1', map_id)
 
 
 # -- missions ---------------------------------------------------------------
@@ -2183,16 +2201,20 @@ async def delete_cp_mission(mission_id: int, campaign_id: int):
                          mission_id, campaign_id)
 
 
-async def set_cp_mission_orbat(mission_id: int, orbat_id, user_name: str):
+async def set_cp_mission_orbat(mission_id: int, orbat_id, user_name: str,
+                              created: bool = False):
     """Point a mission at an ORBAT (or at none). The ORBAT is a link, not part of
-    the mission: deleting the mission leaves it, and an ORBAT linked to several
-    missions is one ORBAT."""
+    the mission: deleting a real mission leaves it, and an ORBAT linked to
+    several missions is one ORBAT. `created` says the planner made it for this
+    mission (New or Copy on the card), which is what lets deleting a *test*
+    mission take it along."""
     pool = await get_pool()
     async with pool.acquire() as db:
         await db.execute(
             """UPDATE cp_missions SET orbat_id = $2, updated_by_name = $3,
+                   orbat_created = $4,
                    updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
-            mission_id, orbat_id, user_name)
+            mission_id, orbat_id, user_name, bool(created and orbat_id))
 
 
 async def cp_linked_orbat_ids(guild_id: str) -> set:
@@ -2214,6 +2236,87 @@ async def cp_orbat_linked(guild_id: str, orbat_id: int) -> bool:
         return bool(await db.fetchval(
             """SELECT 1 FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
                 WHERE c.guild_id = $1 AND m.orbat_id = $2 LIMIT 1""", guild_id, orbat_id))
+
+
+async def cp_created_orbats(campaign_id: int = None, mission_id: int = None) -> list:
+    """ORBATs the planner created for a campaign's (or one mission's) missions
+    that nothing else uses: no other planner mission links them and no
+    operation has ever run on them. What deleting a test campaign or mission
+    may delete along with it — anything else is somebody's roster."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT DISTINCT m.orbat_id FROM cp_missions m
+                WHERE m.orbat_created AND m.orbat_id IS NOT NULL
+                  AND ($1::int IS NULL OR m.campaign_id = $1)
+                  AND ($2::int IS NULL OR m.id = $2)
+                  AND NOT EXISTS (SELECT 1 FROM cp_missions o
+                                   WHERE o.orbat_id = m.orbat_id
+                                     AND NOT (COALESCE(o.campaign_id = $1, FALSE)
+                                              OR COALESCE(o.id = $2, FALSE)))
+                  AND NOT EXISTS (SELECT 1 FROM operations op WHERE op.orbat_id = m.orbat_id)""",
+            campaign_id, mission_id)
+    return [r['orbat_id'] for r in rows]
+
+
+# -- maps (milestone 5) -----------------------------------------------------
+
+async def set_cp_campaign_map(campaign_id: int, map_id):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('UPDATE cp_campaigns SET map_id = $2 WHERE id = $1', campaign_id, map_id)
+
+
+async def set_cp_ao_map(ao_id: int, map_id):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('UPDATE cp_aos SET map_id = $2 WHERE id = $1', ao_id, map_id)
+
+
+async def set_cp_ao_areas(areas: dict):
+    """ao id → the campaign map layer that holds its outline."""
+    if not areas:
+        return
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.executemany('UPDATE cp_aos SET area = $2 WHERE id = $1',
+                             [(k, v) for k, v in areas.items()])
+
+
+async def cp_ao_phases(campaign_id: int, ao_id: int) -> list:
+    """Every phase fought in an AO, across the campaign's missions in order:
+    id, title, its number within its mission, and the mission's name."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT p.id, p.title, p.ao_id, m.name AS mission_name, m.id AS mission_id,
+                      ROW_NUMBER() OVER (PARTITION BY p.mission_id
+                                         ORDER BY p.position, p.id) AS number
+                 FROM cp_phases p JOIN cp_missions m ON m.id = p.mission_id
+                WHERE m.campaign_id = $1
+                ORDER BY m.position, m.id, p.position, p.id""", campaign_id)
+    return [dict(r) for r in rows if r['ao_id'] == ao_id]
+
+
+async def set_cp_phase_layers(layers: dict):
+    """phase id → the layer it is drawn on (None for one with no map)."""
+    if not layers:
+        return
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.executemany('UPDATE cp_phases SET layer_id = $2 WHERE id = $1',
+                             [(k, v) for k, v in layers.items()])
+
+
+async def cp_campaign_map_ids(campaign_id: int) -> list:
+    """The campaign map and every AO map — the maps the planner made."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT map_id FROM cp_campaigns WHERE id = $1 AND map_id IS NOT NULL
+               UNION SELECT map_id FROM cp_aos WHERE campaign_id = $1 AND map_id IS NOT NULL""",
+            campaign_id)
+    return [r['map_id'] for r in rows]
 
 
 # -- phases -----------------------------------------------------------------
