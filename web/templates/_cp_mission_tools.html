@@ -54,6 +54,33 @@
 </div></div>
 
 <div class="card cptool"><div class="cardbody">
+  <h3 class="nospace">Maps</h3>
+  {% if maps.aos %}
+    <p class="muted nospace">Each phase is a layer on the map of the AO it is fought in.
+      Draw it there and it becomes its ops trace in the leaders' pack.</p>
+    <ul class="cpmaplist">
+      {% for ao in maps.aos %}
+        <li>
+          <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/aos/{{ ao.id }}/map">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="linkish" type="submit">{{ ao.name }}</button>
+            {% if ao.used %}<span class="chip">this mission</span>{% endif %}
+            {% if not ao.map_id %}<span class="muted">· no map yet</span>{% endif %}
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted nospace">Add the campaign's AOs on the campaign page, then give each
+      phase its AO in the Orders step.</p>
+  {% endif %}
+  <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/map">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="linkish" type="submit">{{ 'Campaign map' if maps.campaign_map else 'Make the campaign map' }}</button>
+  </form>
+</div></div>
+
+<div class="card cptool"><div class="cardbody">
   <h3 class="nospace">Briefing packs</h3>
   <ul class="cppacks">
     {% for pack in packs %}

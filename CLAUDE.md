@@ -73,6 +73,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   nav.py                # The two-level tab bar, built once rather than per template
   campaigns.py          # The campaign planner's pages, on top of utils/campaign.py
   exports.py            # Briefing packs as PDF (reportlab) and Word (python-docx)
+  maptrace.py           # A phase's AO-map layer as a PNG ops trace (resvg) for the packs
   # There is no web/help.py: utils/help.py holds the content, and the two
   # routes have no permissions to check and no form to translate.
   voice.py              # Voice leaderboard shaping, the settings form and posting
@@ -100,7 +101,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(546 cases), and every one of them covers a module that imports nothing beyond
+(557 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -109,12 +110,12 @@ all:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, the tile layout, and the place-name parser and geometry |
+| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, and when an operation still counts as running |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO map starts from, which layers an ops trace shows, where it crops and how deep its terrain goes |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -379,11 +380,11 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 | Table | What it holds |
 |---|---|
 | `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again. `orbat_access` (`admins` / `planners`, NULL = planners) and `orbat_role_ids` (comma-separated extra roles) — who may edit mission ORBATs, read through `campaign.may_edit_orbats()` |
-| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it, and the only kind a rename carries over to), `map_id` → `tac_maps` (the campaign map) |
-| `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (its outline on the campaign map), `map_id` → its detailed `tac_maps` |
-| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
+| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it, and the only kind a rename carries over to), `map_id` → `tac_maps` (the campaign map, made by the planner and deleted with the campaign) |
+| `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (the campaign-map **layer** its outline is on, `cpao<id>`), `map_id` → its detailed `tac_maps` (made by the planner; deleted with the AO) |
+| `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `orbat_created` (the card's New or Copy made it, rather than Link — the only kind deleting a *test* mission may take along), `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
 | `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
-| `cp_phases` | A mission phase: `position`, `title`, `detail`, `ao_id`, `layer_id` (the layer of the AO's map it is drawn on, milestone 5). A row, not part of `fields`, because a layer hangs off it — `save_cp_phases()` keeps a phase's id across saves for exactly that reason |
+| `cp_phases` | A mission phase: `position`, `title`, `detail`, `ao_id`, `layer_id` (the layer of its AO's map it is drawn on, always `cpp<phase id>`). A row, not part of `fields`, because a layer hangs off it — `save_cp_phases()` keeps a phase's id across saves for exactly that reason |
 | `cp_objective_library` | Per guild, seeded from `utils/objectives_seed.py`, admin-edited: `category`, `kind` (`objective` / `complication`), `name`, `players_do`, `complete_when`, `pairs_with` (free text; `campaign.pairing_ids()` turns it into the picker's suggestions — never a rule), `intsum_hint`, `position` |
 | `cp_phase_objectives` | An objective chosen for a phase: `library_id` (where it was picked from, or NULL), `role` (`primary` / `secondary` / `complication`), and its own copy of `name`, `players_do`, `complete_when`, `intsum_hint`; `result` for the AAR. Replaced wholesale on each save — nothing hangs off one |
 | `cp_drops` | PK (`mission_id`, `kind`). Decisions only — the state is `campaign.drop_state()`. `approved_hash` + `due_at` (naive UTC) are **the version and the time that were approved**, stored together; `approved_by`/`approved_by_name`/`approved_at`; `held_pinged_at` (the team was told once; cleared by a new approval); `posted_at`, `channel_id`, `message_ids` (JSON, every message incl. image-only ones), `posted_hash` (what is in Discord now); `skipped`/`skipped_by_name` (Don't post) |
@@ -1092,7 +1093,9 @@ being built in milestones:
    Word. *Done.*
 4. **Drops and approvals** — approving, scheduled posting, holds and pings,
    edits after posting, sign-ups at the opening drop. *Done.*
-5. Maps — the campaign map, AO maps, phases as layers.
+5. **Maps** — the campaign map with an outline per AO, a detailed map per
+   AO with a layer per phase, and each phase's layer drawn into the leaders'
+   pack as its ops trace. *Done.*
 6. After action and the Kill Tracker link.
 
 ### Who can plan
@@ -1193,10 +1196,17 @@ away, so everything about it is arranged for that:
 - **Make it real** gives it its Kill Tracker campaign then, exactly as if it had
   been created real (`make_cp_campaign_real()`), deletes its test posts and
   clears its `cp_drops`, so every drop is approved again and posts publicly.
+- **The ORBATs the planner made for it go too** — those the mission card's
+  New or Copy created (`cp_missions.orbat_created`), and only when no other
+  mission links them and no operation has ever run on them
+  (`cp_created_orbats()`). An ORBAT that was only *linked* is somebody's
+  roster and stays. The same holds for deleting one test mission.
 
-A **real** campaign's posted drops stay in Discord when it is deleted — they
-are the public record, and partner servers may have followed them — and the
-flash message says so.
+**Any** campaign's maps go with it (`delete_cp_campaign()` deletes the campaign
+map and the AO maps in the same transaction): the planner made them for that
+campaign and they hold its plan. A **real** campaign's ORBATs and posted drops
+stay — the drops are the public record, and partner servers may have followed
+them — and `delete_campaign()`'s flash says exactly what went and what stayed.
 
 `delete_cp_campaign()` removes the campaign and, by cascade, every AO, mission,
 phase, objective, drop and image in it. **Its Kill Tracker campaign goes too
@@ -1205,7 +1215,9 @@ name patterns or imported missions, and no other planner campaign pointing at
 it. Anything else is kept and the flash message says so — those numbers are
 public, and an admin may have built that campaign by hand. ORBATs, maps and
 operations a mission links to (milestones 3–5) are links, not contents: a
-delete drops the link and leaves them.
+delete drops the link and leaves them — except the maps, which the planner
+made for the campaign and which go with it, and a test campaign's
+planner-made ORBATs (above).
 
 ### Drops: approval, posting, holds (`cogs/campaigns.py`)
 
@@ -1258,6 +1270,68 @@ running operation**: `operation_running()` counts an active operation as
 running until `OPERATION_OVER_AFTER` (6 h) past its start, and forever when it
 has none. Any refusal is posted in the team channel; **Start sign-ups now** on
 the Schedule page runs the same function later.
+
+### Maps (`utils/campaign.py` → *Maps*, `web/campaigns.py`, `web/maptrace.py`)
+
+A campaign has one **campaign map** with an outline per AO, and each AO a
+**detailed map** with a layer per phase fought there. They are ordinary
+tactical maps, opened in the existing editor; the planner makes them on the
+first **Make the campaign map** / **Make its map** and from then on only keeps
+their **layers** in step with its AOs and phases.
+
+- **Layers carry the link, not items.** A map item has no id that survives a
+  save; a layer does. So an AO's outline lives on the campaign-map layer
+  `cpao<ao id>` and a phase's graphics on the AO-map layer `cpp<phase id>`
+  (`ao_layer_id()`, `phase_layer_id()`). Every other layer — the base *Plan*,
+  an enemy picture somebody adds — is the planner's to leave alone.
+- **`sync_campaign_map()`**: a new AO gets a layer and a dashed placeholder
+  outline to drag onto its ground; a rename renames the layer, and the
+  outline's label when it still read the old name; a deleted AO's layer goes
+  with what is on it (the outline was the planner's). Run on AO add, rename and
+  delete, and when the map is opened.
+- **`sync_phase_layers()`**: one layer per phase fought in the AO, across the
+  campaign's missions in order, named `Mission · P2 Title`
+  (`phase_layer_name()`, fitted to 40 characters), after every other layer so
+  later phases draw over earlier ones. A phase that left the AO (deleted,
+  moved) loses its layer **only when nothing is drawn on it** — otherwise it is
+  kept and the flash says so. Run when phases or the mission name are saved,
+  missions are reordered or deleted, an AO is renamed, and the map is opened.
+- **`ao_map_doc()`**: a new AO map starts on the campaign map's terrain,
+  corners and place-name settings, with the AO's outline copied in on its own
+  layer as a frame to plan inside.
+- **12 layers per map** (`tacmap.MAX_LAYERS`). Both syncs stop there and say
+  which AO or phase did not fit.
+- **A sync rewrites the stored document**, so somebody with that map open in
+  the editor saves the old layers back over it; the next sync puts them right.
+  Live collaboration is not here, as the map section below says.
+
+The campaign page draws the campaign map server-side (`campaign_map_svg()`,
+`tacmap.render()`), and a mission's **Maps** card lists the AOs, the ones its
+phases are fought in first.
+
+**Ops traces.** `web/maptrace.py` draws, for each phase fought in an AO with a
+map, that phase's layer as a PNG, and `document_blocks(…, phase_traces=)` puts
+them first among the leaders' pack's and full op file's annexes. The rules are
+in `utils/campaign.py`:
+
+- `trace_doc()` — the phase's own layer, every non-phase layer as it was left
+  switched, and the other phases hidden;
+- `trace_view()` — the box around the phase's graphics and the AO outline,
+  with a margin, at 3:2, never closer than 12% of the sheet; **no trace at all
+  when the phase's layer is empty**;
+- `trace_zoom()` — the terrain level giving about one tile pixel per picture
+  pixel at `TRACE_WIDTH` (1600), never deeper than the terrain has.
+
+`tacmap.render()` gained `view` (crop), `tile_zoom`, `tile_href` (where each
+tile comes from) and `size`; `visible_tiles()` is the tiles a crop touches. The
+SVG is turned into a PNG by **resvg** (`resvg-py`), chosen because it is one
+wheel needing nothing from the operating system — the bot is built by
+Nixpacks, where cairo is not a given. resvg fetches nothing, so every tile is
+read first (from `tac_terrain_tiles` for an uploaded terrain, over HTTP for an
+OCAP one, eight at a time) and handed in as a data URI; a tile that cannot be
+had is a transparent pixel, as a 404 is on the site. Labels use Bitstream Vera
+from reportlab's own fonts folder, so traces and PDFs share a font. resvg is
+imported where it is used: without it, packs render without traces.
 
 ### The mission's ORBAT
 
@@ -1711,6 +1785,8 @@ POST /g/{guild}/campaigns/delete-tests  every test campaign, with everything in 
 POST /g/{guild}/campaigns/{id}/delete   confirmed by typing the name (a test campaign: one press)
 POST /g/{guild}/campaigns/{id}/make-real  a test campaign becomes real, gets its Kill Tracker campaign
 POST /g/{guild}/campaigns/{id}/aos      add an AO;  …/aos/{ao} rename, …/aos/{ao}/delete
+POST /g/{guild}/campaigns/{id}/map      open the campaign map (made the first time), syncing its AO layers
+POST /g/{guild}/campaigns/{id}/aos/{ao}/map  open the AO's map (made the first time), syncing its phase layers
 POST /g/{guild}/campaigns/{id}/missions create one, copying the last one's stable details
 GET  /g/{guild}/campaigns/{id}/missions/{m}           the wizard (needs JavaScript)
 GET  /g/{guild}/campaigns/{id}/missions/{m}/schedule  back-schedule, checks, every drop
@@ -1870,7 +1946,7 @@ Three things about it are deliberate:
 
 ### The help pages (`utils/help.py`)
 
-Fifty-five how-tos — one per thing somebody might want to do — served at `/help`
+Fifty-six how-tos — one per thing somebody might want to do — served at `/help`
 and written into the README by `scripts/gen_help.py`. The module is data plus a
 renderer; there is no `web/help.py`, because the two routes have no permissions
 to check and no form to translate, which is all such a module has ever been for

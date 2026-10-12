@@ -1207,3 +1207,11 @@ details.panel > summary .cpstatus { margin-left: 8px; font-size: 13px; font-weig
 .cpsignups { margin: 6px 0 14px; }
 .cpsignups .inlineform { margin-top: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .cpdropstate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 10px; }
+
+/* Maps (campaign planner, milestone 5) */
+.cpmapbox { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 14px; align-items: flex-start; }
+.cpmapframe { width: 100%; max-width: 440px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #20262e; }
+.cpmapframe svg { display: block; width: 100%; height: auto; }
+.cpmaplist { list-style: none; padding: 0; margin: 8px 0; }
+.cpmaplist li { margin: 4px 0; }
+.cpmaplist form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }

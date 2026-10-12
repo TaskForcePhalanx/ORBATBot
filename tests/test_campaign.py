@@ -608,3 +608,118 @@ def test_image_groups():
     assert cp.image_groups([mb] * 12, limit_bytes=100 * mb) == [list(range(10)), [10, 11]]
     assert cp.image_groups([6 * mb, 6 * mb, mb], limit_bytes=10 * mb) == [[0], [1, 2]]
     assert cp.image_groups([20 * mb], limit_bytes=10 * mb) == [[0]]
+
+
+# -- maps (milestone 5) -------------------------------------------------------
+
+from utils import tacmap  # noqa: E402
+
+
+def _layer_ids(doc):
+    return [l['id'] for l in doc['layers']]
+
+
+def test_campaign_map_gets_a_layer_and_outline_per_ao():
+    doc, notes = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'},
+                                                           {'id': 4, 'name': 'South'}])
+    assert _layer_ids(doc) == ['plan', 'cpao3', 'cpao4'] and notes == []
+    outlines = [i for i in doc['items'] if i['layer'] == 'cpao3']
+    assert len(outlines) == 1 and outlines[0]['kind'] == 'area' and outlines[0]['label'] == 'North'
+    assert tacmap.parse(doc).ok                       # what we write is a valid map
+
+
+def test_campaign_map_follows_renames_and_deletes_but_keeps_user_edits():
+    doc, _ = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'},
+                                                       {'id': 4, 'name': 'South'}])
+    doc['items'].append({'kind': 'text', 'layer': 'plan', 'x': 1, 'y': 1, 'label': 'mine'})
+    doc['items'].append({'kind': 'text', 'layer': 'cpao3', 'x': 5, 'y': 5, 'label': 'Bridge'})
+    doc, _ = cp.sync_campaign_map(doc, [{'id': 3, 'name': 'Northern AO'}])
+    assert _layer_ids(doc) == ['plan', 'cpao3']
+    labels = {i['label'] for i in doc['items']}
+    assert 'Northern AO' in labels and 'Bridge' in labels and 'mine' in labels
+    assert 'South' not in labels and 'North' not in labels
+
+
+def test_campaign_map_respects_the_layer_limit():
+    aos = [{'id': n, 'name': f'AO {n}'} for n in range(1, 15)]
+    doc, notes = cp.sync_campaign_map(tacmap.blank_doc(), aos)
+    assert len(doc['layers']) == tacmap.MAX_LAYERS and len(notes) == 14 - (tacmap.MAX_LAYERS - 1)
+
+
+def test_ao_map_copies_terrain_and_outline():
+    camp, _ = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'}])
+    camp['background'].update(kind='tiles', url='/t/7', zoom=3)
+    doc = cp.ao_map_doc(camp, 3, 'North')
+    assert doc['background']['url'] == '/t/7' and _layer_ids(doc) == ['plan', 'cpao3']
+    assert [i['label'] for i in doc['items']] == ['North']
+    assert _layer_ids(cp.ao_map_doc(None, 3, 'North')) == ['plan']
+
+
+def test_phase_layers_follow_the_phases():
+    doc = tacmap.blank_doc()
+    doc, _ = cp.sync_phase_layers(doc, [{'id': 1, 'name': 'Op A · P1 Assault'},
+                                        {'id': 2, 'name': 'Op A · P2 Hold'}])
+    assert _layer_ids(doc) == ['plan', 'cpp1', 'cpp2']
+    doc['items'].append({'kind': 'text', 'layer': 'cpp1', 'x': 1, 'y': 1, 'label': 'x'})
+    doc, notes = cp.sync_phase_layers(doc, [{'id': 2, 'name': 'Op A · P1 Hold'},
+                                            {'id': 9, 'name': 'Op B · P1 Raid'}])
+    assert _layer_ids(doc) == ['plan', 'cpp1', 'cpp2', 'cpp9']   # cpp1 kept: drawn on
+    assert any('Kept' in n for n in notes)
+    assert doc['layers'][2]['name'] == 'Op A · P1 Hold'
+    doc['items'] = []
+    doc, notes = cp.sync_phase_layers(doc, [{'id': 9, 'name': 'Op B · P1 Raid'}])
+    assert _layer_ids(doc) == ['plan', 'cpp9'] and notes == []   # empty orphans go
+
+
+def test_phase_layers_respect_the_limit():
+    phases = [{'id': n, 'name': f'P{n}'} for n in range(1, 20)]
+    doc, notes = cp.sync_phase_layers(tacmap.blank_doc(), phases)
+    assert len(doc['layers']) == tacmap.MAX_LAYERS and any('No room' in n for n in notes)
+
+
+def test_phase_layer_name_fits():
+    assert cp.phase_layer_name('Grenzfest', 2, 'Seize the bridge') == 'Grenzfest · P2 Seize the bridge'
+    long = cp.phase_layer_name('A very long mission name indeed', 3, 'Exploit to the river line')
+    assert len(long) <= tacmap.MAX_LAYER_NAME and long.endswith('P3 Exploit to the river line')
+
+
+def test_trace_shows_one_phase_and_the_shared_layers():
+    doc = tacmap.blank_doc()
+    doc['layers'] += [{'id': 'cpp1', 'name': 'P1', 'visible': False},
+                      {'id': 'cpp2', 'name': 'P2', 'visible': True},
+                      {'id': 'enemy', 'name': 'Enemy', 'visible': True}]
+    seen = {l['id']: l['visible'] for l in cp.trace_doc(doc, 'cpp1')['layers']}
+    assert seen == {'plan': True, 'cpp1': True, 'cpp2': False, 'enemy': True}
+
+
+def test_trace_view_crops_around_the_phase():
+    doc = tacmap.blank_doc()                    # 1000 x 1000
+    assert cp.trace_view(doc, 'cpp1') is None
+    doc['items'] = [{'kind': 'line', 'layer': 'cpp1', 'points': [[400, 400], [500, 450]]}]
+    x, y, w, h = cp.trace_view(doc, 'cpp1')
+    assert round(w / h, 2) == cp.TRACE_ASPECT
+    assert x <= 400 and x + w >= 500 and y <= 400 and y + h >= 450
+    assert w >= 1000 * cp.TRACE_MIN_FRACTION and 0 <= x and x + w <= 1000
+    doc['items'].append({'kind': 'area', 'layer': 'cpao3',
+                         'points': [[0, 0], [990, 0], [990, 990], [0, 990]]})
+    x, y, w, h = cp.trace_view(doc, 'cpp1')    # the AO outline widens it
+    assert w == 1000 and 0 <= y and y + h <= 1000
+
+
+def test_trace_zoom_is_sharp_but_never_deeper_than_the_terrain():
+    doc = tacmap.blank_doc()
+    doc['background']['max_zoom'] = 5
+    assert cp.trace_zoom(doc, (0, 0, 1000, 667)) == 3       # 1600 px over 256-px tiles
+    assert cp.trace_zoom(doc, (0, 0, 150, 100)) == 5        # capped
+    doc['background']['max_zoom'] = 2
+    assert cp.trace_zoom(doc, (0, 0, 150, 100)) == 2
+
+
+def test_render_can_crop_and_swap_tile_addresses():
+    doc = tacmap.blank_doc()
+    doc['background'].update(kind='tiles', url='/t/7', zoom=2)
+    svg = tacmap.render(doc, view=(0, 0, 400, 300), tile_zoom=2,
+                        tile_href=lambda z, x, y: f'data:{z}-{x}-{y}', size=(800, 600))
+    assert 'viewBox="0 0 400 300"' in svg and 'width="800"' in svg
+    assert 'data:2-0-0' in svg and 'data:2-1-1' in svg and 'data:2-2-0' not in svg
+    assert tacmap.visible_tiles(doc, 1) == [(0, 0), (0, 1), (1, 0), (1, 1)]

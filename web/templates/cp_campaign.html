@@ -104,11 +104,22 @@
   </div>
 </details>
 
-<h2 style="margin-top:28px">Areas of operations</h2>
+<h2 style="margin-top:28px">Maps and areas of operations</h2>
 <p class="hint">
-  The regions the campaign is fought over. A mission's phases are each fought in
-  one AO; from milestone 5 each AO gets its own detailed map with the phases as layers.
+  The campaign map holds one outline per AO, each on its own layer. Each AO has a
+  detailed map of its own with a layer per phase fought there — draw a phase on its
+  layer and it goes into the leaders' pack as that phase's ops trace.
 </p>
+<div class="cpmapbox">
+  {% if campaign_map_svg %}
+    <div class="cpmapframe">{{ campaign_map_svg|safe }}</div>
+  {% endif %}
+  <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/map">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button {{ '' if campaign_map_svg else 'primary' }}" type="submit">
+      {{ 'Open the campaign map' if campaign_map_svg else 'Make the campaign map' }}</button>
+  </form>
+</div>
 {% if aos %}
   <ul class="cpaos">
     {% for ao in aos %}
@@ -118,8 +129,12 @@
           <input name="name" value="{{ ao.name }}" maxlength="80" aria-label="AO name">
           <button class="button" type="submit">Rename</button>
         </form>
+        <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/aos/{{ ao.id }}/map">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="button" type="submit">{{ 'Open map' if ao.map_id else 'Make its map' }}</button>
+        </form>
         <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/aos/{{ ao.id }}/delete"
-              onsubmit="return confirm('Remove this AO? Phases fought in it keep their place without an AO.')">
+              onsubmit="return confirm('Remove this AO and its map? Phases fought in it keep their place without an AO.')">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button class="button danger" type="submit">Remove</button>
         </form>

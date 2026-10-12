@@ -1845,7 +1845,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         context = await campaign_ctx(request, guild_id, campaign_id)
         form = await planner_form(request, context)
         try:
-            note = await campaign_service.add_ao(context['campaign'], form)
+            note = await campaign_service.add_ao(context['campaign'], form, context['member'])
         except ValueError as e:
             return redirect(request, campaign_url(guild_id, campaign_id), 'warn', str(e))
         return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
@@ -1855,7 +1855,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         context = await campaign_ctx(request, guild_id, campaign_id)
         form = await planner_form(request, context)
         try:
-            note = await campaign_service.rename_ao(context['campaign'], ao_id, form)
+            note = await campaign_service.rename_ao(context['campaign'], ao_id, form,
+                                                   context['member'])
         except ValueError as e:
             return redirect(request, campaign_url(guild_id, campaign_id), 'warn', str(e))
         return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
@@ -1864,9 +1865,36 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     async def campaign_ao_delete(request: Request, guild_id: str, campaign_id: int, ao_id: int):
         context = await campaign_ctx(request, guild_id, campaign_id)
         await planner_form(request, context)
-        await database.delete_cp_ao(ao_id, campaign_id)
-        return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
-                        'AO removed. Phases fought in it keep their place without an AO.')
+        note = await campaign_service.delete_ao(context['campaign'], ao_id, context['member'])
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/map')
+    async def campaign_map_open(request: Request, guild_id: str, campaign_id: int):
+        """Open the campaign map in the map editor, making it the first time."""
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        await planner_form(request, context)
+        map_id, notes = await campaign_service.open_campaign_map(
+            context['guild'], context['campaign'], context['member'])
+        return redirect(request, f'/g/{guild_id}/maps/{map_id}',
+                        'warn' if notes else 'ok',
+                        ' '.join(notes) or 'The campaign map: one outline per AO, each on its '
+                        'own layer. Drag them onto the ground they cover.')
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/aos/{ao_id}/map')
+    async def campaign_ao_map_open(request: Request, guild_id: str, campaign_id: int,
+                                   ao_id: int):
+        """Open an AO's map with a layer per phase fought there."""
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        await planner_form(request, context)
+        try:
+            map_id, notes = await campaign_service.open_ao_map(
+                context['guild'], context['campaign'], ao_id, context['member'])
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        return redirect(request, f'/g/{guild_id}/maps/{map_id}',
+                        'warn' if notes else 'ok',
+                        ' '.join(notes) or 'Each phase fought in this AO has a layer here — '
+                        'draw it on its own layer and it becomes that phase\'s ops trace.')
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions')
     async def mission_create(request: Request, guild_id: str, campaign_id: int):
@@ -1938,18 +1966,15 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         form = await planner_form(request, context)
         await database.move_cp_mission(mission_id, campaign_id,
                                        -1 if form.get('direction') == 'up' else 1)
+        await campaign_service.refresh_ao_maps(campaign_id, context['member'])
         return redirect(request, campaign_url(guild_id, campaign_id))
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/delete')
     async def mission_delete(request: Request, guild_id: str, campaign_id: int, mission_id: int):
         context = await mission_ctx(request, guild_id, mission_id, campaign_id)
         await planner_form(request, context)
-        campaign = await database.get_cp_campaign(campaign_id)
-        if campaign and campaign['is_test']:
-            await campaign_service.clear_test_posts(bot, mission_id=mission_id)
-        await database.delete_cp_mission(mission_id, campaign_id)
-        return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
-                        f"Deleted {context['mission']['name']}.")
+        note = await campaign_service.delete_mission(bot, context['mission'], context['member'])
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/drops/{kind}/{action}')
     async def mission_drop_action(request: Request, guild_id: str, campaign_id: int,

@@ -26,3 +26,8 @@ py7zr>=1.0.0
 # on the server. reportlab brings Pillow, which also reads WebP screenshots.
 reportlab>=4.2,<5
 python-docx>=1.1,<2
+# Ops traces in the leaders' pack (web/maptrace.py): a phase's layer of its AO
+# map turned into a picture. resvg is one wheel with nothing to install from
+# the operating system — the bot is built by Nixpacks, where cairo is not a
+# given. Imported where it is used, so a pack without traces still renders.
+resvg-py>=0.5,<0.6
