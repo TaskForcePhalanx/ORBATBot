@@ -1549,6 +1549,106 @@ _CAMPAIGNS: tuple[Topic, ...] = (
         ),
         page='cpsettings',
     ),
+    Topic(
+        key='plan-campaign',
+        title='Plan a campaign',
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — **🗂️ Campaigns → Campaigns**',
+        summary='Set up a campaign of three to five missions, its AOs, and the '
+                'missions in the order they will be played.',
+        steps=(
+            'Go to **🗂️ Campaigns** and fill in **New campaign**: a name, the era '
+            'and theatre, and how many missions you plan.',
+            'On the campaign page, add the **areas of operations** it is fought over.',
+            'Under **Plan the next mission**, give the operation a name and its op '
+            'date, and press **Create mission**. The wizard opens.',
+            'Back on the campaign page, ↑ and ↓ put the missions in order, and '
+            '**Schedule** opens each one\'s back-schedule and drops.',
+        ),
+        notes=(
+            'A new mission copies the details that stay the same week to week '
+            '(time zone, orders time and H-Hour, AO, unit, support, radio plan, '
+            'loadout and so on) from the mission before it. The story, intel, '
+            'orders and AAR start empty.',
+            'The next mission\'s date is suggested four weeks after the last one, '
+            'the length of one cycle of drops.',
+            'Creating a campaign also sets one up in the Kill Tracker under the '
+            'same name, or links the one that already exists, so stats land in one '
+            'place. Deleting the planner campaign leaves the Kill Tracker one alone.',
+            'Set the campaign to **Archived** to fold it away on the list without '
+            'deleting anything.',
+        ),
+        page='campaigns',
+        related=('mission-wizard', 'campaign-settings'),
+    ),
+    Topic(
+        key='mission-wizard',
+        title='Write a mission in the wizard',
+        group='campaigns',
+        audience='Admin, or Unit Leader with the unit role',
+        where='Web — **🗂️ Campaigns →** a campaign **→** a mission',
+        summary='Six steps from concept to after action, saved as you type, with '
+                'each drop previewed exactly as it will post.',
+        steps=(
+            'Open a mission from its campaign. The wizard starts on the first step '
+            'that is not locked yet.',
+            'Fill in the step. Fields marked * are needed to lock it; the step\'s '
+            'chip turns into 🔒 when they are all filled.',
+            'Watch the panel on the right: the **drop preview** is exactly what the '
+            'bot will post, and **Checks** flags mistakes as you go.',
+            'In **Orders**, add the phases in order. Give each its AO and press '
+            '**+ Add objective** to pick from the objectives library.',
+            'Until automatic posting arrives, copy each drop into the drop channel '
+            'with **Copy**, or from the mission\'s **Schedule & all drops** page.',
+        ),
+        notes=(
+            'Everything saves a moment after you stop typing — the top right says '
+            'when. Leave the page while a save is pending and the browser asks first.',
+            'Paste a screenshot straight into an image field, drop a file on it, or '
+            'use **Upload**. PNG, JPEG, GIF or WebP, up to 8 MB.',
+            'Drag rows and phases by their ⠿ handle, or use ↑ and ↓.',
+            '**Held back for Zeus** in the Intelligence step is never posted or '
+            'exported.',
+            'A phase reads best with one primary objective, one secondary and one '
+            'complication; Checks says when one is missing. With **Success looks '
+            'like** left empty, the OPORD uses the primary objectives\' success '
+            'conditions.',
+            'Two people editing the same field at once: the last save wins. '
+            'Different fields are fine.',
+            'The wizard needs JavaScript. The **Schedule** page shows the mission, '
+            'its drops and checks without it.',
+        ),
+        page='campaigns',
+        related=('plan-campaign', 'objectives-library'),
+    ),
+    Topic(
+        key='objectives-library',
+        title='Use and edit the objectives library',
+        group='campaigns',
+        audience='Everyone with planner access; editing is Admin only',
+        where='Web — **🗂️ Campaigns → Objectives**',
+        summary='The list of objectives and complications the wizard\'s picker '
+                'draws from.',
+        steps=(
+            'Go to **🗂️ Campaigns → Objectives** to browse it by category.',
+            'In a mission\'s **Orders** step, **+ Add objective** opens it as a '
+            'picker. Search, then click an entry to add it to the phase.',
+            'Admins: **Edit** beside an entry changes it, and **Add to the library** '
+            'at the bottom adds a new one.',
+        ),
+        notes=(
+            'Entries that pair well with what the phase already has are lifted to '
+            'the top of the picker and outlined. That is a suggestion only.',
+            'Picking an objective copies its wording into the mission, where it can '
+            'be edited freely. Changing the library later does not change missions '
+            'that already picked from it, and nor does removing an entry.',
+            'The library starts as the TFP Mission Objectives Library: 57 '
+            'objectives in eight categories, plus 12 complications.',
+        ),
+        page='cpobjectives',
+        related=('mission-wizard',),
+    ),
 )
 
 

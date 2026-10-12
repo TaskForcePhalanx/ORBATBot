@@ -64,7 +64,7 @@ WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
 class Field:
     key: str
     label: str
-    kind: str = 'text'            # text | textarea | date | time | list | rows | image | images | groups
+    kind: str = 'text'            # text | textarea | date | time | list | rows | image | images | groups | phases
     required: bool = False
     private: bool = False         # never posted or exported — Zeus-only notes
     help: str = ''
@@ -178,9 +178,10 @@ STEPS: tuple[Step, ...] = (
              Field('mission', 'Mission', 'textarea', required=True, wide=True),
              Field('intent', "Commander's intent", 'textarea', required=True, wide=True),
              Field('end_state', 'Success looks like', 'textarea', wide=True),
-             Field('phases', 'Phases', 'rows', required=True, wide=True,
-                   columns=(('title', 'Phase 1 – Infiltration, HOCHABRUNN'),
-                            ('detail', 'What happens in this phase'))),
+             Field('phases', 'Phases', 'phases', required=True, wide=True,
+                   help='One per phase, in order: what happens, which AO it is '
+                        'fought in, and its objectives from the library. Each '
+                        'phase becomes a layer on its AO map.'),
              Field('support', 'Field support', 'textarea', required=True),
              Field('resupply', 'Resupply', 'textarea', required=True),
              Field('nets', 'Radio plan', 'rows', required=True, wide=True,
@@ -263,22 +264,27 @@ DEFAULT_ORBAT_OPENS = 'situation'
 # Reading values
 # ---------------------------------------------------------------------------
 
+def _scalar(value) -> bool:
+    return isinstance(value, (str, int, float)) and not isinstance(value, bool)
+
+
 def filled(value) -> bool:
     """Whether a field holds anything. A list or a list of rows counts as filled
     when any entry has any non-blank text in it; blank rows the editor keeps
-    around for typing into do not."""
+    around for typing into do not. Inside a row only text counts — a phase's
+    list of objectives, or its AO id, does not make an untitled phase filled."""
     if value is None:
         return False
     if isinstance(value, (list, tuple)):
         for item in value:
             if isinstance(item, dict):
-                if any(str(v or '').strip() for v in item.values()):
+                if any(isinstance(v, str) and v.strip() for v in item.values()):
                     return True
-            elif str(item or '').strip():
+            elif _scalar(item) and str(item).strip():
                 return True
         return False
     if isinstance(value, dict):
-        return any(str(v or '').strip() for v in value.values())
+        return any(isinstance(v, str) and v.strip() for v in value.values())
     return bool(str(value).strip())
 
 
@@ -291,13 +297,15 @@ def lines(mission: dict, key: str) -> list[str]:
 
 
 def rows(mission: dict, key: str) -> list[dict]:
-    """The non-blank rows of a rows field, every value stripped."""
+    """The non-blank rows of a rows field, every text value stripped. Values
+    that are not text (a phase's objectives) are passed through untouched."""
     out = []
     for row in mission.get(key) or []:
         if not isinstance(row, dict):
             continue
-        clean = {k: str(v or '').strip() for k, v in row.items()}
-        if any(clean.values()):
+        clean = {k: (str(v or '').strip() if v is None or _scalar(v) else v)
+                 for k, v in row.items()}
+        if any(isinstance(v, str) and v for v in clean.values()):
             out.append(clean)
     return out
 
@@ -648,8 +656,9 @@ def build_post(mission: dict, drop_key: str, ctx: PostContext) -> str:
         out += [f'# OPERATION ORDER — {name}',
                 f"**Mission:** {_or(text(mission, 'mission'), 'mission')}",
                 f"**Commander's intent:** {_or(text(mission, 'intent'), 'intent')}"]
-        if text(mission, 'end_state'):
-            out.append(f"**Success:** {text(mission, 'end_state')}")
+        success = text(mission, 'end_state') or '; '.join(success_conditions(mission))
+        if success:
+            out.append(f"**Success:** {success}")
         out += ['', '**Phases**']
         phases = rows(mission, 'phases')
         if phases:
@@ -875,6 +884,8 @@ def checks(mission: dict, ctx: PostContext | None = None) -> list[dict]:
         orders_text = ' '.join(
             [text(mission, 'mission'), text(mission, 'intent'), text(mission, 'end_state')]
             + [f"{p.get('title', '')} {p.get('detail', '')}" for p in rows(mission, 'phases')]
+            + [f"{o.get('name', '')} {o.get('players_do', '')}"
+               for p in rows(mission, 'phases') for o in p.get('objectives') or []]
             + [t.get('tasks', '') for t in rows(mission, 'tasks')]
         ).lower()
         for place in lines(mission, 'objectives'):
@@ -893,8 +904,361 @@ def checks(mission: dict, ctx: PostContext | None = None) -> list[dict]:
                                       f'goes out as {parts} messages. Trim it if you’d '
                                       'rather send one.'})
 
+    for i, phase in enumerate(rows(mission, 'phases'), 1):
+        objectives = [o for o in phase.get('objectives') or [] if isinstance(o, dict)]
+        if not objectives:
+            continue
+        roles = [o.get('role') for o in objectives]
+        label = phase.get('title') or f'Phase {i}'
+        missing = [name for name in ('secondary', 'complication') if name not in roles]
+        if roles.count('primary') != 1:
+            found.append({'level': 'warn', 'step': 'orders', 'drop': None,
+                          'text': f'{label} has {roles.count("primary")} primary objectives. '
+                                  'A phase reads best with exactly one.'})
+        if missing:
+            found.append({'level': 'warn', 'step': 'orders', 'drop': None,
+                          'text': f'{label} has no {" or ".join(missing)} objective yet.'})
+
     done, _ = step_progress(mission, 'intel')
     if done and not mission.get('map_img'):
         found.append({'level': 'warn', 'step': 'intel', 'drop': None,
                       'text': 'No AO map yet. The INTSUM lands better with one.'})
     return found
+
+
+# ---------------------------------------------------------------------------
+# Missions: carrying details forward, and cleaning what the editor sends
+# ---------------------------------------------------------------------------
+
+# What a new mission copies from the one before it in the campaign: the things
+# that stay the same from week to week. The story, the enemy picture, the
+# orders and the after action are written fresh.
+CARRY_OVER = (
+    'tz', 'orders_time', 'h_hour', 'ao', 'map', 'we_are', 'expect', 'modpack',
+    'groups_in', 'who_we_are', 'unit_img', 'support', 'resupply', 'nets', 'coc',
+    'respawn', 'technical', 'modpack_link', 'loadout', 'medical',
+)
+
+MAX_TEXT = 300
+MAX_TEXTAREA = 6000
+MAX_LIST_ITEMS = 60
+MAX_ROWS = 60
+MAX_CELL = 2000
+MAX_IMAGES = 20
+# A phase is a layer on its AO's map, and a tactical map holds twelve layers.
+MAX_PHASES = 12
+MAX_OBJECTIVES = 12
+ROLES = ('primary', 'secondary', 'complication')
+ROLE_LABELS = {'primary': 'Primary', 'secondary': 'Secondary',
+               'complication': 'Complication'}
+
+
+def carry_over(previous: dict | None) -> dict:
+    """The fields a new mission starts with, copied from the previous one."""
+    if not previous:
+        return {}
+    return {key: previous[key] for key in CARRY_OVER if filled(previous.get(key))}
+
+
+def _cut(value, limit: int) -> str:
+    return str(value if value is not None else '').replace('\r\n', '\n')[:limit]
+
+
+def _image_id(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def clean_fields(patch) -> dict:
+    """What the editor sent, reduced to the wizard's own fields in their own
+    shapes. Unknown keys are dropped and every value is cut to length, so a
+    hand-made request can store nothing the pages would not have produced.
+    Phases are not here — they live in their own table (`clean_phases()`)."""
+    if not isinstance(patch, dict):
+        raise ValueError('That was not a set of fields.')
+    out: dict = {}
+    for key, value in patch.items():
+        f = FIELD.get(key)
+        if f is None or f.kind == 'phases':
+            continue
+        if f.kind in ('text', 'time'):
+            out[key] = _cut(value, MAX_TEXT).strip() if f.kind == 'time' else _cut(value, MAX_TEXT)
+        elif f.kind == 'date':
+            day = parse_date(value)
+            out[key] = day.isoformat() if day else ''
+        elif f.kind == 'textarea':
+            out[key] = _cut(value, MAX_TEXTAREA)
+        elif f.kind in ('list', 'groups'):
+            items = value if isinstance(value, list) else []
+            out[key] = [_cut(item, MAX_TEXT) for item in items[:MAX_LIST_ITEMS]
+                        if _scalar(item)]
+        elif f.kind == 'rows':
+            names = [name for name, _ in f.columns]
+            items = value if isinstance(value, list) else []
+            out[key] = [{name: _cut(row.get(name), MAX_CELL) for name in names}
+                        for row in items[:MAX_ROWS] if isinstance(row, dict)]
+        elif f.kind == 'image':
+            out[key] = _image_id(value)
+        elif f.kind == 'images':
+            items = value if isinstance(value, list) else []
+            ids = [_image_id(item) for item in items]
+            out[key] = [i for i in dict.fromkeys(ids) if i][:MAX_IMAGES]
+    return out
+
+
+def image_ids(fields: dict) -> set[int]:
+    """Every image a set of fields points at — what the caller checks belongs
+    to the campaign before saving."""
+    found = set()
+    for key, value in fields.items():
+        kind = FIELD[key].kind if key in FIELD else ''
+        if kind == 'image' and value:
+            found.add(value)
+        elif kind == 'images':
+            found.update(v for v in value or [] if v)
+    return found
+
+
+def clean_phases(phases, ao_ids=(), library_ids=()) -> list[dict]:
+    """The phase list as the editor sent it, cleaned. An AO or library entry
+    that is not the campaign's (or no longer exists) is dropped rather than
+    refused: the phase is still worth keeping."""
+    if not isinstance(phases, list):
+        raise ValueError('That was not a list of phases.')
+    if len(phases) > MAX_PHASES:
+        raise ValueError(f'A mission can have at most {MAX_PHASES} phases — '
+                         'one per layer on the AO map.')
+    ao_ids = {int(a) for a in ao_ids}
+    library_ids = {int(i) for i in library_ids}
+    out = []
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        ao = _image_id(phase.get('ao_id'))
+        objectives = []
+        for objective in (phase.get('objectives') or [])[:MAX_OBJECTIVES]:
+            if not isinstance(objective, dict):
+                continue
+            role = objective.get('role') if objective.get('role') in ROLES else 'primary'
+            library = _image_id(objective.get('library_id'))
+            objectives.append({
+                'library_id': library if library in library_ids else None,
+                'role': role,
+                'name': _cut(objective.get('name'), 120).strip(),
+                'players_do': _cut(objective.get('players_do'), 600),
+                'complete_when': _cut(objective.get('complete_when'), 600),
+                'intsum_hint': _cut(objective.get('intsum_hint'), 300),
+                'result': _cut(objective.get('result'), 120),
+            })
+        out.append({
+            'id': _image_id(phase.get('id')),
+            'title': _cut(phase.get('title'), 200),
+            'detail': _cut(phase.get('detail'), MAX_CELL),
+            'ao_id': ao if ao in ao_ids else None,
+            'objectives': objectives,
+        })
+    return out
+
+
+def success_conditions(mission: dict) -> list[str]:
+    """The primary objectives' success conditions, in phase order — the line
+    the Objectives Library says belongs in "Success looks like"."""
+    found = []
+    for phase in rows(mission, 'phases'):
+        for objective in phase.get('objectives') or []:
+            if isinstance(objective, dict) and objective.get('role') == 'primary':
+                condition = str(objective.get('complete_when') or '').strip()
+                if condition and condition not in found:
+                    found.append(condition)
+    return found
+
+
+def progress(mission: dict) -> list[dict]:
+    """Every step with how much of it is done — the chips on the wizard and the
+    "3/5 locked" on the campaign page. The AAR is counted apart: it is written
+    after the op, so it is never behind."""
+    out = []
+    for step in STEPS:
+        done, total = step_progress(mission, step.key)
+        out.append({'key': step.key, 'title': step.title, 'number': step.number,
+                    'done': done, 'total': total, 'complete': done == total})
+    return out
+
+
+def locked_count(mission: dict) -> tuple[int, int]:
+    """(steps locked, steps to lock) before the op — the AAR left out."""
+    before = [p for p in progress(mission) if p['key'] != 'aar']
+    return sum(1 for p in before if p['complete']), len(before)
+
+
+def next_due(items: list[dict], today: date) -> dict | None:
+    """The next thing on a mission's schedule that is not yet done: an unlocked
+    step or a drop that has not gone out. Overdue locks come first."""
+    for item in items:
+        if item['kind'] == 'gate' and item['done'] != item['total']:
+            return item
+        if item['kind'] == 'drop' and item['date'] >= today:
+            return item
+    return None
+
+
+# ---------------------------------------------------------------------------
+# The Objectives Library: suggested pairings
+# ---------------------------------------------------------------------------
+
+def _norm(text: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', str(text or '').lower())
+
+
+def _names_for(entry_name: str) -> set[str]:
+    """Ways a pairing might refer to an entry: its full name, an acronym in
+    brackets ("VEHICLE CHECKPOINT (VCP)"), each half of a slash name, and its
+    initials ("BATTLE DAMAGE ASSESSMENT" → BDA, "OBSERVATION POST" → OP)."""
+    names = {_norm(entry_name)}
+    bracket = re.findall(r'\(([^)]+)\)', entry_name)
+    base = re.sub(r'\([^)]*\)', '', entry_name)
+    names.update(_norm(b) for b in bracket)
+    names.add(_norm(base))
+    for part in base.split('/'):
+        names.add(_norm(part))
+    words = re.findall(r'[A-Za-z]+', base)
+    if len(words) >= 2:
+        names.add(''.join(w[0] for w in words).lower())
+    return {n for n in names if n}
+
+
+def pairing_ids(entries: list[dict]) -> dict[int, list[int]]:
+    """For each library entry, the entries its "pairs with" text names.
+
+    A pairing is free text written for people ("Seize bridge", "Recon first",
+    "Ambush (enemy)"), so the match is forgiving: a pairing names an entry when
+    one is a prefix of the other once case and punctuation are gone, at three
+    letters or more. It only ever decides what the picker highlights as a
+    suggestion — nothing is enforced on it.
+    """
+    known = [(e['id'], _names_for(e['name'])) for e in entries]
+    out: dict[int, list[int]] = {}
+    for entry in entries:
+        matched = []
+        for phrase in re.split(r'[,;]', entry.get('pairs_with') or ''):
+            want = _norm(re.sub(r'\([^)]*\)', '', phrase))
+            if len(want) < 2:
+                continue
+            for other_id, names in known:
+                if other_id == entry['id'] or other_id in matched:
+                    continue
+                if any(n == want or (min(len(n), len(want)) >= 3
+                                     and (n.startswith(want) or want.startswith(n)))
+                       for n in names):
+                    matched.append(other_id)
+        out[entry['id']] = matched
+    return out
+
+
+def library_seed() -> list[dict]:
+    """The library as first written, as rows for `cp_objective_library`."""
+    from utils.objectives_seed import CATEGORIES
+    out = []
+    position = 0
+    for category, blurb, kind, entries in CATEGORIES:
+        for entry in entries:
+            position += 1
+            if kind == 'complication':
+                name, players_do, hint = entry
+                complete_when, pairs = '', ''
+            else:
+                name, players_do, complete_when, pairs = entry
+                hint = ''
+            out.append({'category': category, 'kind': kind, 'name': name,
+                        'players_do': players_do, 'complete_when': complete_when,
+                        'pairs_with': pairs, 'intsum_hint': hint,
+                        'position': position})
+    return out
+
+
+def library_categories() -> list[tuple[str, str, str]]:
+    """(category, blurb, kind) in the library's own order."""
+    from utils.objectives_seed import CATEGORIES
+    return [(c, blurb, kind) for c, blurb, kind, _ in CATEGORIES]
+
+
+def clean_library_entry(form) -> dict:
+    """An admin's edit to one library entry. Raises ValueError for a person."""
+    name = _cut(form.get('name'), 120).strip()
+    if not name:
+        raise ValueError('An objective needs a name — the task verb as it appears in orders.')
+    kind = form.get('kind') if form.get('kind') in ('objective', 'complication') else 'objective'
+    category = _cut(form.get('category'), 80).strip() or 'Other'
+    return {'category': category, 'kind': kind, 'name': name,
+            'players_do': _cut(form.get('players_do'), 600).strip(),
+            'complete_when': _cut(form.get('complete_when'), 600).strip(),
+            'pairs_with': _cut(form.get('pairs_with'), 300).strip(),
+            'intsum_hint': _cut(form.get('intsum_hint'), 300).strip()}
+
+
+def clean_campaign(form) -> dict:
+    """The campaign form. Raises ValueError for a person."""
+    name = _cut(form.get('name'), 80).strip()
+    if not name:
+        raise ValueError('A campaign needs a name.')
+    try:
+        planned = int(form.get('planned_missions') or 4)
+    except (TypeError, ValueError):
+        planned = 4
+    status = form.get('status') if form.get('status') in CAMPAIGN_STATUSES else 'active'
+    return {'name': name,
+            'era': _cut(form.get('era'), 120).strip(),
+            'theatre': _cut(form.get('theatre'), 120).strip(),
+            'summary': _cut(form.get('summary'), MAX_TEXTAREA).strip(),
+            'planned_missions': max(1, min(planned, 8)),
+            'status': status}
+
+
+CAMPAIGN_STATUSES = ('active', 'complete', 'archived')
+
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+_IMAGE_MAGIC = (
+    (b'\x89PNG\r\n\x1a\n', 'image/png'),
+    (b'\xff\xd8\xff', 'image/jpeg'),
+    (b'GIF87a', 'image/gif'),
+    (b'GIF89a', 'image/gif'),
+)
+
+
+def image_type(data: bytes) -> str | None:
+    """The image's type from its first bytes — never from the name or the
+    browser's say-so, since the bytes are served back to everybody who opens
+    the mission. PNG, JPEG, GIF and WebP; anything else is None."""
+    head = bytes(data[:16])
+    for magic, kind in _IMAGE_MAGIC:
+        if head.startswith(magic):
+            return kind
+    if head[:4] == b'RIFF' and head[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+def check_image(data: bytes) -> str:
+    """The content type of an upload, or a ValueError for a person."""
+    if not data:
+        raise ValueError('That file was empty.')
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ValueError(f'Images can be up to {MAX_IMAGE_BYTES // (1024 * 1024)} MB — '
+                         'that one is bigger. Discord would refuse it too.')
+    kind = image_type(data)
+    if kind is None:
+        raise ValueError('That is not an image I can use. PNG, JPEG, GIF or WebP.')
+    return kind
+
+
+def date_label(day: date | None) -> str:
+    """'Wed 21 Oct' — how a schedule date is shown."""
+    return day.strftime('%a %d %b') if day else ''

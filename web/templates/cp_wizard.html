@@ -1,0 +1,151 @@
+{% extends 'base.html' %}
+{% block title %}{{ mission.name }} · Mission wizard{% endblock %}
+
+{#- One field's empty editor. The values arrive as JSON (cp-state below) and
+    web/static/campaign.js fills them in, so the page and the API can never
+    show two different missions. -#}
+{% macro field_editor(f) %}
+  <div class="cpfield {{ 'wide' if f.wide }} {{ 'private' if f.private }}" data-field="{{ f.key }}" data-kind="{{ f.kind }}">
+    <label class="cplabel" for="cpf-{{ f.key }}">
+      {{ f.label }}
+      {% if f.required %}<span class="cpreq" title="Needed to lock this step">*</span>{% endif %}
+      {% if f.private %}<span class="chip warn">🔒 never posted</span>{% endif %}
+    </label>
+    {% if f.kind in ('text', 'date', 'time') %}
+      <input id="cpf-{{ f.key }}" data-key="{{ f.key }}"
+             type="{{ 'date' if f.kind == 'date' else ('time' if f.kind == 'time' else 'text') }}"
+             maxlength="300" placeholder="{{ f.placeholder }}"
+             {% if f.key == 'tz' %}list="cp-zones"{% endif %}>
+    {% elif f.kind == 'textarea' %}
+      <textarea id="cpf-{{ f.key }}" data-key="{{ f.key }}" rows="{{ 5 if f.wide else 3 }}"
+                maxlength="6000" placeholder="{{ f.placeholder }}"></textarea>
+    {% elif f.kind == 'rows' %}
+      <div class="cprows" id="cpf-{{ f.key }}" data-key="{{ f.key }}"
+           data-columns='{{ f.columns|tojson }}'></div>
+      {% if f.key == 'results' %}
+        <button type="button" class="linkish" data-fill-results>Fill in from the phases' objectives</button>
+      {% endif %}
+    {% elif f.kind == 'list' %}
+      <div class="cprows" id="cpf-{{ f.key }}" data-key="{{ f.key }}" data-list="1"
+           data-placeholder="{{ f.placeholder }}"></div>
+    {% elif f.kind == 'groups' %}
+      <div class="cpgroups" id="cpf-{{ f.key }}" data-key="{{ f.key }}">
+        {% for unit in units %}
+          <label class="check"><input type="checkbox" value="{{ unit }}"> {{ unit }}</label>
+        {% endfor %}
+        <input class="cpgroupsextra" type="text" maxlength="300" placeholder="Others, separated by commas" aria-label="Other groups">
+      </div>
+    {% elif f.kind in ('image', 'images') %}
+      <div class="cpimages" id="cpf-{{ f.key }}" data-key="{{ f.key }}" tabindex="0"
+           data-multiple="{{ '1' if f.kind == 'images' else '0' }}">
+        <div class="cpthumbs"></div>
+        <div class="cpimagebar">
+          <button type="button" class="button" data-upload>Upload image{{ 's' if f.kind == 'images' }}</button>
+          <span class="muted">or click here and paste</span>
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden {{ 'multiple' if f.kind == 'images' }}>
+        </div>
+      </div>
+    {% elif f.kind == 'phases' %}
+      <div class="cpphases" id="cpf-{{ f.key }}"></div>
+      <button type="button" class="button" data-add-phase>+ Add phase</button>
+    {% endif %}
+    {% if f.help %}<p class="hint">{{ f.help }}</p>{% endif %}
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="widepage">
+  <div class="pagehead">
+    <div>
+      <p class="crumbs">
+        <a href="/g/{{ guild.id }}/campaigns">Campaigns</a> ›
+        <a href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}">{{ campaign.name }}</a> ›
+      </p>
+      <h1 id="cp-title">{{ mission.name }}</h1>
+    </div>
+    <div class="cpheadactions">
+      <span id="cp-status" class="cpsave" role="status">All changes saved</span>
+      <a class="button" href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/schedule">Schedule &amp; all drops</a>
+    </div>
+  </div>
+
+  {% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
+
+  <noscript>
+    <div class="flash warn">
+      The mission wizard needs JavaScript to edit. The
+      <a href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/schedule">schedule page</a>
+      shows the mission, its drops and its checks without it.
+    </div>
+  </noscript>
+
+  <div id="cp-app" class="cpapp"
+       data-guild="{{ guild.id }}" data-campaign="{{ campaign.id }}" data-mission="{{ mission.id }}"
+       data-csrf="{{ csrf }}"
+       data-api="/g/{{ guild.id }}/cp/api/missions/{{ mission.id }}"
+       data-images="/g/{{ guild.id }}/cp/api/images"
+       data-image-url="/g/{{ guild.id }}/cp/images/"
+       data-objectives="/g/{{ guild.id }}/cp/api/objectives">
+
+    <nav class="cpsteps" aria-label="Steps">
+      {% for step in steps %}
+        <button type="button" class="cpstep" data-step="{{ step.key }}">
+          <span class="cpstepnum">{{ step.number }}</span>
+          <span class="cpsteptitle">{{ step.title }}</span>
+          <span class="cpstepcount" data-count="{{ step.key }}"></span>
+        </button>
+      {% endfor %}
+    </nav>
+
+    <div class="cpwork">
+      <div class="cpmain">
+        {% for step in steps %}
+          <section class="cpstepbody" data-body="{{ step.key }}" hidden>
+            <header class="cpstephead">
+              <h2>{{ step.number }}. {{ step.title }}</h2>
+              <span class="muted" data-gate="{{ step.key }}"></span>
+            </header>
+            <p class="lead">{{ step.intro }}</p>
+            <div class="cpgrid">
+              {% for f in step.fields %}{{ field_editor(f) }}{% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+
+      <aside class="cpside">
+        <div class="card"><div class="cardbody">
+          <h3 class="nospace">Tips</h3>
+          {% for step in steps %}
+            <ul class="cptips" data-tips="{{ step.key }}" hidden>
+              {% for tip in step.tips %}<li>{{ tip }}</li>{% endfor %}
+            </ul>
+          {% endfor %}
+        </div></div>
+
+        <div class="card"><div class="cardbody">
+          <h3 class="nospace">Checks <span class="muted" id="cp-checkcount"></span></h3>
+          <ul class="cpchecks" id="cp-checks"></ul>
+        </div></div>
+
+        <div class="card"><div class="cardbody">
+          <h3 class="nospace" id="cp-droptitle">Drop preview</h3>
+          <p class="muted nospace" id="cp-dropmeta"></p>
+          <div id="cp-preview"></div>
+          <p class="hint">Exactly what the bot will post, Discord markdown and all. Times
+            are Discord timestamps, so everyone sees their own time zone.</p>
+        </div></div>
+      </aside>
+    </div>
+
+    <datalist id="cp-zones">
+      {% for z in ('Europe/London', 'Europe/Berlin', 'Europe/Amsterdam', 'Europe/Paris', 'Europe/Warsaw', 'Europe/Helsinki', 'UTC', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Australia/Sydney') %}<option value="{{ z }}">{% endfor %}
+    </datalist>
+
+    <script type="application/json" id="cp-state">{{ state|tojson }}</script>
+    <script type="application/json" id="cp-aos">{{ aos_json|tojson }}</script>
+    <script type="application/json" id="cp-roles">{{ roles|tojson }}</script>
+  </div>
+</div>
+<script src="/static/campaign.js?v={{ campaign_js_version }}" defer></script>
+{% endblock %}

@@ -79,9 +79,12 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
     # The campaign planner. `may_plan` is admins plus the unit's own Unit
     # Leaders (web.guilds.can_plan); the settings page is admins only.
     campaigns = []
+    if may_plan or is_admin:
+        campaigns.append(_item('campaigns', 'Campaigns', f"{base}/campaigns"))
+        campaigns.append(_item('cpobjectives', 'Objectives', f"{base}/campaigns/objectives"))
     if is_admin:
         campaigns.append(_item('cpsettings', 'Settings', f"{base}/campaigns/settings"))
-    if campaigns and (may_plan or is_admin):
+    if campaigns:
         groups.insert(2 if operations else 1,
                       {'key': 'cp', 'label': '🗂️ Campaigns', 'href': campaigns[0]['href']})
 

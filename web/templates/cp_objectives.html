@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Objectives library{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{{ guild.name }}</h1>
+    <p class="muted">Signed in as {{ member.display_name }}</p>
+  </div>
+</div>
+
+{% with active = 'cpobjectives' %}{% include '_nav.html' %}{% endwith %}
+
+<h2>Objectives library</h2>
+<p class="hint">
+  What the objective picker in the mission wizard draws from — {{ count }} entries.
+  A phase reads best with one <strong>primary</strong> objective, at least one
+  <strong>secondary</strong> from a different category, and one
+  <strong>complication</strong> from the modifiers, hinted at in the INTSUM.
+  Write the success condition as it is here: it goes into the OPORD's
+  "Success looks like". Pairings are suggestions, never rules.
+  {% if not is_admin %}Only server admins can change the library; everyone
+  with planner access can use it.{% endif %}
+</p>
+
+<p class="cpjump">
+  {% for name, blurb, entries in groups %}
+    <a class="chip" href="#cat-{{ loop.index }}">{{ name }}</a>
+  {% endfor %}
+</p>
+
+{% for name, blurb, entries in groups %}
+  {% set complication = entries[0].kind == 'complication' %}
+  <h3 id="cat-{{ loop.index }}" style="margin-top:24px">{{ name }}</h3>
+  {% if blurb %}<p class="hint">{{ blurb }}</p>{% endif %}
+  <div class="tablewrap">
+    <table class="cptable">
+      <thead><tr>
+        <th>{{ 'Complication' if complication else 'Objective' }}</th>
+        <th>{{ 'Effect on play' if complication else 'Players do' }}</th>
+        <th>{{ 'INTSUM hint' if complication else 'Complete when' }}</th>
+        {% if not complication %}<th>Pairs with</th>{% endif %}
+        {% if is_admin %}<th></th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% for e in entries %}
+          <tr>
+            <td><strong>{{ e.name }}</strong></td>
+            <td>{{ e.players_do }}</td>
+            <td>{{ e.intsum_hint if complication else e.complete_when }}</td>
+            {% if not complication %}<td class="muted">{{ e.pairs_with }}</td>{% endif %}
+            {% if is_admin %}<td><a class="linkish" href="/g/{{ guild.id }}/campaigns/objectives/{{ e.id }}">Edit</a></td>{% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+
+{% if is_admin %}
+  <h2 style="margin-top:28px">Add to the library</h2>
+  {% set entry = {'category': '', 'kind': 'objective', 'name': '', 'players_do': '', 'complete_when': '', 'pairs_with': '', 'intsum_hint': ''} %}
+  <form class="form" method="post" action="/g/{{ guild.id }}/campaigns/objectives">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% include '_cp_objective_fields.html' %}
+    <div class="actions"><button class="button primary" type="submit">Add</button></div>
+  </form>
+{% endif %}
+{% endblock %}

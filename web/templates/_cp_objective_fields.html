@@ -1,0 +1,38 @@
+<div class="row">
+  <label class="field">
+    <span>Name</span>
+    <input name="name" required maxlength="120" value="{{ entry.name }}" placeholder="SEIZE">
+    <span class="hint">The task verb as it appears in orders, in capitals for an objective.</span>
+  </label>
+  <label class="field">
+    <span>Category</span>
+    <input name="category" maxlength="80" value="{{ entry.category }}" list="cp-categories" placeholder="Offensive">
+    <datalist id="cp-categories">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+  </label>
+</div>
+<label class="field">
+  <span>Kind</span>
+  <select name="kind">
+    <option value="objective" {% if entry.kind == 'objective' %}selected{% endif %}>Objective</option>
+    <option value="complication" {% if entry.kind == 'complication' %}selected{% endif %}>Complication</option>
+  </select>
+</label>
+<label class="field">
+  <span>Players do <span class="muted">(for a complication: its effect on play)</span></span>
+  <textarea name="players_do" rows="2" maxlength="600">{{ entry.players_do }}</textarea>
+</label>
+<label class="field">
+  <span>Complete when <span class="muted">(objectives)</span></span>
+  <textarea name="complete_when" rows="2" maxlength="600">{{ entry.complete_when }}</textarea>
+</label>
+<div class="row">
+  <label class="field">
+    <span>Pairs with <span class="muted">(objectives)</span></span>
+    <input name="pairs_with" maxlength="300" value="{{ entry.pairs_with }}" placeholder="Counter-attack, Defend">
+    <span class="hint">Names of other entries, separated by commas. The picker suggests them.</span>
+  </label>
+  <label class="field">
+    <span>INTSUM hint <span class="muted">(complications)</span></span>
+    <input name="intsum_hint" maxlength="300" value="{{ entry.intsum_hint }}">
+  </label>
+</div>

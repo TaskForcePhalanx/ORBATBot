@@ -74,6 +74,11 @@ def _logo_url() -> str:
     return ''
 
 
+def _static_version(name: str) -> int:
+    path = _HERE / 'static' / name
+    return int(path.stat().st_mtime) if path.exists() else 0
+
+
 def _help_for(page: str) -> str:
     """The how-to URL for one web page, or '' when there is none."""
     topics = help_lib.for_page(page)
@@ -104,6 +109,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         # `web/nav.py` gave it and gets the URL of its how-to, or '' when it
         # has none — which `tests/test_help.py` is there to prevent.
         help_for=_help_for,
+        # Cache-busting for the planner's script, the same trick as the logo.
+        campaign_js_version=_static_version('campaign.js'),
     )
     # The little Markdown the how-tos are written in. It escapes first, so the
     # result is safe to mark safe — see `utils/help.inline_html`.
@@ -1616,9 +1623,10 @@ def create_app(bot, config: WebConfig) -> FastAPI:
 
     # -- campaign planner ---------------------------------------------------
 
-    def require_planner_admin(context: dict):
+    def require_planner_admin(context: dict, message: str = None):
         if not context['is_admin']:
-            raise Forbidden("Only a server admin can change the campaign planner's settings.")
+            raise Forbidden(message or
+                            "Only a server admin can change the campaign planner's settings.")
 
     @app.get('/g/{guild_id}/campaigns/settings', response_class=HTMLResponse)
     async def campaign_settings(request: Request, guild_id: str):
@@ -1640,6 +1648,299 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         except ValueError as e:
             return redirect(request, f"/g/{guild_id}/campaigns/settings", 'warn', str(e))
         return redirect(request, f"/g/{guild_id}/campaigns/settings", 'ok', note)
+
+    # -- campaign planner: campaigns, missions, the wizard -------------------
+    #
+    # Everything here is behind `may_plan` (admins, plus Unit Leaders holding
+    # the planner's unit role). Editing the objectives library is admins only.
+    # The JSON routes under /cp/api are the wizard's; the rules they answer
+    # with all come from utils/campaign.py via web/campaigns.py.
+
+    async def planner_context(request: Request, guild_id: str) -> dict:
+        context = await guild_context(request, guild_id)
+        if not context['may_plan']:
+            raise Forbidden("The campaign planner is open to server admins and to Unit "
+                            "Leaders holding the planner's unit role.")
+        return context
+
+    async def campaign_ctx(request: Request, guild_id: str, campaign_id: int) -> dict:
+        context = await planner_context(request, guild_id)
+        try:
+            context['campaign'] = await campaign_service.campaign_of(
+                context['guild'], campaign_id)
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        return context
+
+    async def mission_ctx(request: Request, guild_id: str, mission_id: int,
+                          campaign_id: int | None = None) -> dict:
+        context = await planner_context(request, guild_id)
+        try:
+            context['mission'] = await campaign_service.mission_of(
+                context['guild'], mission_id, campaign_id)
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        return context
+
+    async def planner_form(request: Request, context: dict):
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        return form
+
+    def campaign_url(guild_id, campaign_id=None, tail=''):
+        base = f"/g/{guild_id}/campaigns"
+        return f"{base}/{campaign_id}{tail}" if campaign_id else base
+
+    @app.get('/g/{guild_id}/campaigns', response_class=HTMLResponse)
+    async def campaigns_list(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        return render(request, 'cp_campaigns.html', {
+            **context, **await campaign_service.campaigns_page(context['guild'], context['tz']),
+        })
+
+    @app.post('/g/{guild_id}/campaigns')
+    async def campaigns_create(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        form = await planner_form(request, context)
+        try:
+            campaign_id = await campaign_service.create_campaign(
+                context['guild'], form, context['member'])
+        except ValueError as e:
+            return redirect(request, campaign_url(guild_id), 'warn', str(e))
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
+                        'Campaign created. Add its AOs and its first mission.')
+
+    # The library's routes come before /campaigns/{campaign_id}, which would
+    # otherwise try to read "objectives" as a campaign id.
+
+    @app.get('/g/{guild_id}/campaigns/objectives', response_class=HTMLResponse)
+    async def objectives_page(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        return render(request, 'cp_objectives.html', {
+            **context, **await campaign_service.library_page(context['guild']),
+        })
+
+    @app.post('/g/{guild_id}/campaigns/objectives')
+    async def objectives_add(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        require_planner_admin(context, 'Only a server admin can change the objectives library.')
+        form = await planner_form(request, context)
+        try:
+            note = await campaign_service.save_library_entry(context['guild'], None, form)
+        except ValueError as e:
+            return redirect(request, campaign_url(guild_id) + '/objectives', 'warn', str(e))
+        return redirect(request, campaign_url(guild_id) + '/objectives', 'ok', note)
+
+    @app.get('/g/{guild_id}/campaigns/objectives/{entry_id}', response_class=HTMLResponse)
+    async def objectives_edit(request: Request, guild_id: str, entry_id: int):
+        context = await planner_context(request, guild_id)
+        require_planner_admin(context, 'Only a server admin can change the objectives library.')
+        entry = await database.get_cp_objective(entry_id, str(context['guild'].id))
+        if entry is None:
+            raise Forbidden('No such objective in this library.')
+        page = await campaign_service.library_page(context['guild'])
+        return render(request, 'cp_objective_form.html', {
+            **context, 'entry': entry, 'categories': page['categories'],
+        })
+
+    @app.post('/g/{guild_id}/campaigns/objectives/{entry_id}')
+    async def objectives_save(request: Request, guild_id: str, entry_id: int):
+        context = await planner_context(request, guild_id)
+        require_planner_admin(context, 'Only a server admin can change the objectives library.')
+        form = await planner_form(request, context)
+        try:
+            note = await campaign_service.save_library_entry(context['guild'], entry_id, form)
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        except ValueError as e:
+            return redirect(request, f"{campaign_url(guild_id)}/objectives/{entry_id}",
+                            'warn', str(e))
+        return redirect(request, campaign_url(guild_id) + '/objectives', 'ok', note)
+
+    @app.post('/g/{guild_id}/campaigns/objectives/{entry_id}/delete')
+    async def objectives_delete(request: Request, guild_id: str, entry_id: int):
+        context = await planner_context(request, guild_id)
+        require_planner_admin(context, 'Only a server admin can change the objectives library.')
+        await planner_form(request, context)
+        await database.delete_cp_objective(entry_id, str(context['guild'].id))
+        return redirect(request, campaign_url(guild_id) + '/objectives', 'ok',
+                        'Removed from the library. Missions that picked it keep their copy.')
+
+    @app.get('/g/{guild_id}/campaigns/{campaign_id}', response_class=HTMLResponse)
+    async def campaign_view(request: Request, guild_id: str, campaign_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        return render(request, 'cp_campaign.html', {
+            **context,
+            **await campaign_service.campaign_page(context['guild'], context['campaign'],
+                                                   context['tz']),
+        })
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}')
+    async def campaign_update(request: Request, guild_id: str, campaign_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        form = await planner_form(request, context)
+        try:
+            await campaign_service.update_campaign(context['campaign'], form, context['member'])
+        except ValueError as e:
+            return redirect(request, campaign_url(guild_id, campaign_id), 'warn', str(e))
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok', 'Campaign saved.')
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/delete')
+    async def campaign_delete(request: Request, guild_id: str, campaign_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        form = await planner_form(request, context)
+        name = context['campaign']['name']
+        if str(form.get('confirm_name') or '').strip().lower() != name.lower():
+            return redirect(request, campaign_url(guild_id, campaign_id), 'warn',
+                            f'Type the campaign name ({name}) to delete it.')
+        await database.delete_cp_campaign(campaign_id)
+        return redirect(request, campaign_url(guild_id), 'ok',
+                        f'Deleted {name} and its missions. Its Kill Tracker campaign is untouched.')
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/aos')
+    async def campaign_ao_add(request: Request, guild_id: str, campaign_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        form = await planner_form(request, context)
+        try:
+            note = await campaign_service.add_ao(context['campaign'], form)
+        except ValueError as e:
+            return redirect(request, campaign_url(guild_id, campaign_id), 'warn', str(e))
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/aos/{ao_id}')
+    async def campaign_ao_rename(request: Request, guild_id: str, campaign_id: int, ao_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        form = await planner_form(request, context)
+        try:
+            note = await campaign_service.rename_ao(context['campaign'], ao_id, form)
+        except ValueError as e:
+            return redirect(request, campaign_url(guild_id, campaign_id), 'warn', str(e))
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok', note)
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/aos/{ao_id}/delete')
+    async def campaign_ao_delete(request: Request, guild_id: str, campaign_id: int, ao_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        await planner_form(request, context)
+        await database.delete_cp_ao(ao_id, campaign_id)
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
+                        'AO removed. Phases fought in it keep their place without an AO.')
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions')
+    async def mission_create(request: Request, guild_id: str, campaign_id: int):
+        context = await campaign_ctx(request, guild_id, campaign_id)
+        form = await planner_form(request, context)
+        try:
+            mission_id = await campaign_service.create_mission(
+                context['campaign'], form, context['member'])
+        except ValueError as e:
+            return redirect(request, campaign_url(guild_id, campaign_id), 'warn', str(e))
+        return redirect(request, campaign_url(guild_id, campaign_id, f'/missions/{mission_id}'))
+
+    @app.get('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}',
+             response_class=HTMLResponse)
+    async def mission_wizard(request: Request, guild_id: str, campaign_id: int, mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        return render(request, 'cp_wizard.html', {
+            **context,
+            **await campaign_service.wizard_page(context['guild'], context['mission'],
+                                                 context['tz']),
+        })
+
+    @app.get('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/schedule',
+             response_class=HTMLResponse)
+    async def mission_schedule(request: Request, guild_id: str, campaign_id: int,
+                               mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        return render(request, 'cp_schedule.html', {
+            **context,
+            **await campaign_service.schedule_page(context['guild'], context['mission'],
+                                                   context['tz']),
+        })
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/move')
+    async def mission_move(request: Request, guild_id: str, campaign_id: int, mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        form = await planner_form(request, context)
+        await database.move_cp_mission(mission_id, campaign_id,
+                                       -1 if form.get('direction') == 'up' else 1)
+        return redirect(request, campaign_url(guild_id, campaign_id))
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/delete')
+    async def mission_delete(request: Request, guild_id: str, campaign_id: int, mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        await planner_form(request, context)
+        await database.delete_cp_mission(mission_id, campaign_id)
+        return redirect(request, campaign_url(guild_id, campaign_id), 'ok',
+                        f"Deleted {context['mission']['name']}.")
+
+    # -- the wizard's JSON --------------------------------------------------
+
+    def api_error(message: str, status: int = 400):
+        return JSONResponse({'ok': False, 'error': message}, status_code=status)
+
+    @app.get('/g/{guild_id}/cp/api/missions/{mission_id}')
+    async def cp_api_mission(request: Request, guild_id: str, mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id)
+        state = await campaign_service.mission_state(context['guild'], context['mission'],
+                                                     context['tz'])
+        return JSONResponse({'ok': True, 'state': state})
+
+    @app.patch('/g/{guild_id}/cp/api/missions/{mission_id}')
+    async def cp_api_mission_patch(request: Request, guild_id: str, mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = None
+        if not isinstance(payload, dict):
+            return api_error('That was not a set of changes.')
+        auth.check_csrf(context['session'], request.headers.get('x-csrf-token'))
+        try:
+            state = await campaign_service.patch_mission(
+                context['guild'], context['mission'], payload, context['member'], context['tz'])
+        except ValueError as e:
+            return api_error(str(e))
+        return JSONResponse({'ok': True, 'state': state})
+
+    @app.post('/g/{guild_id}/cp/api/images')
+    async def cp_api_image(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        try:
+            campaign = await campaign_service.campaign_of(
+                context['guild'], int(form.get('campaign_id') or 0))
+        except (campaign_service.NotFound, ValueError):
+            return api_error('No such campaign on this server.', 404)
+        upload = form.get('file')
+        if upload is None or not hasattr(upload, 'read'):
+            return api_error('Choose an image to upload.')
+        try:
+            image = await campaign_service.upload_image(campaign, upload, context['member'])
+        except ValueError as e:
+            return api_error(str(e))
+        return JSONResponse({'ok': True, 'image': image,
+                             'url': f"/g/{guild_id}/cp/images/{image['id']}"})
+
+    @app.get('/g/{guild_id}/cp/images/{image_id}')
+    async def cp_image(request: Request, guild_id: str, image_id: int):
+        context = await planner_context(request, guild_id)
+        try:
+            image = await campaign_service.image_of(context['guild'], image_id)
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        # An image is never changed once stored — a new upload is a new id —
+        # so the browser may keep it for good. Private: it is behind sign-in.
+        return Response(bytes(image['data']), media_type=image['content_type'], headers={
+            'Cache-Control': 'private, max-age=31536000, immutable',
+            'X-Content-Type-Options': 'nosniff',
+        })
+
+    @app.get('/g/{guild_id}/cp/api/objectives')
+    async def cp_api_objectives(request: Request, guild_id: str):
+        context = await planner_context(request, guild_id)
+        return JSONResponse({'ok': True,
+                             'entries': await campaign_service.library(context['guild'])})
 
     # -- reddit feeds -------------------------------------------------------
 

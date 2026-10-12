@@ -270,3 +270,150 @@ def test_checks_find_objectives_missing_from_orders():
 def test_checks_flag_long_posts():
     found = cp.checks(full_mission(situation='word ' * 600), ctx())
     assert any(c['drop'] == 'situation' for c in found)
+
+
+# --- missions, phases and the library (milestone 2) --------------------------
+
+def test_carry_over_copies_only_stable_filled_fields():
+    previous = full_mission(modpack='', zeus_only='x', recog_img=4, unit_img=3)
+    carried = cp.carry_over(previous)
+    assert carried['tz'] == 'Europe/Berlin' and carried['unit_img'] == 3
+    assert 'name' not in carried and 'hook' not in carried
+    assert 'modpack' not in carried and 'zeus_only' not in carried
+    assert 'recog_img' not in carried
+    assert cp.carry_over(None) == {}
+
+
+def test_clean_fields_shapes_and_caps():
+    clean = cp.clean_fields({
+        'name': 'x' * 999, 'bogus': 1, 'phases': [{'title': 'no'}],
+        'op_date': 'not a date', 'objectives': ['A', 7, {'x': 1}, 'B'],
+        'nets': [{'net': 'PLT', 'channel': '1', 'evil': 'y'}, 'junk'],
+        'unit_img': '12', 'traces': [3, '3', 'x', 0, 4], 'h_hour': ' 20:15 ',
+    })
+    assert len(clean['name']) == cp.MAX_TEXT
+    assert 'bogus' not in clean and 'phases' not in clean
+    assert clean['op_date'] == ''
+    assert clean['objectives'] == ['A', '7', 'B']
+    assert clean['nets'] == [{'net': 'PLT', 'channel': '1'}]
+    assert clean['unit_img'] == 12 and clean['traces'] == [3, 4]
+    assert clean['h_hour'] == '20:15'
+    assert cp.image_ids(clean) == {12, 3, 4}
+    with pytest.raises(ValueError):
+        cp.clean_fields(['nope'])
+
+
+def test_clean_phases():
+    phases = cp.clean_phases([
+        {'id': '5', 'title': 'Phase 1', 'ao_id': 2, 'objectives': [
+            {'role': 'primary', 'name': 'SEIZE', 'library_id': 9},
+            {'role': 'boss', 'name': 'x', 'library_id': 99}]},
+        {'title': 'Phase 2', 'ao_id': 77}, 'junk',
+    ], ao_ids=[2], library_ids=[9])
+    assert phases[0]['id'] == 5 and phases[0]['ao_id'] == 2
+    assert phases[0]['objectives'][0]['library_id'] == 9
+    assert phases[0]['objectives'][1]['role'] == 'primary'
+    assert phases[0]['objectives'][1]['library_id'] is None
+    assert phases[1]['ao_id'] is None and phases[1]['id'] is None
+    with pytest.raises(ValueError):
+        cp.clean_phases([{}] * (cp.MAX_PHASES + 1))
+
+
+def test_phase_with_objectives_counts_as_filled_only_with_text():
+    assert not cp.filled([{'title': '', 'objectives': [{'name': 'x'}], 'ao_id': 3}])
+    assert cp.filled([{'title': 'Phase 1', 'objectives': []}])
+
+
+def _phased(*objectives, **extra):
+    return full_mission(phases=[{'title': 'Phase 1 – Assault', 'detail': 'Go',
+                                 'objectives': list(objectives)}], **extra)
+
+
+def test_success_line_falls_back_to_primary_conditions():
+    mission = _phased({'role': 'primary', 'name': 'SEIZE', 'complete_when': 'Hill held'},
+                      {'role': 'secondary', 'name': 'CLEAR', 'complete_when': 'Nope'})
+    body = cp.build_post(mission, 'opord', ctx())
+    assert '**Success:** Hill held' in body and 'Nope' not in body
+    body = cp.build_post({**mission, 'end_state': 'Typed'}, 'opord', ctx())
+    assert '**Success:** Typed' in body
+
+
+def test_phase_role_checks():
+    found = _texts(cp.checks(_phased({'role': 'primary', 'name': 'SEIZE'})))
+    assert 'no secondary or complication objective' in found
+    found = _texts(cp.checks(_phased({'role': 'secondary', 'name': 'CLEAR'},
+                                     {'role': 'complication', 'name': 'IEDs'})))
+    assert 'has 0 primary objectives' in found
+    found = _texts(cp.checks(_phased({'role': 'primary', 'name': 'SEIZE'},
+                                     {'role': 'secondary', 'name': 'CLEAR'},
+                                     {'role': 'complication', 'name': 'IEDs'})))
+    assert 'primary objectives' not in found and 'objective yet' not in found
+
+
+def test_objective_names_in_phases_count_for_the_orders_check():
+    mission = _phased({'role': 'primary', 'name': 'SEIZE HOCHABRUNN'},
+                      objectives=['KRITZENAST', 'HOCHABRUNN'])
+    assert 'HOCHABRUNN' not in _texts(cp.checks(mission))
+
+
+def test_progress_and_locked_count():
+    mission = full_mission()
+    assert cp.locked_count(mission) == (5, 5)
+    assert cp.locked_count({}) == (0, 5)
+    chips = cp.progress({})
+    assert [c['key'] for c in chips] == [s.key for s in cp.STEPS]
+
+
+def test_next_due():
+    items = cp.schedule(full_mission(hook=''), SETTINGS, today=date(2026, 10, 9))
+    assert cp.next_due(items, date(2026, 10, 9))['key'] == 'concept'
+    items = cp.schedule(full_mission(), SETTINGS, today=date(2026, 10, 30))
+    assert cp.next_due(items, date(2026, 10, 30))['key'] == 'opord'
+
+
+def test_library_seed_is_complete():
+    seed = cp.library_seed()
+    assert len(seed) == 69
+    names = {e['name'] for e in seed}
+    assert {'SEIZE', 'DEFEND', 'CAPTURE HVT', 'Armoured counter-attack'} <= names
+    complications = [e for e in seed if e['kind'] == 'complication']
+    assert len(complications) == 12 and all(e['intsum_hint'] for e in complications)
+    assert all(e['complete_when'] for e in seed if e['kind'] == 'objective')
+    assert [e['position'] for e in seed] == list(range(1, 70))
+
+
+def test_pairings():
+    seed = [dict(e, id=i) for i, e in enumerate(cp.library_seed(), 1)]
+    by_name = {e['name']: e['id'] for e in seed}
+    pairs = cp.pairing_ids(seed)
+    named = lambda name: {n for n, i in by_name.items() if i in pairs[by_name[name]]}
+    assert {'COUNTER-ATTACK', 'DEFEND'} <= named('SEIZE')
+    assert 'BATTLE DAMAGE ASSESSMENT' in named('RECOVER INTEL')       # "BDA"
+    assert 'OBSERVATION POST' in named('KILL HVT')                    # "OP"
+    assert 'IEDs and mines' in named('CONVOY / ESCORT')               # "IED"
+    assert 'VEHICLE CHECKPOINT (VCP)' in named('ROUTE CLEARANCE')     # "VCP"
+    assert by_name['SEIZE'] not in pairs[by_name['SEIZE']]
+
+
+def test_clean_library_entry_and_campaign():
+    entry = cp.clean_library_entry({'name': ' SEIZE ', 'kind': 'weird', 'category': ''})
+    assert entry['name'] == 'SEIZE' and entry['kind'] == 'objective'
+    assert entry['category'] == 'Other'
+    with pytest.raises(ValueError):
+        cp.clean_library_entry({'name': ' '})
+    campaign = cp.clean_campaign({'name': 'Iron Curtain', 'planned_missions': '40',
+                                  'status': 'nope'})
+    assert campaign['planned_missions'] == 8 and campaign['status'] == 'active'
+    with pytest.raises(ValueError):
+        cp.clean_campaign({'name': ''})
+
+
+def test_image_type():
+    assert cp.image_type(b'\x89PNG\r\n\x1a\n....') == 'image/png'
+    assert cp.image_type(b'\xff\xd8\xff\xe0') == 'image/jpeg'
+    assert cp.image_type(b'RIFF\x00\x00\x00\x00WEBPVP8 ') == 'image/webp'
+    assert cp.image_type(b'<svg xmlns=...') is None
+    assert cp.check_image(b'GIF89a...') == 'image/gif'
+    for bad in (b'', b'<html>', b'\x89PNG\r\n\x1a\n' + b'0' * cp.MAX_IMAGE_BYTES):
+        with pytest.raises(ValueError):
+            cp.check_image(bad)

@@ -697,7 +697,7 @@ async def init_db():
         await _init_campaign_planner(db)
 
 
-async def _init_campaign_planner(db):
+async def _init_campaign_planner(db):  # noqa: C901 — one table after another
     """The campaign planner's tables (`cp_`). Created after everything they
     point at — Kill Tracker campaigns, tactical maps, ORBATs, operations.
 
@@ -718,8 +718,13 @@ async def _init_campaign_planner(db):
             drop_time TEXT,
             orbat_opens TEXT,
             survey_url TEXT,
+            library_seeded BOOLEAN NOT NULL DEFAULT FALSE,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+    await db.execute('''
+        ALTER TABLE cp_settings ADD COLUMN IF NOT EXISTS
+            library_seeded BOOLEAN NOT NULL DEFAULT FALSE
     ''')
     # The campaign record. `kt_campaign_id` ties it to the Kill Tracker's
     # campaign of the same name, so after-action stats come from one place.
@@ -728,16 +733,28 @@ async def _init_campaign_planner(db):
             id SERIAL PRIMARY KEY,
             guild_id TEXT NOT NULL,
             name TEXT NOT NULL,
+            era TEXT NOT NULL DEFAULT '',
+            theatre TEXT NOT NULL DEFAULT '',
             summary TEXT NOT NULL DEFAULT '',
+            planned_missions INTEGER NOT NULL DEFAULT 4,
+            status TEXT NOT NULL DEFAULT 'active',
             kt_campaign_id INTEGER REFERENCES kt_campaigns(id) ON DELETE SET NULL,
             map_id INTEGER REFERENCES tac_maps(id) ON DELETE SET NULL,
-            archived BOOLEAN NOT NULL DEFAULT FALSE,
             created_by TEXT,
             created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
             updated_by_name TEXT,
             updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
         )
     ''')
+    # Milestone 1 shipped `archived`; milestone 2 replaced it with `status`
+    # before anything was stored, so it simply goes.
+    for column, definition in (('era', "TEXT NOT NULL DEFAULT ''"),
+                               ('theatre', "TEXT NOT NULL DEFAULT ''"),
+                               ('planned_missions', 'INTEGER NOT NULL DEFAULT 4'),
+                               ('status', "TEXT NOT NULL DEFAULT 'active'")):
+        await db.execute(
+            f'ALTER TABLE cp_campaigns ADD COLUMN IF NOT EXISTS {column} {definition}')
+    await db.execute('ALTER TABLE cp_campaigns DROP COLUMN IF EXISTS archived')
     await db.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_cp_campaign_name
             ON cp_campaigns (guild_id, lower(name))
@@ -791,29 +808,55 @@ async def _init_campaign_planner(db):
             layer_id TEXT
         )
     ''')
-    # The objectives library. Admin-edited; `pairs_with` is a JSON list of
-    # other entries' ids — a suggestion in the picker, never a rule.
+    # The objectives library, seeded per guild from utils/objectives_seed.py
+    # and admin-edited after that. `pairs_with` is the free text people read
+    # ("Counter-attack, Defend"); utils.campaign.pairing_ids() turns it into
+    # the picker's suggestions — never a rule.
     await db.execute('''
         CREATE TABLE IF NOT EXISTS cp_objective_library (
             id SERIAL PRIMARY KEY,
             guild_id TEXT NOT NULL,
             category TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'objective',
             name TEXT NOT NULL,
-            wording TEXT NOT NULL DEFAULT '',
-            pairs_with TEXT NOT NULL DEFAULT '[]',
+            players_do TEXT NOT NULL DEFAULT '',
+            complete_when TEXT NOT NULL DEFAULT '',
+            pairs_with TEXT NOT NULL DEFAULT '',
+            intsum_hint TEXT NOT NULL DEFAULT '',
             position INTEGER NOT NULL DEFAULT 0
         )
     ''')
-    # An objective chosen for a phase, with its own copy of the wording.
+    # An objective chosen for a phase, with its own copy of the wording — so
+    # editing it in a mission never changes the library, or the reverse.
     await db.execute('''
         CREATE TABLE IF NOT EXISTS cp_phase_objectives (
             id SERIAL PRIMARY KEY,
             phase_id INTEGER NOT NULL REFERENCES cp_phases(id) ON DELETE CASCADE,
             library_id INTEGER REFERENCES cp_objective_library(id) ON DELETE SET NULL,
             position INTEGER NOT NULL DEFAULT 0,
+            role TEXT NOT NULL DEFAULT 'primary',
             name TEXT NOT NULL,
-            wording TEXT NOT NULL DEFAULT ''
+            players_do TEXT NOT NULL DEFAULT '',
+            complete_when TEXT NOT NULL DEFAULT '',
+            intsum_hint TEXT NOT NULL DEFAULT '',
+            result TEXT NOT NULL DEFAULT ''
         )
+    ''')
+    # Milestone 1's shapes for these two, replaced before anything was stored.
+    for table, columns in (
+            ('cp_objective_library', ('kind', 'players_do', 'complete_when', 'intsum_hint')),
+            ('cp_phase_objectives', ('role', 'players_do', 'complete_when',
+                                     'intsum_hint', 'result'))):
+        for column in columns:
+            default = "'objective'" if column == 'kind' else (
+                "'primary'" if column == 'role' else "''")
+            await db.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS '
+                             f'{column} TEXT NOT NULL DEFAULT {default}')
+        await db.execute(f'ALTER TABLE {table} DROP COLUMN IF EXISTS wording')
+    await db.execute("ALTER TABLE cp_objective_library ALTER COLUMN pairs_with SET DEFAULT ''")
+    await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_cp_library_guild
+            ON cp_objective_library (guild_id, position)
     ''')
     # One row per drop per mission. `due_at` is naive UTC. `approved_hash` is
     # utils.campaign.approval_hash() of what was approved; when what the drop
@@ -847,9 +890,13 @@ async def _init_campaign_planner(db):
             filename TEXT NOT NULL,
             content_type TEXT NOT NULL,
             data BYTEA NOT NULL,
+            bytes INTEGER NOT NULL DEFAULT 0,
+            created_by_name TEXT,
             created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
         )
     ''')
+    await db.execute('ALTER TABLE cp_images ADD COLUMN IF NOT EXISTS bytes INTEGER NOT NULL DEFAULT 0')
+    await db.execute('ALTER TABLE cp_images ADD COLUMN IF NOT EXISTS created_by_name TEXT')
 
 
 async def get_active_operation(guild_id: str):
@@ -1799,6 +1846,431 @@ async def save_cp_settings(guild_id: str, values: dict):
                     {updates}, updated_at = CURRENT_TIMESTAMP''',
             guild_id, *[values[name] for name in columns],
         )
+
+
+# ---------------------------------------------------------------------------
+# Campaign planner: campaigns, AOs, missions, phases, the library, images
+#
+# A mission's wizard fields are one JSON document in `cp_missions.fields`,
+# merged in SQL (`fields::jsonb || patch`) so two people saving different
+# fields at the same moment both keep their change. Phases are rows, because
+# milestone 5 hangs a map layer off each one.
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+_CP_CAMPAIGN_COLUMNS = ('name', 'era', 'theatre', 'summary', 'planned_missions', 'status')
+
+
+async def list_cp_campaigns(guild_id: str) -> list:
+    """Every campaign of a guild, each with its missions in order."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        campaigns = await db.fetch(
+            """SELECT * FROM cp_campaigns WHERE guild_id = $1
+               ORDER BY status = 'archived', updated_at DESC""", guild_id)
+        missions = await db.fetch(
+            """SELECT m.id, m.campaign_id, m.position, m.name, m.op_date, m.fields
+                 FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
+                WHERE c.guild_id = $1 ORDER BY m.position, m.id""", guild_id)
+    by_campaign: dict = {}
+    for row in missions:
+        by_campaign.setdefault(row['campaign_id'], []).append(_mission_dict(row))
+    return [{**dict(c), 'missions': by_campaign.get(c['id'], [])} for c in campaigns]
+
+
+def _mission_dict(row) -> dict:
+    out = dict(row)
+    try:
+        out['fields'] = _json.loads(row['fields'] or '{}')
+    except (TypeError, ValueError):
+        out['fields'] = {}
+    if not isinstance(out['fields'], dict):
+        out['fields'] = {}
+    return out
+
+
+async def get_cp_campaign(campaign_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow(
+            """SELECT c.*, k.name AS kt_name FROM cp_campaigns c
+                 LEFT JOIN kt_campaigns k ON k.id = c.kt_campaign_id
+                WHERE c.id = $1""", campaign_id)
+    return dict(row) if row else None
+
+
+async def create_cp_campaign(guild_id: str, values: dict, user_id: str, user_name: str) -> int:
+    """A new campaign, linked to the Kill Tracker campaign of the same name —
+    found when one exists (names are unique regardless of case), created
+    when it does not. Raises ValueError when the guild already has a planner
+    campaign of that name."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO kt_campaigns (name, updated_by_name) VALUES ($1, $2)
+                   ON CONFLICT ((lower(name))) DO NOTHING""", values['name'], user_name)
+            kt_id = await db.fetchval(
+                'SELECT id FROM kt_campaigns WHERE lower(name) = lower($1)', values['name'])
+            try:
+                return await db.fetchval(
+                    """INSERT INTO cp_campaigns
+                         (guild_id, name, era, theatre, summary, planned_missions, status,
+                          kt_campaign_id, created_by, updated_by_name)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id""",
+                    guild_id, values['name'], values['era'], values['theatre'],
+                    values['summary'], values['planned_missions'], values['status'],
+                    kt_id, user_id, user_name)
+            except asyncpg.UniqueViolationError:
+                raise ValueError(f"There's already a campaign called {values['name']}.")
+
+
+async def update_cp_campaign(campaign_id: int, values: dict, user_name: str):
+    columns = [c for c in _CP_CAMPAIGN_COLUMNS if c in values]
+    sets = ', '.join(f'{c} = ${i}' for i, c in enumerate(columns, 3))
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        try:
+            await db.execute(
+                f"""UPDATE cp_campaigns SET {sets}, updated_by_name = $2,
+                        updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
+                campaign_id, user_name, *[values[c] for c in columns])
+        except asyncpg.UniqueViolationError:
+            raise ValueError(f"There's already a campaign called {values.get('name')}.")
+
+
+async def delete_cp_campaign(campaign_id: int):
+    """Deletes the campaign, its AOs, missions, phases and images. The Kill
+    Tracker campaign it was linked to is left alone — its stats are public."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('DELETE FROM cp_campaigns WHERE id = $1', campaign_id)
+
+
+async def touch_cp_campaign(db, campaign_id: int, user_name: str):
+    await db.execute(
+        """UPDATE cp_campaigns SET updated_by_name = $2,
+               updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
+        campaign_id, user_name)
+
+
+# -- AOs --------------------------------------------------------------------
+
+async def list_cp_aos(campaign_id: int) -> list:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT * FROM cp_aos WHERE campaign_id = $1 ORDER BY position, id', campaign_id)
+    return [dict(r) for r in rows]
+
+
+async def add_cp_ao(campaign_id: int, name: str) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetchval(
+            """INSERT INTO cp_aos (campaign_id, name, position)
+               VALUES ($1, $2, COALESCE((SELECT MAX(position) + 1 FROM cp_aos
+                                          WHERE campaign_id = $1), 0))
+               RETURNING id""", campaign_id, name)
+
+
+async def rename_cp_ao(ao_id: int, campaign_id: int, name: str):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('UPDATE cp_aos SET name = $3 WHERE id = $1 AND campaign_id = $2',
+                         ao_id, campaign_id, name)
+
+
+async def delete_cp_ao(ao_id: int, campaign_id: int):
+    """Phases fought in it keep their place and lose the AO (ON DELETE SET NULL)."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('DELETE FROM cp_aos WHERE id = $1 AND campaign_id = $2',
+                         ao_id, campaign_id)
+
+
+# -- missions ---------------------------------------------------------------
+
+async def list_cp_missions(campaign_id: int) -> list:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT * FROM cp_missions WHERE campaign_id = $1 ORDER BY position, id',
+            campaign_id)
+    return [_mission_dict(r) for r in rows]
+
+
+async def get_cp_mission(mission_id: int):
+    """One mission with its campaign's guild, or None."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow(
+            """SELECT m.*, c.guild_id, c.name AS campaign_name
+                 FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
+                WHERE m.id = $1""", mission_id)
+    return _mission_dict(row) if row else None
+
+
+async def create_cp_mission(campaign_id: int, name: str, op_date, fields: dict,
+                            user_name: str) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            mission_id = await db.fetchval(
+                """INSERT INTO cp_missions (campaign_id, position, name, op_date, fields,
+                                            updated_by_name)
+                   VALUES ($1, COALESCE((SELECT MAX(position) + 1 FROM cp_missions
+                                          WHERE campaign_id = $1), 0),
+                           $2, $3, $4, $5)
+                   RETURNING id""",
+                campaign_id, name, op_date, _json.dumps(fields), user_name)
+            await touch_cp_campaign(db, campaign_id, user_name)
+    return mission_id
+
+
+async def patch_cp_mission(mission_id: int, campaign_id: int, patch: dict,
+                           name, op_date, user_name: str):
+    """Merges `patch` into the stored fields — only the keys sent change.
+    `name` and `op_date` mirror the fields into their columns when given
+    (None leaves the column alone; op_date '' clears it)."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            await db.execute(
+                """UPDATE cp_missions
+                      SET fields = (fields::jsonb || $2::jsonb)::text,
+                          name = COALESCE($3, name),
+                          op_date = CASE WHEN $4 THEN $5::date ELSE op_date END,
+                          updated_by_name = $6,
+                          updated_at = (NOW() AT TIME ZONE 'UTC')
+                    WHERE id = $1""",
+                mission_id, _json.dumps(patch), name, op_date is not None,
+                op_date or None, user_name)
+            await touch_cp_campaign(db, campaign_id, user_name)
+
+
+async def move_cp_mission(mission_id: int, campaign_id: int, step: int):
+    """Swap a mission with its neighbour (step -1 up, +1 down)."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            rows = await db.fetch(
+                'SELECT id FROM cp_missions WHERE campaign_id = $1 ORDER BY position, id FOR UPDATE',
+                campaign_id)
+            order = [r['id'] for r in rows]
+            if mission_id not in order:
+                return
+            i = order.index(mission_id)
+            j = i + step
+            if not 0 <= j < len(order):
+                return
+            order[i], order[j] = order[j], order[i]
+            for position, mid in enumerate(order):
+                await db.execute('UPDATE cp_missions SET position = $2 WHERE id = $1',
+                                 mid, position)
+
+
+async def delete_cp_mission(mission_id: int, campaign_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('DELETE FROM cp_missions WHERE id = $1 AND campaign_id = $2',
+                         mission_id, campaign_id)
+
+
+# -- phases -----------------------------------------------------------------
+
+async def get_cp_phases(mission_id: int) -> list:
+    """A mission's phases in order, each with its objectives."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        phases = await db.fetch(
+            'SELECT * FROM cp_phases WHERE mission_id = $1 ORDER BY position, id', mission_id)
+        objectives = await db.fetch(
+            """SELECT o.* FROM cp_phase_objectives o JOIN cp_phases p ON p.id = o.phase_id
+                WHERE p.mission_id = $1 ORDER BY o.position, o.id""", mission_id)
+    by_phase: dict = {}
+    for o in objectives:
+        by_phase.setdefault(o['phase_id'], []).append(
+            {k: o[k] for k in ('library_id', 'role', 'name', 'players_do',
+                               'complete_when', 'intsum_hint', 'result')})
+    return [{'id': p['id'], 'title': p['title'], 'detail': p['detail'],
+             'ao_id': p['ao_id'], 'layer_id': p['layer_id'],
+             'objectives': by_phase.get(p['id'], [])} for p in phases]
+
+
+async def save_cp_phases(mission_id: int, phases: list) -> None:
+    """Replace a mission's phase list with `phases` (from campaign.clean_phases).
+
+    A phase sent with the id of one of this mission's phases keeps that row —
+    and so, from milestone 5, its map layer — while one without an id is new
+    and any phase not sent is deleted. Objectives have nothing hanging off
+    them and are replaced wholesale.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            existing = {r['id'] for r in await db.fetch(
+                'SELECT id FROM cp_phases WHERE mission_id = $1 FOR UPDATE', mission_id)}
+            kept = []
+            for position, phase in enumerate(phases):
+                if phase.get('id') in existing and phase['id'] not in kept:
+                    phase_id = phase['id']
+                    await db.execute(
+                        """UPDATE cp_phases SET position = $2, title = $3, detail = $4,
+                                  ao_id = $5 WHERE id = $1""",
+                        phase_id, position, phase['title'], phase['detail'], phase['ao_id'])
+                    await db.execute('DELETE FROM cp_phase_objectives WHERE phase_id = $1',
+                                     phase_id)
+                else:
+                    phase_id = await db.fetchval(
+                        """INSERT INTO cp_phases (mission_id, position, title, detail, ao_id)
+                           VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+                        mission_id, position, phase['title'], phase['detail'], phase['ao_id'])
+                kept.append(phase_id)
+                for o_position, o in enumerate(phase['objectives']):
+                    await db.execute(
+                        """INSERT INTO cp_phase_objectives
+                             (phase_id, library_id, position, role, name, players_do,
+                              complete_when, intsum_hint, result)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                        phase_id, o['library_id'], o_position, o['role'], o['name'],
+                        o['players_do'], o['complete_when'], o['intsum_hint'], o['result'])
+            gone = existing - set(kept)
+            if gone:
+                await db.execute('DELETE FROM cp_phases WHERE id = ANY($1::int[])', list(gone))
+
+
+async def cp_phase_titles(mission_ids) -> dict:
+    """mission id → its phases' titles and details, in order. What the list
+    pages need to tell whether the Orders step is locked, in one query."""
+    ids = [int(i) for i in mission_ids]
+    if not ids:
+        return {}
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT mission_id, title, detail FROM cp_phases
+                WHERE mission_id = ANY($1::int[]) ORDER BY position, id""", ids)
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r['mission_id'], []).append({'title': r['title'], 'detail': r['detail']})
+    return out
+
+
+# -- the objectives library -------------------------------------------------
+
+async def ensure_objective_library(guild_id: str, seed: list) -> None:
+    """Seed a guild's library the first time anybody looks at it. Once seeded
+    it is never seeded again, so an admin who empties it gets an empty one."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            await db.execute(
+                'INSERT INTO cp_settings (guild_id) VALUES ($1) ON CONFLICT (guild_id) DO NOTHING',
+                guild_id)
+            seeded = await db.fetchval(
+                'SELECT library_seeded FROM cp_settings WHERE guild_id = $1 FOR UPDATE', guild_id)
+            if seeded:
+                return
+            await db.executemany(
+                """INSERT INTO cp_objective_library
+                     (guild_id, category, kind, name, players_do, complete_when,
+                      pairs_with, intsum_hint, position)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                [(guild_id, e['category'], e['kind'], e['name'], e['players_do'],
+                  e['complete_when'], e['pairs_with'], e['intsum_hint'], e['position'])
+                 for e in seed])
+            await db.execute('UPDATE cp_settings SET library_seeded = TRUE WHERE guild_id = $1',
+                             guild_id)
+
+
+async def list_cp_objectives(guild_id: str) -> list:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT * FROM cp_objective_library WHERE guild_id = $1 ORDER BY position, id',
+            guild_id)
+    return [dict(r) for r in rows]
+
+
+async def get_cp_objective(entry_id: int, guild_id: str):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow(
+            'SELECT * FROM cp_objective_library WHERE id = $1 AND guild_id = $2',
+            entry_id, guild_id)
+    return dict(row) if row else None
+
+
+async def save_cp_objective(guild_id: str, entry_id, values: dict) -> int:
+    """Insert (entry_id None) or update one library entry."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        if entry_id is None:
+            return await db.fetchval(
+                """INSERT INTO cp_objective_library
+                     (guild_id, category, kind, name, players_do, complete_when,
+                      pairs_with, intsum_hint, position)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                           COALESCE((SELECT MAX(position) + 1 FROM cp_objective_library
+                                      WHERE guild_id = $1), 1))
+                   RETURNING id""",
+                guild_id, values['category'], values['kind'], values['name'],
+                values['players_do'], values['complete_when'], values['pairs_with'],
+                values['intsum_hint'])
+        await db.execute(
+            """UPDATE cp_objective_library SET category = $3, kind = $4, name = $5,
+                   players_do = $6, complete_when = $7, pairs_with = $8, intsum_hint = $9
+                WHERE id = $1 AND guild_id = $2""",
+            entry_id, guild_id, values['category'], values['kind'], values['name'],
+            values['players_do'], values['complete_when'], values['pairs_with'],
+            values['intsum_hint'])
+        return entry_id
+
+
+async def delete_cp_objective(entry_id: int, guild_id: str):
+    """Objectives already picked into a mission keep their own copy."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('DELETE FROM cp_objective_library WHERE id = $1 AND guild_id = $2',
+                         entry_id, guild_id)
+
+
+# -- images -----------------------------------------------------------------
+
+async def add_cp_image(campaign_id: int, filename: str, content_type: str, data: bytes,
+                       user_name: str) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetchval(
+            """INSERT INTO cp_images (campaign_id, filename, content_type, data, bytes,
+                                      created_by_name)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
+            campaign_id, filename, content_type, data, len(data), user_name)
+
+
+async def get_cp_image(image_id: int):
+    """The image with its campaign's guild, or None."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow(
+            """SELECT i.*, c.guild_id FROM cp_images i
+                 JOIN cp_campaigns c ON c.id = i.campaign_id WHERE i.id = $1""", image_id)
+    return dict(row) if row else None
+
+
+async def cp_image_meta(campaign_id: int, ids) -> dict:
+    """id → {filename, bytes} for those of `ids` that belong to the campaign."""
+    ids = [int(i) for i in ids]
+    if not ids:
+        return {}
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            """SELECT id, filename, bytes, content_type FROM cp_images
+                WHERE campaign_id = $1 AND id = ANY($2::int[])""", campaign_id, ids)
+    return {r['id']: dict(r) for r in rows}
 
 
 # ---------------------------------------------------------------------------
