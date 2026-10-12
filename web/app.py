@@ -749,11 +749,19 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             raise Forbidden("Only a server admin can build ORBATs.")
 
     async def orbat_context(request: Request, guild_id: str, orbat_id: int) -> dict:
+        """One ORBAT, for the editor. Admins may open any; a campaign planner may
+        open one that a planner mission links — the ORBAT is part of the plan
+        they are writing. Deleting stays admin-only (`orbat_delete`)."""
         context = await guild_context(request, guild_id)
-        require_orbat_admin(context)
         record = await database.get_orbat(orbat_id)
         if record is None or record['guild_id'] != str(context['guild'].id):
+            if not context['is_admin']:
+                require_orbat_admin(context)
             raise Forbidden("No such ORBAT on this server.")
+        if not context['is_admin']:
+            if not (context['may_plan']
+                    and await database.cp_orbat_linked(str(context['guild'].id), orbat_id)):
+                require_orbat_admin(context)
         context['record'] = record
         return context
 
@@ -881,6 +889,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     @app.post('/g/{guild_id}/orbats/{orbat_id}/duplicate')
     async def orbat_duplicate(request: Request, guild_id: str, orbat_id: int):
         context = await orbat_context(request, guild_id, orbat_id)
+        require_orbat_admin(context)
         form = await request.form()
         auth.check_csrf(context['session'], form.get('csrf'))
 
@@ -901,6 +910,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     @app.post('/g/{guild_id}/orbats/{orbat_id}/delete')
     async def orbat_delete(request: Request, guild_id: str, orbat_id: int):
         context = await orbat_context(request, guild_id, orbat_id)
+        require_orbat_admin(context)
         form = await request.form()
         auth.check_csrf(context['session'], form.get('csrf'))
         try:
@@ -1873,6 +1883,38 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             **context,
             **await campaign_service.schedule_page(context['guild'], context['mission'],
                                                    context['tz']),
+        })
+
+    @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/orbat')
+    async def mission_orbat(request: Request, guild_id: str, campaign_id: int,
+                            mission_id: int):
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        form = await planner_form(request, context)
+        back = form.get('back') or 'wizard'
+        url = campaign_url(guild_id, campaign_id, f'/missions/{mission_id}')
+        if back == 'schedule':
+            url += '/schedule'
+        try:
+            note = await campaign_service.set_orbat(context['guild'], context['mission'],
+                                                    form, context['member'])
+        except ValueError as e:
+            return redirect(request, url, 'warn', str(e))
+        return redirect(request, url, 'ok', note)
+
+    @app.get('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/export/{filename}')
+    async def mission_export(request: Request, guild_id: str, campaign_id: int,
+                             mission_id: int, filename: str):
+        """One briefing pack as a file: …/export/player.pdf, …/leaders.docx."""
+        context = await mission_ctx(request, guild_id, mission_id, campaign_id)
+        pack, _, fmt = filename.partition('.')
+        try:
+            body, name, media = await campaign_service.build_export(
+                context['guild'], context['mission'], pack, fmt, context['tz'], config.brand)
+        except campaign_service.NotFound as e:
+            raise Forbidden(str(e))
+        return Response(body, media_type=media, headers={
+            'Content-Disposition': f'attachment; filename="{name}"',
+            'Cache-Control': 'private, no-store',
         })
 
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/move')

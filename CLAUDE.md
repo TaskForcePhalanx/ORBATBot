@@ -71,6 +71,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   terrain.py            # Uploaded terrains, on top of utils/tiles.py
   nav.py                # The two-level tab bar, built once rather than per template
   campaigns.py          # The campaign planner's pages, on top of utils/campaign.py
+  exports.py            # Briefing packs as PDF (reportlab) and Word (python-docx)
   # There is no web/help.py: utils/help.py holds the content, and the two
   # routes have no permissions to check and no form to translate.
   voice.py              # Voice leaderboard shaping, the settings form and posting
@@ -98,7 +99,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(529 cases), and every one of them covers a module that imports nothing beyond
+(534 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -112,7 +113,7 @@ all:
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, and the library seed and its pairings |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, and what each briefing pack contains (`document_blocks`) |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -615,6 +616,7 @@ needs one of these three channels must go through it**; a fresh
 | Drawing on one, sharing it, posting it — web only | ❌ | ✅ | ✅ |
 | Uploading or deleting a terrain — web only | ❌ | ❌ | ✅ |
 | Campaign planner — web only | ❌ | ✅ with the planner's unit role | ✅ |
+| Editing an ORBAT a planner mission links — web only | ❌ | ✅ with the planner's unit role | ✅ |
 | Editing the objectives library — web only | ❌ | ❌ | ✅ |
 | Campaign planner settings — web only | ❌ | ❌ | ✅ |
 
@@ -1083,7 +1085,9 @@ being built in milestones:
    page, AOs, missions (carrying over stable details), the interactive
    six-step wizard, the objective picker with the library, the back-schedule
    with checks and every drop ready to copy. *Done.*
-3. The ORBAT link and PDF/DOCX export.
+3. **The ORBAT link and PDF/DOCX export** — link, copy or create a mission's
+   ORBAT, edit it from the planner, and the three briefing packs as PDF and
+   Word. *Done.*
 4. Drops and approvals — scheduled posting, holds and pings.
 5. Maps — the campaign map, AO maps, phases as layers.
 6. After action and the Kill Tracker link.
@@ -1193,6 +1197,62 @@ it. Anything else is kept and the flash message says so — those numbers are
 public, and an admin may have built that campaign by hand. ORBATs, maps and
 operations a mission links to (milestones 3–5) are links, not contents: a
 delete drops the link and leaves them.
+
+### The mission's ORBAT
+
+`cp_missions.orbat_id` is a **link**: the ORBAT is built in the existing editor
+and stays an ordinary ORBAT. The card on the wizard and the schedule page
+(`orbat_panel()`, `set_orbat()`) links one as it is, copies one (through
+`web.orbat.duplicate()` — structure, never bookings) or creates a blank one,
+and starts on the ORBAT the previous mission used. Unlinking leaves the ORBAT;
+deleting the mission leaves it too.
+
+**The ORBAT editor opens to planners for linked ORBATs.** `orbat_context()`
+lets in an admin, or a member with `may_plan` when
+`database.cp_orbat_linked()` finds a planner mission on this guild linking that
+ORBAT — otherwise TFP's Unit Leaders could plan a mission but not its roster.
+Copy and delete stay admin-only (`orbat_duplicate`, `orbat_delete` call
+`require_orbat_admin`), the editor hides them, and its crumb points at the
+campaigns instead of the admin-only ORBAT list. A copy made in the editor would
+not be linked to anything, so a planner could not even open it — copying for a
+mission is the card's job.
+
+### Briefing packs
+
+What a pack contains is `campaign.document_blocks()` — a list of blocks (h1,
+h2, kv, p, note, list, table, img, break) — tested like the rest of the rules.
+`web/exports.py` has two renderers of that list, `render_pdf()` (reportlab)
+and `render_docx()` (python-docx), so the two files cannot say different
+things. `build_export()` gathers the inputs (phases, AO names, the linked
+ORBAT's structure and nets, the campaign's images) and renders in a thread,
+because laying out a PDF is CPU work on the bot's own event loop.
+
+| Pack | Contents |
+|---|---|
+| Player briefing | Warning order, situation, intelligence, OPORD (phases with primary and secondary objectives) |
+| Leaders' pack | That, plus the FragO: timings, tasks, actions on, loadout, medical, the ORBAT, the ops traces as annexes |
+| Full op file | That, plus complications in the phases, the back-schedule and the after action |
+
+Rules the renderers rely on, not decide: **private fields are never in a pack**
+(the field's own help promises "never posted or exported"); **complications
+only in the full op file** — they are Zeus's plan, and players get the
+INTSUM's hints; **times in the op's zone**, with the guild's beside them in the
+timings when they differ. Branding is `WEB_BRAND` and the logo in
+`web/static/` (an SVG logo is skipped — neither library draws SVG).
+
+Three layout details that were got wrong first and are worth keeping:
+
+- **The PDF font is Bitstream Vera**, the TrueType that ships inside reportlab,
+  registered as a family so bold and italic work. Characters it has no glyph
+  for are swapped for a stand-in (`_FALLBACKS`: → becomes ->) or dropped
+  (emoji), rather than printing black boxes.
+- **Headings keep with what follows** — `keepWithNext` in the PDF,
+  `keep_with_next` in Word — or "Ground" ends a page with its text on the next.
+- **A page break in Word is "page break before" on the next heading**, never
+  an empty paragraph: a break paragraph landing at the foot of a full page is
+  what makes Word show a blank page. Table widths need `autofit = False` and
+  the column widths set as well as the cells', or LibreOffice and Google Docs
+  split every table in half.
 
 ### The objectives library
 
@@ -1444,6 +1504,7 @@ Every permission decision is re-made per request from a live `discord.Member`:
 | Add / remove game roles, post the panel | admin | `default_permissions(manage_guild=True)` on the cog's commands |
 | Build and post embeds, configure the member log and voice tracking | admin | `is_admin()` — `manage_guild` or `administrator` |
 | Build and edit ORBATs | admin | `is_admin()` |
+| Edit an ORBAT that a campaign mission links (not copy or delete it) | planner | `can_plan()` + `cp_orbat_linked()` |
 | Watch a Reddit feed | admin | `is_admin()` |
 | Start an operation, move its time, post the board or the announcement, empty the queue, choose the channels, set the timezone | admin | `is_admin()` |
 | Assign somebody to a slot outright | Unit Leader (own unit, and must have one) or admin | `check_can_assign()` |
@@ -1587,6 +1648,8 @@ POST /g/{guild}/campaigns/{id}/aos      add an AO;  …/aos/{ao} rename, …/aos
 POST /g/{guild}/campaigns/{id}/missions create one, copying the last one's stable details
 GET  /g/{guild}/campaigns/{id}/missions/{m}           the wizard (needs JavaScript)
 GET  /g/{guild}/campaigns/{id}/missions/{m}/schedule  back-schedule, checks, every drop
+POST /g/{guild}/campaigns/{id}/missions/{m}/orbat     action=link | copy | new | unlink
+GET  /g/{guild}/campaigns/{id}/missions/{m}/export/{pack}.{pdf|docx}  a briefing pack
 POST /g/{guild}/campaigns/{id}/missions/{m}/move      up / down;  …/delete
 GET  /g/{guild}/cp/api/missions/{m}     the wizard's state, as JSON
 PATCH /g/{guild}/cp/api/missions/{m}    save changed fields (+ phases); X-CSRF-Token header

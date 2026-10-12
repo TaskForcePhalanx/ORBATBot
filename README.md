@@ -170,7 +170,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
 
-**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library)
+**Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs)
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
@@ -852,6 +852,47 @@ The list of objectives and complications the wizard's picker draws from.
 > The library starts as the TFP Mission Objectives Library: 57 objectives in eight categories, plus 12 complications.
 
 See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard)
+
+#### Give a mission its ORBAT
+
+**Who:** Admin, or Unit Leader with the unit role · **Where:** Web — a mission's wizard or **Schedule** page → **ORBAT**
+
+Link the roster a mission is signed up on: last mission's copied, one reused as it is, or a new blank one.
+
+1. Open the mission and find the **ORBAT** card — beside the wizard, or at the top of the **Schedule** page.
+2. Under **Link one**, the list starts on the ORBAT the previous mission used. **Copy it** makes a copy named after this mission; **Use as is** links that ORBAT unchanged; **New blank** starts an empty one.
+3. Press **Edit ORBAT** to write or adjust the roster in the ORBAT editor.
+
+> A copy takes the structure — squads, slots, radios, nets — and none of the bookings.
+>
+> Planners who are not server admins can open and edit an ORBAT once a campaign mission links it. Copying and deleting ORBATs in the editor stay with admins.
+>
+> An ORBAT can be edited at any time, even while sign-ups are open: the editor asks before a change would unseat anybody.
+>
+> **Unlink** only removes the link; the ORBAT itself stays.
+
+See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Download the briefing packs](#download-the-briefing-packs)
+
+#### Download the briefing packs
+
+**Who:** Admin, or Unit Leader with the unit role · **Where:** Web — a mission's wizard or **Schedule** page → **Briefing packs**
+
+The mission as a PDF or Word file, in three versions for three audiences.
+
+1. Open the mission and find **Briefing packs**.
+2. Press **PDF** or **Word** beside the pack you want. It downloads straight away.
+
+> **Player briefing** — warning order, situation, intelligence and the OPORD; safe for everyone signed up. **Leaders' pack** — that plus the FragO, timings, tasks, the ORBAT and the ops traces. **Full op file** — everything, plus the complications, the back-schedule and the after action.
+>
+> Complications appear only in the full op file, and **Held back for Zeus** is never in any pack.
+>
+> Times are in the op's time zone, with the server's beside them in the FragO timings when the two differ.
+>
+> The cover carries the site's name and logo. Word files open straight into Google Docs.
+>
+> Each download is made from what is saved at that moment, so download again after an edit.
+
+See also: [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Write a mission in the wizard](#write-a-mission-in-the-wizard)
 
 ### Reddit announcements
 

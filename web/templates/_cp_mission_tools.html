@@ -1,0 +1,67 @@
+{#- The mission's ORBAT and its briefing packs. Shared by the wizard's side
+    panel and the schedule page; `back` says which one a form returns to. -#}
+<div class="card cptool"><div class="cardbody">
+  <h3 class="nospace">ORBAT</h3>
+  {% if orbat.linked %}
+    <p class="nospace cporbat">
+      <strong>{{ orbat.linked.name }}</strong>
+      <span class="muted">· {{ orbat.linked.squad_count }} squads · {{ orbat.linked.slot_count }} slots</span>
+      {% if orbat.linked.live_operation %}<span class="chip live">🔴 live · {{ orbat.linked.live_operation }}</span>{% endif %}
+    </p>
+    <div class="cptoolrow">
+      <a class="button primary" href="/g/{{ guild.id }}/orbats/{{ orbat.linked.id }}">Edit ORBAT</a>
+      <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/orbat">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="back" value="{{ back }}">
+        <button class="linkish" type="submit" name="action" value="unlink">Unlink</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="muted nospace">No ORBAT linked yet. Sign-ups start from it at the drop that opens the ORBAT.</p>
+  {% endif %}
+  <details class="cpsub" {% if not orbat.linked %}open{% endif %}>
+    <summary>{{ 'Change' if orbat.linked else 'Link one' }}</summary>
+    <form class="cporbatform" method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/orbat">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="back" value="{{ back }}">
+      {% if orbat.orbats %}
+        <label class="field"><span>ORBAT</span>
+          <select name="orbat_id">
+            {% set pick = (orbat.previous.id if orbat.previous else (orbat.linked.id if orbat.linked else None)) %}
+            {% for o in orbat.orbats %}
+              <option value="{{ o.id }}" {% if o.id == pick %}selected{% endif %}>{{ o.name }}{% if orbat.previous and o.id == orbat.previous.id %} — last mission's{% endif %} ({{ o.slot_count }} slots)</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      <label class="field"><span>Name for a copy or a new one</span>
+        <input name="name" maxlength="120" value="{{ orbat.default_name }}"></label>
+      <div class="cptoolrow">
+        {% if orbat.orbats %}
+          <button class="button" type="submit" name="action" value="copy" title="A copy of the chosen ORBAT — its structure, none of its bookings">Copy it</button>
+          <button class="button" type="submit" name="action" value="link" title="Use the chosen ORBAT as it is">Use as is</button>
+        {% endif %}
+        <button class="button" type="submit" name="action" value="new">New blank</button>
+      </div>
+      <p class="hint">Copy last week's and adjust it, or reuse one unchanged. An ORBAT can be
+        edited any time, even while sign-ups are open.</p>
+    </form>
+  </details>
+</div></div>
+
+<div class="card cptool"><div class="cardbody">
+  <h3 class="nospace">Briefing packs</h3>
+  <ul class="cppacks">
+    {% for pack in packs %}
+      <li>
+        <strong>{{ pack.label }}</strong>
+        <span class="cppacklinks">
+          <a class="button" href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/export/{{ pack.key }}.pdf">PDF</a>
+          <a class="button" href="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/missions/{{ mission.id }}/export/{{ pack.key }}.docx">Word</a>
+        </span>
+        <span class="muted cppackdesc">{{ pack.description }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="hint">Made from what is saved now. Word files open straight into Google Docs.</p>
+</div></div>

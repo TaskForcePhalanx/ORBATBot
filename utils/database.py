@@ -2148,6 +2148,28 @@ async def delete_cp_mission(mission_id: int, campaign_id: int):
                          mission_id, campaign_id)
 
 
+async def set_cp_mission_orbat(mission_id: int, orbat_id, user_name: str):
+    """Point a mission at an ORBAT (or at none). The ORBAT is a link, not part of
+    the mission: deleting the mission leaves it, and an ORBAT linked to several
+    missions is one ORBAT."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """UPDATE cp_missions SET orbat_id = $2, updated_by_name = $3,
+                   updated_at = (NOW() AT TIME ZONE 'UTC') WHERE id = $1""",
+            mission_id, orbat_id, user_name)
+
+
+async def cp_orbat_linked(guild_id: str, orbat_id: int) -> bool:
+    """Whether a planner mission on this guild links this ORBAT — what lets a
+    planner who is not an admin open it in the ORBAT editor."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return bool(await db.fetchval(
+            """SELECT 1 FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
+                WHERE c.guild_id = $1 AND m.orbat_id = $2 LIMIT 1""", guild_id, orbat_id))
+
+
 # -- phases -----------------------------------------------------------------
 
 async def get_cp_phases(mission_id: int) -> list:
@@ -2328,6 +2350,20 @@ async def get_cp_image(image_id: int):
             """SELECT i.*, c.guild_id FROM cp_images i
                  JOIN cp_campaigns c ON c.id = i.campaign_id WHERE i.id = $1""", image_id)
     return dict(row) if row else None
+
+
+async def cp_image_data(campaign_id: int, ids) -> dict:
+    """id → bytes for those of `ids` that belong to the campaign — what an
+    export embeds."""
+    ids = [int(i) for i in ids]
+    if not ids:
+        return {}
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT id, data FROM cp_images WHERE campaign_id = $1 AND id = ANY($2::int[])',
+            campaign_id, ids)
+    return {r['id']: bytes(r['data']) for r in rows}
 
 
 async def cp_image_meta(campaign_id: int, ids) -> dict:

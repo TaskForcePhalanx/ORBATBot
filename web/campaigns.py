@@ -348,6 +348,8 @@ async def wizard_page(guild, mission: dict, tz: str) -> dict:
     return {
         'campaign': campaign,
         'mission': mission,
+        'orbat': await orbat_panel(guild, mission),
+        'packs': rules.PACKS,
         'steps': rules.STEPS,
         'state': state,
         'aos': aos,
@@ -361,7 +363,98 @@ async def schedule_page(guild, mission: dict, tz: str) -> dict:
     campaign = await database.get_cp_campaign(mission['campaign_id'])
     state = await mission_state(guild, mission, tz)
     return {'campaign': campaign, 'mission': mission, 'state': state,
+            'orbat': await orbat_panel(guild, mission), 'packs': rules.PACKS,
             'steps': {s.key: s for s in rules.STEPS}}
+
+
+# ---------------------------------------------------------------------------
+# The mission's ORBAT
+# ---------------------------------------------------------------------------
+
+async def orbat_panel(guild, mission: dict) -> dict:
+    """The ORBAT card: what is linked, what could be, and what the previous
+    mission used — "copy last week's" is the usual way a new one starts."""
+    orbats = [dict(o) for o in await database.get_guild_orbats(str(guild.id))]
+    by_id = {o['id']: o for o in orbats}
+    missions = await database.list_cp_missions(mission['campaign_id'])
+    earlier = [m for m in missions if m['id'] != mission['id']
+               and m['position'] <= mission['position'] and m['orbat_id']]
+    previous = by_id.get(earlier[-1]['orbat_id']) if earlier else None
+    return {
+        'linked': by_id.get(mission['orbat_id']),
+        'orbats': orbats,
+        'previous': previous,
+        'default_name': f"{mission['name']} ORBAT"[:120],
+    }
+
+
+async def set_orbat(guild, mission: dict, form, member) -> str:
+    """Link, copy, create or unlink — the four buttons on the ORBAT card."""
+    from web import orbat as orbat_service
+    action = form.get('action')
+    orbats = {o['id']: o for o in await database.get_guild_orbats(str(guild.id))}
+    try:
+        chosen = int(form.get('orbat_id') or 0)
+    except ValueError:
+        chosen = 0
+    name = str(form.get('name') or '').strip() or f"{mission['name']} ORBAT"
+
+    if action == 'unlink':
+        await database.set_cp_mission_orbat(mission['id'], None, member.display_name)
+        return 'ORBAT unlinked. The ORBAT itself is still there.'
+    if action == 'new':
+        new_id = await orbat_service.create(guild, member, name,
+                                            f"For {mission['name']}")
+        await database.set_cp_mission_orbat(mission['id'], new_id, member.display_name)
+        return f'Created {name} and linked it. Open it to write the roster.'
+    if chosen not in orbats:
+        raise ValueError('Pick an ORBAT from the list.')
+    if action == 'link':
+        await database.set_cp_mission_orbat(mission['id'], chosen, member.display_name)
+        return f"Linked {orbats[chosen]['name']}."
+    if action == 'copy':
+        new_id = await orbat_service.duplicate(chosen, member, name)
+        await database.set_cp_mission_orbat(mission['id'], new_id, member.display_name)
+        return f"Copied {orbats[chosen]['name']} as {name} — the structure, not the bookings."
+    raise ValueError('That is not something the ORBAT card does.')
+
+
+# ---------------------------------------------------------------------------
+# Briefing packs
+# ---------------------------------------------------------------------------
+
+async def build_export(guild, mission: dict, pack_key: str, fmt: str, tz: str,
+                       brand: str) -> tuple[bytes, str, str]:
+    """(file bytes, filename, media type) for one pack in one format. What goes
+    in is `rules.document_blocks()`; this gathers its inputs and hands the
+    blocks to a renderer in a thread, since laying out a PDF is CPU work and
+    the web server shares its event loop with the bot."""
+    import asyncio
+    from web import exports
+    if pack_key not in rules.PACK or fmt not in rules.EXPORT_FORMATS:
+        raise NotFound('No such pack.')
+    plan = await settings(guild.id)
+    ctx = await post_context(str(guild.id), plan, tz)
+    data = {**mission['fields'], 'phases': await database.get_cp_phases(mission['id'])}
+    aos = {a['id']: a['name'] for a in await database.list_cp_aos(mission['campaign_id'])}
+    orbat = None
+    if mission.get('orbat_id'):
+        record = await database.get_orbat(mission['orbat_id'])
+        if record is not None and record['guild_id'] == str(guild.id):
+            orbat = {'name': record['name'],
+                     'squads': await database.get_orbat_structure(record['id']),
+                     'nets': [dict(n) for n in await database.get_orbat_nets(record['id'])]}
+    blocks = rules.document_blocks(data, pack_key, ctx, orbat=orbat, aos=aos,
+                                   today=today_in(tz))
+    images = await database.cp_image_data(mission['campaign_id'], rules.block_images(blocks))
+    campaign = await database.get_cp_campaign(mission['campaign_id'])
+    meta = {'brand': brand, 'campaign': campaign['name'] if campaign else '',
+            'name': (rules.text(data, 'name') or mission['name']).upper(),
+            'pack': rules.PACK[pack_key].label, 'ref': rules.text(data, 'op_ref'),
+            'op_date': exports.op_date_label(data.get('op_date'))}
+    render = exports.render_pdf if fmt == 'pdf' else exports.render_docx
+    body = await asyncio.to_thread(render, blocks, meta, images)
+    return body, rules.export_filename(data, pack_key, fmt), exports.MEDIA[fmt]
 
 
 # ---------------------------------------------------------------------------

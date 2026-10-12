@@ -417,3 +417,82 @@ def test_image_type():
     for bad in (b'', b'<html>', b'\x89PNG\r\n\x1a\n' + b'0' * cp.MAX_IMAGE_BYTES):
         with pytest.raises(ValueError):
             cp.check_image(bad)
+
+
+# --- briefing packs (milestone 3) ---------------------------------------------
+
+def _all_text(blocks):
+    out = []
+    for b in blocks:
+        out.append(b.get('text', ''))
+        for row in b.get('rows', []):
+            out.extend(row)
+        out.extend(b.get('items', []))
+        out.append(b.get('caption', ''))
+    return '\n'.join(out)
+
+
+def _packed(**extra):
+    return full_mission(
+        zeus_only='SECRET AMBUSH', frago_no='001', unit_img=1, map_img=2, traces=[5, 6],
+        aar_imgs=[9], stats='12 kills',
+        phases=[{'title': 'Phase 1 – Assault', 'detail': 'Go', 'ao_id': 3, 'objectives': [
+            {'role': 'primary', 'name': 'SEIZE', 'complete_when': 'Hill held'},
+            {'role': 'complication', 'name': 'IEDs and mines'}]}],
+        **extra)
+
+
+def test_packs_grow_player_leaders_full():
+    mission = _packed()
+    orbat = {'name': 'Platoon', 'squads': [{'name': '1-1 Alpha', 'reserved_unit': 'TFP',
+                                            'radio': '343 ch 3', 'slots': [{'role_name': 'SL'}]}],
+             'nets': []}
+    player = cp.document_blocks(mission, 'player', ctx(), orbat=orbat, aos={3: 'Cham'})
+    leaders = cp.document_blocks(mission, 'leaders', ctx(), orbat=orbat, aos={3: 'Cham'})
+    full = cp.document_blocks(mission, 'full', ctx(), orbat=orbat, aos={3: 'Cham'},
+                              today=date(2026, 10, 1))
+    heads = lambda bs: [b['text'] for b in bs if b['t'] == 'h1']
+    assert heads(player) == ['1. Warning order', '2. Situation', '3. Intelligence',
+                             '4. Operation order']
+    assert heads(leaders)[-1] == '5. FragO 001'
+    assert heads(full)[-2:] == ['6. Back-schedule', '7. After action']
+    assert 'ORBAT — Platoon' not in _all_text(player) and 'ORBAT — Platoon' in _all_text(leaders)
+    assert cp.block_images(player) == [1, 2]
+    assert cp.block_images(leaders) == [1, 2, 5, 6]
+    assert cp.block_images(full) == [1, 2, 5, 6, 9]
+    phases = next(b for b in player if b['t'] == 'table' and b['head'][0] == '#')
+    assert phases['rows'][0][2] == 'Cham' 
+
+
+def test_packs_never_carry_zeus_notes_and_only_full_has_complications():
+    mission = _packed()
+    for pack in cp.PACK:
+        body = _all_text(cp.document_blocks(mission, pack, ctx(), today=date(2026, 10, 1)))
+        assert 'SECRET AMBUSH' not in body
+        assert ('IEDs and mines' in body) == (pack == 'full')
+        assert 'Primary: SEIZE — complete when hill held' in body
+
+
+def test_pack_times_are_in_the_op_zone_with_the_guild_zone_beside():
+    mission = _packed()          # Europe/Berlin op, guild Europe/London
+    blocks = cp.document_blocks(mission, 'leaders', ctx())
+    timings = next(b for b in blocks if b['t'] == 'table' and b['head'][0] == 'Event')
+    assert timings['head'] == ['Event', 'Time (CET)', 'Time (GMT)']
+    assert timings['rows'][0] == ['H-Hour', '20:15', '19:15']
+    op_night = dict(next(b for b in blocks if b['t'] == 'kv')['rows'])['Op night']
+    assert op_night == 'Saturday 14 November 2026 · orders 19:30 CET · H-Hour 20:15 CET'
+    same = cp.document_blocks(_packed(tz='Europe/London'), 'leaders', ctx())
+    assert next(b for b in same if b['t'] == 'table' and b['head'][0] == 'Event')['head'] == \
+        ['Event', 'Time (GMT)']
+
+
+def test_pack_from_an_empty_mission_and_unknown_pack():
+    assert cp.document_blocks({}, 'full', ctx(), today=date(2026, 1, 1))
+    with pytest.raises(ValueError):
+        cp.document_blocks({}, 'secret', ctx())
+
+
+def test_export_filename():
+    assert cp.export_filename({'name': 'Iron Gate / 2'}, 'leaders', 'pdf') == \
+        'Iron_Gate_2_Leaders_Pack.pdf'
+    assert cp.export_filename({}, 'full', 'docx') == 'op_Op_File.docx'
