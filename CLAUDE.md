@@ -2507,8 +2507,7 @@ So the rule is now per kind:
 | | drawn in |
 |---|---|
 | `unit` | its side's Arma colour (`AFFILIATIONS`) — what tells whose it is, as in game; a unit may not take a colour of its own |
-| `line`, `area`, `point` | the colour somebody picked, else `DEFAULT_INK` |
-| `text` | the colour somebody picked, else white — a free label is chrome, not a control measure |
+| `line`, `area`, `point`, `text` | the colour somebody picked, else `DEFAULT_INK` — a free label too: black, at marker-text size, as Arma writes it |
 
 **A task marker carries its own colour now too.** `parse()` only kept
 `color` for a line, an area and a label, so a point had no way to be

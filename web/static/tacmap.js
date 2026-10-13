@@ -146,7 +146,7 @@
       (anchor || 'middle') + '" class="tm-label" font-size="' + font + '"' +
       ' font-family="' + attr(catalog.armaFont) + '" font-weight="600"' +
       ' fill="' + colour + '" stroke="' + inkBacking(colour) + '"' +
-      ' stroke-opacity="0.75" stroke-width="' + round(font * 0.14) + '"' +
+      ' stroke-opacity="0.6" stroke-width="' + round(font * 0.1) + '"' +
       ' paint-order="stroke" stroke-linejoin="round">' + esc(text) + '</text>';
   }
 
@@ -156,8 +156,6 @@
     // task marker takes the colour somebody picked, and the default ink when
     // nobody did, so a friendly plan is not one flat blue.
     if (item.kind === 'unit') return colours[item.side].fill;
-    // A free label is chrome, not a control measure — white over its halo.
-    if (item.kind === 'text') return item.color || '#ffffff';
     return item.color || catalog.defaultInk;
   }
 
@@ -486,7 +484,7 @@
     if (item.kind === 'unit') return unitSVG(item);
     if (item.kind === 'point') return pointSVG(item);
     if (item.kind === 'text') {
-      return label(item.label || ' ', item.x, item.y, item.size * 1.6, item.color || '#ffffff');
+      return label(item.label || ' ', item.x, item.y, item.size, itemColour(item));
     }
     return shapeSVG(item);
   }
