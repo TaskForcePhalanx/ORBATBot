@@ -144,10 +144,11 @@
     return Math.max(size, catalog.minLineSize);
   }
 
-  function label(text, x, y, size, fill) {
+  function label(text, x, y, size, fill, anchor) {
     if (!text) return '';
     var font = labelSize(size);
-    return '<text x="' + round(x) + '" y="' + round(y) + '" text-anchor="middle"' +
+    return '<text x="' + round(x) + '" y="' + round(y) + '" text-anchor="' +
+      (anchor || 'middle') + '"' +
       ' font-size="' + font + '" font-weight="600"' +
       ' font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"' +
       ' fill="' + (fill || '#ffffff') + '" stroke="#11161c"' +
@@ -407,6 +408,34 @@
 
   var ARROW_ENDS = { end: [false], start: [true], both: [true, false] };
 
+  // Mirrors line_label_spots(): above the middle corner, or off the ends,
+  // reading away from the line — a phase line is named at both ends.
+  function lineLabelSpots(item) {
+    if (!item.label) return [];
+    var points = item.points;
+    var place = item.label_at || 'middle';
+    if (place === 'middle') {
+      var middle = points[Math.floor(points.length / 2)];
+      return [[middle[0], middle[1] - 10 * item.size, 'middle']];
+    }
+    var font = labelSize(item.size);
+    var gap = font * 0.6;
+    var ends = { ends: ['start', 'end'], end: ['end'], start: ['start'] }[place] || [];
+    return ends.map(function (end) {
+      var tip = end === 'start' ? points[0] : points[points.length - 1];
+      var back = end === 'start' ? points[1] : points[points.length - 2];
+      var dx = tip[0] - back[0];
+      var dy = tip[1] - back[1];
+      var length = Math.hypot(dx, dy) || 1;
+      var x = tip[0] + dx / length * gap;
+      var y = tip[1] + dy / length * gap + font * 0.35;
+      var anchor = dx > Math.abs(dy) * 0.3 ? 'start'
+        : (-dx > Math.abs(dy) * 0.3 ? 'end' : 'middle');
+      if (anchor === 'middle') y += font * (dy > 0 ? 0.6 : -0.6);
+      return [round(x), round(y), anchor];
+    });
+  }
+
   function shapeSVG(item) {
     var colour = itemColour(item);
     var points = item.points.map(function (point) {
@@ -433,10 +462,9 @@
         }).join(' ') + '" fill="' + colour + '"/>');
       }
     });
-    if (item.label) {
-      var middle = item.points[Math.floor(item.points.length / 2)];
-      parts.push(label(item.label, middle[0], middle[1] - 10 * item.size, item.size));
-    }
+    lineLabelSpots(item).forEach(function (spot) {
+      parts.push(label(item.label, spot[0], spot[1], item.size, null, spot[2]));
+    });
     return parts.join('');
   }
 
@@ -753,21 +781,40 @@
     drawSelection();
   }
 
+  // Every selected item: the one picked last (state.selected) and any
+  // picked with it (state.extra), so several can be moved, copied or
+  // deleted together.
+  function selection() {
+    if (state.selected < 0) return [];
+    return [state.selected].concat((state.extra || []).filter(function (index) {
+      return index !== state.selected && index < state.doc.items.length;
+    }));
+  }
+
   function drawSelection() {
-    var existing = overlay.querySelector('.tm-ring');
-    if (existing) existing.remove();
-    if (state.selected < 0) return;
-    var group = layer.querySelector('[data-i="' + state.selected + '"]');
-    if (!group) return;
-    var box = group.getBBox();
-    var ring = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    ring.setAttribute('class', 'tm-ring');
-    ring.setAttribute('x', box.x - 6);
-    ring.setAttribute('y', box.y - 6);
-    ring.setAttribute('width', box.width + 12);
-    ring.setAttribute('height', box.height + 12);
-    overlay.appendChild(ring);
-    drawHandles();
+    Array.prototype.forEach.call(overlay.querySelectorAll('.tm-ring'),
+      function (node) { node.remove(); });
+    var picked = selection();
+    if (!picked.length) {
+      drawHandles();
+      return;
+    }
+    picked.forEach(function (index) {
+      var group = layer.querySelector('[data-i="' + index + '"]');
+      if (!group) return;
+      var box = group.getBBox();
+      var ring = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      ring.setAttribute('class', 'tm-ring');
+      ring.setAttribute('x', box.x - 6);
+      ring.setAttribute('y', box.y - 6);
+      ring.setAttribute('width', box.width + 12);
+      ring.setAttribute('height', box.height + 12);
+      overlay.appendChild(ring);
+    });
+    // Handles only for one thing at a time — several are moved as a group.
+    if (picked.length === 1) drawHandles();
+    else Array.prototype.forEach.call(overlay.querySelectorAll('.tm-handle, .tm-stalk'),
+      function (node) { node.remove(); });
   }
 
   /* -- a shape's handles ----------------------------------------------------- */
@@ -1309,6 +1356,19 @@
 
   function select(index) {
     state.selected = index;
+    state.extra = [];
+    render();
+    fillInspector();
+  }
+
+  // Shift+click: add to the selection, or take back out of it.
+  function toggleSelected(index) {
+    var picked = selection();
+    var at0 = picked.indexOf(index);
+    if (at0 >= 0) picked.splice(at0, 1);
+    else picked.push(index);
+    state.selected = picked.length ? picked[picked.length - 1] : -1;
+    state.extra = picked.slice(0, -1);
     render();
     fillInspector();
   }
@@ -1359,6 +1419,8 @@
 
   /* -- pointer handling ----------------------------------------------------- */
 
+  svg.addEventListener('pointerleave', function () { lastPointer = null; });
+
   svg.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return;
     var point = at(event);
@@ -1406,7 +1468,8 @@
       return;
     }
 
-    var drawing = state.tool === 'line' || state.tool === 'area' || state.tool === 'ao';
+    var drawing = state.tool === 'line' || state.tool === 'phase' || state.tool === 'area' ||
+      state.tool === 'ao';
     if (state.draft && state.draft.chain) {
       // Plotting point by point, as on Arma's map with Ctrl held: every
       // click fixes the next corner, and a drag from here carries the same
@@ -1442,6 +1505,7 @@
         press: { x: event.clientX, y: event.clientY, moved: false },
         kind: state.tool === 'area' || state.tool === 'ao' ? 'area' : 'line',
         ao: state.tool === 'ao',
+        phase: state.tool === 'phase',
         points: [snapPoint(point) || [round(point.x), round(point.y)]],
         cursor: null,
         // Where the straight segment starts, while Shift is held. null when
@@ -1461,9 +1525,23 @@
 
     if (group) {
       var index = Number(group.dataset.i);
-      select(index);
-      state.drag = { index: index, from: point, moved: false,
-                     start: JSON.stringify(state.doc.items[index]) };
+      if (event.shiftKey) {
+        toggleSelected(index);
+        if (selection().indexOf(index) < 0) return;
+      } else if (selection().indexOf(index) < 0) {
+        select(index);
+      }
+      // Dragging any selected item moves every selected item with it.
+      var moving = selection();
+      state.drag = { indices: moving, from: point, moved: false,
+                     starts: moving.map(function (i) { return JSON.stringify(state.doc.items[i]); }) };
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (event.shiftKey) {
+      // Shift+drag on empty ground: a box, and everything in it is selected.
+      state.marquee = { from: [point.x, point.y], to: [point.x, point.y] };
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1475,6 +1553,7 @@
 
   svg.addEventListener('pointermove', function (event) {
     var where = at(event);
+    lastPointer = where;
     if (state.ruler && state.ruler.live !== false) {
       state.ruler.to = snapPoint(where) || [round(where.x), round(where.y)];
       overlay.innerHTML = draftSVG();
@@ -1579,17 +1658,15 @@
         state.drag.moved = true;
         snapshot();
       }
-      var item = JSON.parse(state.drag.start);
-      if (item.points) {
-        item.points = item.points.map(function (corner) {
-          return [round(corner[0] + dx), round(corner[1] + dy)];
-        });
-      } else {
-        item.x = round(item.x + dx);
-        item.y = round(item.y + dy);
-      }
-      state.doc.items[state.drag.index] = item;
+      state.drag.indices.forEach(function (index, n) {
+        state.doc.items[index] = shifted(JSON.parse(state.drag.starts[n]), dx, dy);
+      });
       render();
+      return;
+    }
+    if (state.marquee) {
+      state.marquee.to = [where.x, where.y];
+      overlay.innerHTML = marqueeSVG();
       return;
     }
     if (state.pan) {
@@ -1638,6 +1715,10 @@
         return;
       }
       finishDraft();
+      return;
+    }
+    if (state.marquee) {
+      finishMarquee();
       return;
     }
     if (state.drag && state.drag.moved) touched();
@@ -1731,8 +1812,24 @@
       arrow: ''
     };
     if (draft.ao) makeAO(item);
+    if (draft.phase) {
+      // A phase line: named at both ends, solid, as on any overlay.
+      item.label_at = 'ends';
+      item.label = 'PL ';
+      item.style = 'solid';
+    }
     add(item);
     if (draft.ao) nameAO();
+    if (draft.phase) namePhaseLine();
+  }
+
+  // Straight into its name, after the "PL " already there.
+  function namePhaseLine() {
+    if (!fields.label) return;
+    fields.label.focus();
+    var end = fields.label.value.length;
+    fields.label.setSelectionRange(end, end);
+    say('Name the phase line — PL AMBER, PL BLUE — it is written at both ends');
   }
 
   /* -- toolbar -------------------------------------------------------------- */
@@ -1970,6 +2067,7 @@
     style: document.getElementById('tmf-style'),
     arrow: document.getElementById('tmf-arrow'),
     weight: document.getElementById('tmf-weight'),
+    labelAt: document.getElementById('tmf-labelat'),
     layer: document.getElementById('tmf-layer'),
     color: document.getElementById('tmf-color'),
     figure: document.getElementById('tmf-figure'),
@@ -1995,11 +2093,19 @@
   fillOptions(fields.arrow, catalog.arrows.map(function (entry) {
     return { value: entry.key, label: entry.label };
   }), '');
+  fillOptions(fields.labelAt, catalog.labelPlaces.map(function (entry) {
+    return { value: entry.key, label: entry.label };
+  }), 'middle');
 
   function fillInspector() {
     var item = selected();
-    inspector.hidden = !item;
-    if (!item) return;
+    var many = selection().length > 1;
+    inspector.hidden = !item || many;
+    if (many) {
+      say(selection().length + ' selected — drag to move them together, Del deletes, ' +
+          'Ctrl+C copies, Ctrl+D duplicates');
+    }
+    if (!item || many) return;
     Array.prototype.forEach.call(inspector.querySelectorAll('[data-for]'), function (field) {
       field.hidden = field.dataset.for.split(' ').indexOf(item.kind) < 0;
     });
@@ -2028,6 +2134,7 @@
         '<option value="' + weight + '">' + weight + ' px</option>');
     }
     fields.weight.value = weight;
+    fields.labelAt.value = item.label_at || 'middle';
     fields.layer.value = item.layer;
     fields.color.value = item.color || colours[item.side].fill;
     fields.figure.value = item.shape || 'rect';
@@ -2122,6 +2229,7 @@
   editField(fields.style, function (item) { item.style = fields.style.value; });
   editField(fields.arrow, function (item) { item.arrow = fields.arrow.value; });
   editField(fields.weight, function (item) { item.weight = Number(fields.weight.value); });
+  editField(fields.labelAt, function (item) { item.label_at = fields.labelAt.value; });
   editField(fields.layer, function (item) { item.layer = fields.layer.value; });
   editField(fields.color, function (item) { item.color = fields.color.value; });
   editField(fields.figure, function (item) { item.shape = fields.figure.value; });
@@ -2162,11 +2270,133 @@
   });
 
   function removeSelected() {
-    if (state.selected < 0) return;
+    var picked = selection().sort(function (a, b) { return b - a; });
+    if (!picked.length) return;
     snapshot();
-    state.doc.items.splice(state.selected, 1);
+    picked.forEach(function (index) { state.doc.items.splice(index, 1); });
     touched();
     select(-1);
+  }
+
+  function shifted(item, dx, dy) {
+    if (item.points) {
+      item.points = item.points.map(function (corner) {
+        return [round(corner[0] + dx), round(corner[1] + dy)];
+      });
+    } else {
+      item.x = round(item.x + dx);
+      item.y = round(item.y + dy);
+    }
+    return item;
+  }
+
+  function marqueeSVG() {
+    var m = state.marquee;
+    var x = Math.min(m.from[0], m.to[0]);
+    var y = Math.min(m.from[1], m.to[1]);
+    return '<rect class="tm-marquee" x="' + round(x) + '" y="' + round(y) + '" width="' +
+      round(Math.abs(m.to[0] - m.from[0])) + '" height="' +
+      round(Math.abs(m.to[1] - m.from[1])) + '" pointer-events="none"/>';
+  }
+
+  function itemAnchors(item) {
+    if (item.points) return item.points;
+    if (item.kind === 'shape') return [[item.x, item.y]];
+    return [[item.x, item.y]];
+  }
+
+  function finishMarquee() {
+    var m = state.marquee;
+    state.marquee = null;
+    overlay.innerHTML = '';
+    var x1 = Math.min(m.from[0], m.to[0]);
+    var x2 = Math.max(m.from[0], m.to[0]);
+    var y1 = Math.min(m.from[1], m.to[1]);
+    var y2 = Math.max(m.from[1], m.to[1]);
+    var hidden = hiddenLayers();
+    var picked = selection();
+    state.doc.items.forEach(function (item, index) {
+      if (hidden[item.layer] || picked.indexOf(index) >= 0) return;
+      // Inside means wholly inside: every corner of a line, the centre of
+      // anything else.
+      var inside = itemAnchors(item).every(function (p) {
+        return p[0] >= x1 && p[0] <= x2 && p[1] >= y1 && p[1] <= y2;
+      });
+      if (inside) picked.push(index);
+    });
+    state.selected = picked.length ? picked[picked.length - 1] : -1;
+    state.extra = picked.slice(0, -1);
+    render();
+    fillInspector();
+  }
+
+  /* -- copy, paste, duplicate ------------------------------------------- */
+
+  // Copied items are kept in the browser too, so a plan copied on one map
+  // pastes into another.
+  var clipboard = null;
+
+  function copySelection() {
+    var picked = selection().slice().sort(function (a, b) { return a - b; });
+    if (!picked.length) return false;
+    clipboard = picked.map(function (index) { return JSON.parse(JSON.stringify(state.doc.items[index])); });
+    try { window.localStorage.setItem('tmclip', JSON.stringify(clipboard)); } catch (e) { /* none */ }
+    say(clipboard.length === 1 ? 'Copied' : 'Copied ' + clipboard.length + ' items', 'ok');
+    return true;
+  }
+
+  function readClipboard() {
+    try {
+      var stored = JSON.parse(window.localStorage.getItem('tmclip') || 'null');
+      if (Array.isArray(stored)) return stored;
+    } catch (e) { /* none */ }
+    return clipboard;
+  }
+
+  var lastPointer = null;
+
+  function pasteItems(items, offset) {
+    if (!items || !items.length) return;
+    if (state.doc.items.length + items.length > catalog.limits.items) {
+      say('That would be more than one map holds (' + catalog.limits.items + ' items).', 'err');
+      return;
+    }
+    // Where it lands: under the pointer when it is over the map, otherwise a
+    // step down and right of the original so the copy is visibly a copy.
+    var xs = [];
+    var ys = [];
+    items.forEach(function (item) {
+      itemAnchors(item).forEach(function (p) { xs.push(p[0]); ys.push(p[1]); });
+    });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    var cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    var dx = offset;
+    var dy = offset;
+    if (lastPointer && offset === null) {
+      dx = lastPointer.x - cx;
+      dy = lastPointer.y - cy;
+    } else if (offset === null) {
+      dx = dy = view.w / 40;
+    }
+    var known = {};
+    layers().forEach(function (entry) { known[entry.id] = true; });
+    snapshot();
+    var first = state.doc.items.length;
+    items.forEach(function (item) {
+      var copy = shifted(JSON.parse(JSON.stringify(item)), dx, dy);
+      // An AO copied is a new AO on the planner's side; a plain copy should
+      // not quietly become one.
+      delete copy.ao;
+      if (!known[copy.layer] || plannerLayer(copy.layer)) copy.layer = state.layer;
+      state.doc.items.push(copy);
+    });
+    touched();
+    var added = [];
+    for (var i = first; i < state.doc.items.length; i++) added.push(i);
+    state.selected = added[added.length - 1];
+    state.extra = added.slice(0, -1);
+    render();
+    fillInspector();
   }
 
   /* -- map settings --------------------------------------------------------- */
@@ -2419,7 +2649,7 @@
   /* -- keyboard ------------------------------------------------------------- */
 
   var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text',
-                    r: 'rect', e: 'ellipse', o: 'ao', d: 'measure' };
+                    r: 'rect', e: 'ellipse', o: 'ao', d: 'measure', p: 'phase' };
 
   // Letting go of Shift fixes the straight segment where it is. Clearing the
   // anchor on the next freehand move is not enough: tapping Shift again
@@ -2463,6 +2693,36 @@
       event.preventDefault();
       undo();
       return;
+    }
+    if ((event.ctrlKey || event.metaKey) && !state.draft) {
+      var key = event.key.toLowerCase();
+      if (key === 'c' && copySelection()) {
+        event.preventDefault();
+        return;
+      }
+      if (key === 'v' && editable) {
+        event.preventDefault();
+        pasteItems(readClipboard(), null);
+        return;
+      }
+      if (key === 'd' && selection().length) {
+        event.preventDefault();
+        pasteItems(selection().sort(function (a, b) { return a - b; }).map(function (index) {
+          return state.doc.items[index];
+        }), view.w / 40);
+        return;
+      }
+      if (key === 'a') {
+        event.preventDefault();
+        var all = [];
+        var hidden = hiddenLayers();
+        state.doc.items.forEach(function (item, index) { if (!hidden[item.layer]) all.push(index); });
+        state.selected = all.length ? all[all.length - 1] : -1;
+        state.extra = all.slice(0, -1);
+        render();
+        fillInspector();
+        return;
+      }
     }
     if (event.key === 'Escape' && state.ruler) {
       state.ruler = null;

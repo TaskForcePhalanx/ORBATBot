@@ -102,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(620 cases), and every one of them covers a module that imports nothing beyond
+(627 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -111,7 +111,7 @@ all:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
+| `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
@@ -2061,7 +2061,7 @@ Three things about it are deliberate:
 
 ### The help pages (`utils/help.py`)
 
-Fifty-seven how-tos — one per thing somebody might want to do — served at `/help`
+Fifty-eight how-tos — one per thing somebody might want to do — served at `/help`
 and written into the README by `scripts/gen_help.py`. The module is data plus a
 renderer; there is no `web/help.py`, because the two routes have no permissions
 to check and no form to translate, which is all such a module has ever been for
@@ -3052,6 +3052,61 @@ means:
 
 Lines and areas are `POLYLINE` markers and the map's own editing is built
 around icon markers, so those may stay fixed while the symbols move.
+
+### Editing, measuring and moving several things at once
+
+All of it lives in `tacmap.js`; what has to agree with the server (lengths,
+grid references, label places) has a Python twin in `utils/tacmap.py`.
+
+- **A selected line's corners are handles** (`drawVertexHandles()`): drag one
+  to move it, drag a segment's middle dot to add a corner there, Alt+click or
+  right-click to delete one (never below two, or three for an area).
+  **Handles answer only the Select tool** — with a drawing tool in hand a
+  click on a corner starts a new line there, which is what Snap is for.
+- **Measuring** reads the sheet's Arma corners (`metres_per_unit()`,
+  `length_m()`, `grid_ref()`). The readout in the map's top corner shows the
+  6-figure grid reference under the pointer for everybody, and while drawing
+  the segment's length and bearing and the total; the inspector shows a
+  line's length, an area's perimeter and size, a shape's size. The grid is
+  counted from the terrain's south-west corner, as most terrains' are. The
+  **Measure** tool (`state.ruler`) draws nothing into the document.
+- **Snap** (`snapPoint()`, remembered per browser in `localStorage`) puts a
+  corner being placed or dragged on the nearest corner, shape corner or
+  centre, or symbol within 12 screen pixels, and closes a line on its own
+  first corner.
+- **Several selected** is `state.selected` (the last picked) plus
+  `state.extra`; `selection()` is the list. Shift+click toggles, Shift+drag on
+  empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes
+  everything shown. Dragging any selected item moves them all; Delete removes
+  them all; the inspector hides while more than one is selected.
+- **Copy and paste** go through `localStorage` (`tmclip`) as well as memory,
+  so a plan copied on one map pastes into another — under the pointer when it
+  is over the map. A pasted copy is never an AO and never lands on a planner
+  layer: either would quietly create an AO in the campaign planner.
+- **Phase lines** are lines with `label_at: 'ends'` (`LABEL_PLACES`); the
+  tool starts the name as *PL* and drops the cursor after it.
+  `line_label_spots()` puts a name above the middle corner or just past an
+  end, reading away from the line. **In Arma a line marker shows no text**,
+  so `to_sqf()` writes the name on a `LINE_LABEL_MARKER` (a small `mil_dot`)
+  at each place it is drawn, instead of `setMarkerText` on the polyline.
+
+### Back from Arma, and what does not survive the trip
+
+`ARMA_DUMP_SQF` is the mirror of the export: run in the debug console it
+copies `allMapMarkers` — shape, type, position, text, colour, size,
+direction, brush and polyline — to the clipboard with `str`, and
+`import_arma_markers()` reads it back (`parse_sqf_value()` is a small reader
+for what `str` writes: nested arrays, strings with doubled quotes, numbers,
+booleans). Positions go through `from_world()`. Lines and closed polylines
+(areas), rectangles and ellipses, `mil_`/`hd_` markers and NATO unit markers
+come back as themselves; anything else as a dot named after its type, so
+nothing is silently lost. *Only markers players drew* keeps `_USER_DEFINED`
+ones. `web/tacmap.import_from_arma()` puts them on a new *From Arma* layer.
+
+`export_report()` sits above the scripts: how many markers (it counts
+`createMarker` in the script itself, so it cannot disagree with it) and what
+will not survive — hidden layers, dashes, thickness, unfilled freehand areas,
+shape labels, symbols with only a nearest Arma marker, the mask.
 
 ### Rectangles and ellipses are their own kind
 

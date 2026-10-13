@@ -168,7 +168,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Game roles** — [Pick your game roles](#pick-your-game-roles) · [Add and remove game roles](#add-and-remove-game-roles)
 
-**Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
+**Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3) · [Bring markers back from Arma 3](#bring-markers-back-from-arma-3)
 
 **Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs) · [Plan on the campaign and AO maps](#plan-on-the-campaign-and-ao-maps) · [Link the OCAP recording and use its numbers](#link-the-ocap-recording-and-use-its-numbers) · [Approve and post the drops](#approve-and-post-the-drops)
 
@@ -642,9 +642,13 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 3. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
 4. Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for freehand. The Line and Area tools do the same without Ctrl; double-click or press **Enter** to finish. **Shift** keeps a segment straight and snaps it to 15°.
 5. Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 pixels — it stays that thin at every zoom) and its arrow heads (end, start or both) in the toolbar or the inspector.
-6. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
-7. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
-8. Press **Save**. Everyone looking at the map sees the saved version.
+6. The **Phase line** tool draws a line named at both ends — type the name after the *PL* it starts with. Any line can be named in the middle, at the end or at both ends from the inspector.
+7. Select a line or area to edit it: drag a corner to move it, drag the dot in the middle of a segment to add a corner, **Alt**+click or right-click a corner to delete it. Tick **Snap** and new or moved corners land on the nearest corner, symbol or marker.
+8. **Shift**+click adds to the selection and **Shift**+drag on empty ground selects by box; move them together by dragging any of them. **Ctrl**+**C** and **Ctrl**+**V** copy and paste — into another map too — and **Ctrl**+**D** duplicates.
+9. The corner of the map shows the six-figure grid reference under the pointer, and the length and bearing of what you are drawing. The **Measure** tool measures without drawing; the inspector shows a selected line’s length or an area’s size.
+10. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
+11. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
+12. Press **Save**. Everyone looking at the map sees the saved version.
 
 > The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
 >
@@ -766,7 +770,27 @@ Paste the plan into a running mission as markers, with no mod on either side.
 >
 > Arma has no dashed line and draws every line at one width, so a dashed or dotted line arrives as its dashes — one short line marker each, at most 150 per line — and thickness stays on the website. Arrow heads arrive as Arma arrow markers at whichever ends have one.
 >
+> A line’s name arrives on a small dot marker at the same place — the middle, or both ends of a phase line — because a line marker shows no text in Arma.
+>
+> Above the scripts, the panel says how many markers the plan makes and what will not survive the trip.
+>
 > The debug console has to be enabled in the mission’s `description.ext`.
+
+#### Bring markers back from Arma 3
+
+**Who:** Unit Leader or Admin · **Where:** Web — the map’s **Import from Arma 3** panel
+
+Copy the markers a mission’s players drew onto the map, so a plan finished in game can be kept and briefed.
+
+1. Check the map’s Arma corners match the mission’s terrain — the markers are placed by them.
+2. Copy the script in the **Import from Arma 3** panel, run it in the mission’s debug console with **LOCAL EXEC**: it copies every marker to your clipboard.
+3. Paste into **What it copied**, leave **Only markers players drew** ticked unless you want the mission’s own too, and press **Import**.
+
+> They land on a new layer, *From Arma*, to switch off or delete in one go.
+>
+> Lines, areas, rectangles, ellipses, the standard military markers and NATO unit markers come back as themselves. Any other marker comes back as a dot named after its type.
+>
+> Markers outside this map are left out, and the message says how many.
 
 ### Campaign planner
 

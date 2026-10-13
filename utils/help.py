@@ -822,6 +822,21 @@ _MAPS: tuple[Topic, ...] = (
             'Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 '
             'pixels — it stays that thin at every zoom) and its arrow heads (end, '
             'start or both) in the toolbar or the inspector.',
+            'The **Phase line** tool draws a line named at both ends — type the '
+            'name after the *PL* it starts with. Any line can be named in the '
+            'middle, at the end or at both ends from the inspector.',
+            'Select a line or area to edit it: drag a corner to move it, drag the '
+            'dot in the middle of a segment to add a corner, **Alt**+click or '
+            'right-click a corner to delete it. Tick **Snap** and new or moved '
+            'corners land on the nearest corner, symbol or marker.',
+            '**Shift**+click adds to the selection and **Shift**+drag on empty '
+            'ground selects by box; move them together by dragging any of them. '
+            '**Ctrl**+**C** and **Ctrl**+**V** copy and paste — into another map '
+            'too — and **Ctrl**+**D** duplicates.',
+            'The corner of the map shows the six-figure grid reference under the '
+            'pointer, and the length and bearing of what you are drawing. The '
+            '**Measure** tool measures without drawing; the inspector shows a '
+            'selected line’s length or an area’s size.',
             'For a box or a circle, drag corner to corner with **Rectangle** or '
             '**Ellipse** — hold **Shift** for a square or a circle. Select it to '
             'resize it by a corner, turn it by the round handle, and choose an '
@@ -1032,8 +1047,39 @@ _MAPS: tuple[Topic, ...] = (
             'dashed or dotted line arrives as its dashes — one short line marker '
             'each, at most 150 per line — and thickness stays on the website. '
             'Arrow heads arrive as Arma arrow markers at whichever ends have one.',
+            'A line’s name arrives on a small dot marker at the same place — the '
+            'middle, or both ends of a phase line — because a line marker shows no '
+            'text in Arma.',
+            'Above the scripts, the panel says how many markers the plan makes and '
+            'what will not survive the trip.',
             'The debug console has to be enabled in the mission’s '
             '`description.ext`.',
+        ),
+        page='maps',
+    ),
+    Topic(
+        key='map-from-arma',
+        title='Bring markers back from Arma 3',
+        group='maps',
+        audience=UNIT_LEADER,
+        where='Web — the map’s **Import from Arma 3** panel',
+        summary='Copy the markers a mission’s players drew onto the map, so a plan '
+                'finished in game can be kept and briefed.',
+        steps=(
+            'Check the map’s Arma corners match the mission’s terrain — the '
+            'markers are placed by them.',
+            'Copy the script in the **Import from Arma 3** panel, run it in the '
+            'mission’s debug console with **LOCAL EXEC**: it copies every marker '
+            'to your clipboard.',
+            'Paste into **What it copied**, leave **Only markers players drew** '
+            'ticked unless you want the mission’s own too, and press **Import**.',
+        ),
+        notes=(
+            'They land on a new layer, *From Arma*, to switch off or delete in one go.',
+            'Lines, areas, rectangles, ellipses, the standard military markers and '
+            'NATO unit markers come back as themselves. Any other marker comes back '
+            'as a dot named after its type.',
+            'Markers outside this map are left out, and the message says how many.',
         ),
         page='maps',
     ),

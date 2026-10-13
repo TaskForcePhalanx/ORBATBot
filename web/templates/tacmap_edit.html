@@ -273,6 +273,16 @@
         rather than adding a second copy.
       </p>
 
+      <div class="tmreport">
+        <p><strong>{{ export_report.markers }} marker{{ '' if export_report.markers == 1 else 's' }}</strong>
+          in the mission.</p>
+        {% if export_report.notes %}
+          <ul>{% for note in export_report.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+        {% else %}
+          <p class="hint">Everything on this map goes across as it is.</p>
+        {% endif %}
+      </div>
+
       <div class="tmexport">
         <h3>1 · Fixed markers <span class="note">the usual one</span></h3>
         <p class="hint">
@@ -333,6 +343,35 @@
              download="{{ record.name }}-editable.sqf">Download .sqf</a>
         </div>
       </div>
+    </div>
+  </details>
+
+  <details class="panel" {% if panel == 'import' %}open{% endif %}>
+    <summary>📥 Import from Arma 3 <span class="note">markers drawn in game, back onto this map</span></summary>
+    <div class="panelbody">
+      <p class="hint">
+        The way back. Run this in the debug console of the running mission
+        (<strong>LOCAL EXEC</strong>): it copies every marker on the map to your
+        clipboard. Paste that below. The markers land on a new layer,
+        <em>From Arma</em>, so they can be switched off or deleted in one go —
+        and the map's <strong>Arma 3 coordinates</strong> have to match the
+        mission's terrain, or they land in the wrong place.
+      </p>
+      <label class="field"><span>Script — LOCAL EXEC</span>
+        <textarea class="sqfbox" rows="7" readonly spellcheck="false"
+                  onclick="this.select()">{{ arma_dump_sqf }}</textarea>
+      </label>
+      <form class="form" method="post"
+            action="/g/{{ guild.id }}/maps/{{ record.id }}/import-arma">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="field"><span>What it copied</span>
+          <textarea name="dump" rows="5" spellcheck="false" required
+                    placeholder='[["_USER_DEFINED #2/0/1","ICON","mil_objective",…]]'></textarea>
+        </label>
+        <label class="check"><input type="checkbox" name="players_only" value="1" checked>
+          Only markers players drew — leave out the mission's own</label>
+        <div class="actions"><button class="button primary" type="submit">Import</button></div>
+      </form>
     </div>
   </details>
 

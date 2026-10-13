@@ -780,10 +780,14 @@ svg.tacmap {
   pointer-events: none; white-space: nowrap;
 }
 .tmreadout:empty { display: none; }
+.tmreport { margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; }
+.tmreport p { margin: 0 0 4px; }
+.tmreport ul { margin: 4px 0 0; padding-left: 18px; font-size: 14px; }
 .tmmeasure { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
 /* A line's corners, once it is selected. */
 .tacmap .tm-vertex { fill: #ffffff; stroke: #1f6feb; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: move; }
 .tacmap .tm-mid { fill: #1f6feb; fill-opacity: 0.55; stroke: #ffffff; stroke-width: 1; vector-effect: non-scaling-stroke; cursor: copy; }
+.tacmap .tm-marquee { fill: #1f6feb; fill-opacity: 0.12; stroke: #58a6ff; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .tacmap .tm-snapmark { fill: none; stroke: #ffd166; stroke-width: 2; vector-effect: non-scaling-stroke; }
 
 /* Full screen, and the fallback for a browser that refuses it. */

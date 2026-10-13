@@ -532,3 +532,37 @@ async def post(guild: discord.Guild, record, channel_id: str, url: str,
 async def delete(record) -> str:
     await database.delete_tac_map(record['id'])
     return f"Deleted “{record['name']}”."
+
+
+async def import_from_arma(record, text: str, players_only: bool, member_name: str) -> list:
+    """Bring a pasted marker dump from a running mission onto the map, on a
+    layer of its own so it can be switched off or deleted in one go. Returns
+    what to tell the person."""
+    doc = load(record)
+    items, notes = tacmap.import_arma_markers(doc, text, players_only=players_only)
+    if not items:
+        raise ValueError(' '.join(notes) + ' Nothing to add.')
+    room = tacmap.MAX_ITEMS - len(doc['items'])
+    if room <= 0:
+        raise ValueError(f'This map already holds {tacmap.MAX_ITEMS} items.')
+    if len(items) > room:
+        notes.append(f'Only {room} fitted — a map holds {tacmap.MAX_ITEMS} items.')
+        items = items[:room]
+    layer = doc['layers'][0]['id']
+    if len(doc['layers']) < tacmap.MAX_LAYERS:
+        taken = {entry['id'] for entry in doc['layers']}
+        layer, n = 'arma', 2
+        while layer in taken:
+            layer, n = f'arma-{n}', n + 1
+        doc['layers'].append({'id': layer, 'name': 'From Arma', 'visible': True})
+    else:
+        notes.append('No room for another layer, so they went on the first one.')
+    for item in items:
+        item.setdefault('side', 'friend')
+        item['layer'] = layer
+    doc['items'].extend(items)
+    checked = tacmap.parse(doc)
+    if not checked.ok:
+        raise ValueError(' '.join(checked.errors))
+    await database.save_tac_map_doc(record['id'], tacmap.dumps(checked.doc), member_name)
+    return notes

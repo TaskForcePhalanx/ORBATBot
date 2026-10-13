@@ -490,6 +490,16 @@ MAX_WEIGHT = 8
 ARROWS = (('', 'None'), ('end', 'At the end'), ('start', 'At the start'),
           ('both', 'Both ends'))
 
+# Where a line's name is written. A phase line is named at both ends, which
+# is how a phase line is drawn on every overlay; a route at its end.
+LABEL_PLACES = (('middle', 'In the middle'), ('ends', 'At both ends'),
+                ('end', 'At the end'), ('start', 'At the start'))
+
+# The marker a line's name rides on in Arma. A line marker shows no text, so
+# the name goes on a small marker of its own at each place it is written.
+LINE_LABEL_MARKER = 'mil_dot'
+LINE_LABEL_SIZE = 0.4
+
 # A dashed or dotted line in Arma, in sheet units: Arma has no dashed marker,
 # so the export cuts the line into short line markers, one per dash. Measured
 # in sheet units so the dashes come out as long, against the terrain, as they
@@ -1091,6 +1101,8 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         item['style'] = raw.get('style') if raw.get('style') in LINE_STYLES else 'solid'
         if kind == 'line':
             item['arrow'] = _arrow(raw.get('arrow'))
+            item['label_at'] = (raw.get('label_at') if raw.get('label_at')
+                                in dict(LABEL_PLACES) else 'middle')
 
     if kind in ('line', 'area', 'shape'):
         item['weight'] = _weight(raw.get('weight'), item['size'])
@@ -1283,6 +1295,7 @@ def catalog() -> dict:
         'defaultWeight': DEFAULT_WEIGHT,
         'maxWeight': MAX_WEIGHT,
         'arrows': [{'key': key, 'label': label} for key, label in ARROWS],
+        'labelPlaces': [{'key': key, 'label': label} for key, label in LABEL_PLACES],
         'shapes': [{'key': key, 'label': value['label']} for key, value in SHAPES.items()],
         'fills': [{'key': key, 'label': value['label']}
                   for key, value in SHAPE_FILLS.items()],
@@ -1821,11 +1834,36 @@ def _shape_svg(item: dict, px: float = 1.0) -> str:
         if head:
             corners = ' '.join(f'{x},{y}' for x, y in head)
             parts.append(f'<polygon points="{corners}" fill="{colour}"/>')
-    if item['label']:
-        middle = item['points'][len(item['points']) // 2]
-        parts.append(_label_svg(item['label'], middle[0], middle[1] - 10 * item['size'],
-                                item['size']))
+    for x, y, anchor in line_label_spots(item):
+        parts.append(_label_svg(item['label'], x, y, item['size'], anchor=anchor))
     return ''.join(parts)
+
+
+def line_label_spots(item: dict) -> list:
+    """Where a line's name is written, as (x, y, text-anchor) on the sheet:
+    above its middle corner, or just beyond an end, reading away from the
+    line — a phase line's name sits off both ends. The editor mirrors this."""
+    if not item.get('label'):
+        return []
+    points = item['points']
+    place = item.get('label_at') or 'middle'
+    if place == 'middle':
+        middle = points[len(points) // 2]
+        return [(middle[0], middle[1] - 10 * item['size'], 'middle')]
+    gap = label_size(item['size']) * 0.6
+    spots = []
+    ends = {'ends': ('start', 'end'), 'end': ('end',), 'start': ('start',)}[place]
+    for end in ends:
+        tip, back = (points[0], points[1]) if end == 'start' else (points[-1], points[-2])
+        dx, dy = tip[0] - back[0], tip[1] - back[1]
+        length = math.hypot(dx, dy) or 1
+        x = tip[0] + dx / length * gap
+        y = tip[1] + dy / length * gap + label_size(item['size']) * 0.35
+        anchor = 'start' if dx > abs(dy) * 0.3 else 'end' if -dx > abs(dy) * 0.3 else 'middle'
+        if anchor == 'middle':
+            y += label_size(item['size']) * (0.6 if dy > 0 else -0.6)
+        spots.append((round(x, 2), round(y, 2), anchor))
+    return spots
 
 
 def hatch_segments(shape: str, w: float, h: float, gap: float) -> list:
@@ -2563,9 +2601,28 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
             # and no dashed one, so a dashed line is cut into its dashes.
             runs = dash_runs(item['points'], item['style'], closed=item['kind'] == 'area')
             polylines(runs, '' if len(runs) == 1 else 'd')
-            if text:
-                lines.append(f'_m setMarkerText {_sqf_string(text)};')
             points = [to_world(doc, x, y) for x, y in item['points']]
+            if text:
+                # A line marker shows no text, so the name rides on a small
+                # marker at each place it is written on the map: the middle
+                # corner, or the ends of a phase line.
+                if item['kind'] == 'area':
+                    spots = [_centroid(item['points'])]
+                elif item.get('label_at', 'middle') == 'middle':
+                    spots = [item['points'][len(item['points']) // 2]]
+                else:
+                    want = {'ends': (0, -1), 'end': (-1,), 'start': (0,)}[item['label_at']]
+                    spots = [item['points'][n] for n in want]
+                for count, (sx, sy) in enumerate(spots):
+                    world = to_world(doc, sx, sy)
+                    lines.append(f'_m = createMarker [{marker_name(index, "t" + str(count))}, '
+                                 f'[{world[0]}, {world[1]}]];')
+                    lines.append(f'_m setMarkerType "{LINE_LABEL_MARKER}";')
+                    lines.append(f'_m setMarkerColor "{colour}";')
+                    lines.append(f'_m setMarkerSize [{LINE_LABEL_SIZE}, {LINE_LABEL_SIZE}];')
+                    lines.append(f'_m setMarkerText {_sqf_string(text)};')
+                    if editable:
+                        lines.append('_n pushBack _m;')
             ends = {'end': ((-2, -1),), 'start': ((1, 0),),
                     'both': ((1, 0), (-2, -1))}.get(item.get('arrow') or '', ())
             if item['kind'] != 'line' or len(points) < 2:
@@ -3114,3 +3171,273 @@ def place_scope(doc: dict) -> str:
     # itself.
     segment = unquote(url.rsplit('/', 1)[-1]).strip().lower()
     return segment[:80] if _INDEX_NAME.match(segment) else ''
+
+
+# ---------------------------------------------------------------------------
+# Back from Arma: the markers of a running mission, onto the map
+# ---------------------------------------------------------------------------
+#
+# The mirror of `to_sqf()`. Vanilla Arma can send nothing out except through
+# the clipboard, so a script run in the debug console copies every marker to
+# it and the person pastes that here. A plan finished at the map table in game
+# can then be kept, briefed and exported again.
+
+ARMA_DUMP_SQF = '''// Copies every map marker in this mission to the clipboard, for the
+// tactical map's "Import from Arma". Debug console, LOCAL EXEC.
+private _out = allMapMarkers apply {
+  [_x, markerShape _x, markerType _x, (markerPos _x) select [0, 2], markerText _x,
+   markerColor _x, markerSize _x, markerDir _x, markerBrush _x, markerPolyline _x]
+};
+copyToClipboard str _out;
+hint format ["%1 markers copied - paste them into the map", count _out];
+'''
+
+MAX_DUMP = 2_000_000
+
+
+class SQFError(ValueError):
+    pass
+
+
+def parse_sqf_value(text: str):
+    """What `str` makes of an SQF array, read back: nested arrays, strings
+    (where a quote is written twice), numbers and true/false. Paths with
+    backslashes come through as they are — SQF does not escape them."""
+    text = text.strip()
+    at = 0
+
+    def skip():
+        nonlocal at
+        while at < len(text) and text[at] in ' \t\r\n,':
+            at += 1
+
+    def value():
+        nonlocal at
+        skip()
+        if at >= len(text):
+            raise SQFError('That ended in the middle.')
+        ch = text[at]
+        if ch == '[':
+            at += 1
+            items = []
+            while True:
+                skip()
+                if at >= len(text):
+                    raise SQFError('An array was never closed.')
+                if text[at] == ']':
+                    at += 1
+                    return items
+                items.append(value())
+        if ch == '"':
+            at += 1
+            out = []
+            while True:
+                end = text.find('"', at)
+                if end < 0:
+                    raise SQFError('A piece of text was never closed.')
+                out.append(text[at:end])
+                at = end + 1
+                if at < len(text) and text[at] == '"':
+                    out.append('"')
+                    at += 1
+                    continue
+                return ''.join(out)
+        match = re.match(r'-?\d+(?:\.\d+)?(?:e[-+]?\d+)?|true|false|any|<null>',
+                         text[at:], re.I)
+        if not match:
+            raise SQFError(f'Unexpected "{text[at:at + 12]}".')
+        at += match.end()
+        word = match.group(0).lower()
+        if word in ('true', 'false'):
+            return word == 'true'
+        if word in ('any', '<null>'):
+            return None
+        return float(word)
+
+    result = value()
+    skip()
+    if at != len(text):
+        raise SQFError('There is more after the end.')
+    return result
+
+
+# Arma's side prefixes, and unit marker suffixes, back onto our symbols.
+_ARMA_SIDE_FROM = {'b': 'friend', 'o': 'hostile', 'n': 'neutral', 'c': 'civ', 'u': 'unknown'}
+_ARMA_SYMBOL_FROM = {
+    'unknown': 'unknown', 'inf': 'inf', 'motor_inf': 'motor', 'mech_inf': 'mech',
+    'armor': 'armor', 'recon': 'recon', 'air': 'heli', 'plane': 'air', 'uav': 'uav',
+    'naval': 'naval', 'med': 'med', 'art': 'arty', 'mortar': 'mortar',
+    'support': 'support', 'maint': 'maint', 'service': 'logi',
+    'installation': 'installation', 'antiair': 'aa', 'ordnance': 'unknown',
+    'car': 'motor', 'ship': 'naval',
+}
+_SIDE_COLOURS = {
+    'ColorWEST': '#3d8ee8', 'ColorBLUFOR': '#3d8ee8', 'ColorEAST': '#e03b3b',
+    'ColorOPFOR': '#e03b3b', 'ColorGUER': '#3fb950', 'ColorIndependent': '#3fb950',
+    'ColorCIV': '#a06ee8', 'ColorCivilian': '#a06ee8', 'ColorUNKNOWN': '#f2c832',
+}
+_NEAREST_ONLY = ('sniper', 'mg', 'at', 'signal', 'veh', 'engr')
+_BRUSH_FILL = {'border': 'none', 'solid': 'light', 'solidfull': 'light',
+               'solidborder': 'light'}
+
+
+def _colour_from_arma(name: str) -> str:
+    """A `CfgMarkerColors` name as one of the palette's colours, or '' (the
+    default ink) for Default and anything unknown."""
+    if name in _SIDE_COLOURS:
+        return _SIDE_COLOURS[name]
+    rgb = ARMA_COLOURS.get(name)
+    if rgb is None or name == 'ColorBlack':
+        return ''
+    return min((value for value, _ in LINE_COLOURS),
+               key=lambda value: sum((a - b) ** 2 for a, b in zip(_rgb(value), rgb)))
+
+
+def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> tuple:
+    """The markers of a pasted dump as items for this map, and what to tell
+    the person: how many came in, and what was left out and why.
+
+    Positions go through `from_world()`, so the map's Arma corners have to be
+    the mission's terrain. Markers off the sheet are left out rather than
+    piled on its edge. `players_only` keeps only what players drew on the map
+    themselves (`_USER_DEFINED` markers), leaving out the mission's own."""
+    if len(text or '') > MAX_DUMP:
+        raise ValueError('That is far more than a marker list — paste only what the script copied.')
+    try:
+        rows = parse_sqf_value(text or '')
+    except SQFError as error:
+        raise ValueError(f'That is not what the script copies: {error}')
+    if not isinstance(rows, list):
+        raise ValueError('That is not what the script copies.')
+    across, down = metres_per_unit(doc)
+    points_by_marker = {value['arma']: key for key, value in MARKERS.items()}
+    items, skipped, unknown, outside = [], 0, {}, 0
+
+    def on_sheet(x, y):
+        return -doc['width'] * 0.01 <= x <= doc['width'] * 1.01 and \
+            -doc['height'] * 0.01 <= y <= doc['height'] * 1.01
+
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 9:
+            skipped += 1
+            continue
+        name, shape, mtype, pos, label, colour, size, direction, brush = row[:9]
+        polyline = row[9] if len(row) > 9 else []
+        if players_only and not str(name).startswith(USER_MARKER.strip()):
+            continue
+        label = str(label or '')[:MAX_LABEL]
+        tint = _colour_from_arma(str(colour or ''))
+        shape = str(shape or '').upper()
+        if shape == 'POLYLINE' and isinstance(polyline, list) and len(polyline) >= 4:
+            flat = [float(v) for v in polyline if isinstance(v, float)]
+            points = [from_world(doc, flat[n], flat[n + 1]) for n in range(0, len(flat) - 1, 2)]
+            points = [(round(x, 2), round(y, 2)) for x, y in points]
+            if not all(on_sheet(x, y) for x, y in points):
+                outside += 1
+                continue
+            closed = len(points) >= 4 and math.dist(points[0], points[-1]) < 0.5
+            item = {'kind': 'area' if closed else 'line',
+                    'points': [list(p) for p in (points[:-1] if closed else points)],
+                    'label': label, 'color': tint, 'style': 'solid',
+                    'weight': DEFAULT_WEIGHT, 'size': DEFAULT_SIZE}
+            if not closed:
+                item['label_at'] = 'middle'
+            items.append(item)
+            continue
+        if not isinstance(pos, list) or len(pos) < 2:
+            skipped += 1
+            continue
+        x, y = from_world(doc, float(pos[0]), float(pos[1]))
+        if not on_sheet(x, y):
+            outside += 1
+            continue
+        x, y = round(x, 2), round(y, 2)
+        half = size if isinstance(size, list) and len(size) >= 2 else [1.0, 1.0]
+        if shape in ('RECTANGLE', 'ELLIPSE'):
+            fill = _BRUSH_FILL.get(str(brush or '').lower(), 'hatch')
+            items.append({'kind': 'shape', 'shape': 'rect' if shape == 'RECTANGLE' else 'ellipse',
+                          'x': x, 'y': y, 'w': round(2 * float(half[0]) / (across or 1), 2),
+                          'h': round(2 * float(half[1]) / (down or 1), 2),
+                          'rotation': round(float(direction or 0) % 360, 1),
+                          'fill': fill, 'label': label, 'color': tint,
+                          'weight': DEFAULT_WEIGHT, 'size': DEFAULT_SIZE})
+            continue
+        mtype = str(mtype or '')
+        # An Arma marker at size 1 is the size this editor draws a new one.
+        scale = round(_clamp(float(half[0] or 1) * DEFAULT_SIZE, MIN_SIZE, MAX_SIZE), 2)
+        prefix, _, rest = mtype.partition('_')
+        if mtype.startswith(('mil_', 'hd_')):
+            key = points_by_marker.get('mil_' + mtype.split('_', 1)[1])
+            if key:
+                items.append({'kind': 'point', 'marker': key, 'x': x, 'y': y, 'label': label,
+                              'color': tint, 'size': scale})
+                continue
+        if prefix in _ARMA_SIDE_FROM and rest.lower() in _ARMA_SYMBOL_FROM | {'hq': ''}:
+            unit = {'kind': 'unit', 'side': _ARMA_SIDE_FROM[prefix], 'x': x, 'y': y,
+                    'label': label, 'size': scale,
+                    'rotation': round(float(direction or 0) % 360, 1)}
+            if rest.lower() == 'hq':
+                unit.update(symbol='generic', hq=True)
+            else:
+                unit['symbol'] = _ARMA_SYMBOL_FROM[rest.lower()]
+            items.append(unit)
+            continue
+        if mtype in ('Empty', 'EmptyIcon', '') and label:
+            items.append({'kind': 'text', 'x': x, 'y': y, 'label': label, 'color': tint,
+                          'size': DEFAULT_SIZE * 4})
+            continue
+        if mtype in ('Empty', 'EmptyIcon', ''):
+            skipped += 1
+            continue
+        # A marker this map has no drawing for yet: a dot, named after what
+        # it was, so nothing is silently lost.
+        unknown[mtype] = unknown.get(mtype, 0) + 1
+        items.append({'kind': 'point', 'marker': DEFAULT_MARKER, 'x': x, 'y': y,
+                      'label': (label or mtype)[:MAX_LABEL], 'color': tint, 'size': scale})
+    notes = [f'{len(items)} marker{"s" if len(items) != 1 else ""} brought in.']
+    if outside:
+        notes.append(f'{outside} lay outside this map and were left out — check the map\'s '
+                     'Arma 3 coordinates match the mission\'s terrain.')
+    if unknown:
+        listed = ', '.join(f'{name} ×{count}' if count > 1 else name
+                           for name, count in sorted(unknown.items())[:8])
+        notes.append(f'Drawn as dots, named after their type: {listed}.')
+    if skipped:
+        notes.append(f'{skipped} had nothing to draw and were left out.')
+    return items, notes
+
+
+def export_report(doc: dict, sqf: str) -> dict:
+    """What happens to this map on its way into Arma, beside the script: how
+    many markers it makes, and everything that does not survive the trip."""
+    notes = []
+    items = doc['items']
+    hidden = {layer['id'] for layer in doc['layers'] if not layer['visible']}
+    off = sum(1 for item in items if item['layer'] in hidden)
+    if off:
+        notes.append(f'{off} item{"s" if off != 1 else ""} on hidden layers stay behind.')
+    shown = [item for item in items if item['layer'] not in hidden]
+    dashed = [item for item in shown if item.get('style') in EXPORT_DASH]
+    if dashed:
+        notes.append(f'{len(dashed)} dashed or dotted line{"s" if len(dashed) != 1 else ""} '
+                     'arrive as their dashes — one marker each.')
+    if any(item.get('weight', DEFAULT_WEIGHT) != DEFAULT_WEIGHT for item in shown
+           if item['kind'] in ('line', 'area', 'shape')):
+        notes.append('Line thickness stays on this map: Arma draws every line at one width.')
+    if any(item['kind'] == 'area' and not item.get('ao') for item in shown):
+        notes.append('Freehand areas arrive as outlines: Arma cannot fill a drawn shape. '
+                     'Use a rectangle or an ellipse for a filled area.')
+    if any(item['kind'] == 'shape' and item.get('label') and not item.get('ao') for item in shown):
+        notes.append('Rectangle and ellipse labels stay on this map: Arma shows no text on '
+                     'an area marker.')
+    # The symbols ARMA_TYPES can only send to something near: Arma has no
+    # sniper, machine-gun, anti-tank or signals marker.
+    near = sorted({SYMBOLS[item['symbol']]['label'] for item in shown
+                   if item['kind'] == 'unit' and item.get('symbol') in _NEAREST_ONLY
+                   and item['symbol'] in SYMBOLS})
+    if near:
+        notes.append('No Arma marker of their own, so the nearest is used: ' +
+                     ', '.join(near) + '.')
+    if (doc.get('mask') or {}).get('on'):
+        notes.append('The grey mask stays on this map; the AO borders go across.')
+    return {'markers': sqf.count('createMarker'), 'notes': notes}

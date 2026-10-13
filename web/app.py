@@ -1018,8 +1018,10 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             'places_sqf': tacmap_lib.places_sqf(),
             'summary': tacmap_lib.summarise(doc),
             'editable': context['may_draw'],
-            'sqf': tacmap_lib.to_sqf(doc, prefix=tacmap_service.arma_prefix(record),
-                                     title=record['name']),
+            'sqf': (sqf := tacmap_lib.to_sqf(doc, prefix=tacmap_service.arma_prefix(record),
+                                             title=record['name'])),
+            'export_report': tacmap_lib.export_report(doc, sqf),
+            'arma_dump_sqf': tacmap_lib.ARMA_DUMP_SQF,
             'sqf_editable': tacmap_lib.to_sqf(
                 doc, prefix=tacmap_service.arma_prefix(record),
                 title=record['name'], editable=True, channel=channel),
@@ -1277,6 +1279,22 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             context['record'], terrain, context['member'].display_name
         )
         return redirect(request, f"/g/{guild_id}/maps/{map_id}", 'ok', note)
+
+    @app.post('/g/{guild_id}/maps/{map_id}/import-arma')
+    async def map_import_arma(request: Request, guild_id: str, map_id: int):
+        """Markers copied out of a running mission, onto the map."""
+        context = await map_context(request, guild_id, map_id)
+        require_draw(context)
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        try:
+            notes = await tacmap_service.import_from_arma(
+                context['record'], form.get('dump') or '', bool(form.get('players_only')),
+                context['member'].display_name)
+        except ValueError as e:
+            return await map_editor(request, context, error=str(e), status=400,
+                                    panel='import')
+        return redirect(request, f"/g/{guild_id}/maps/{map_id}", 'ok', ' '.join(notes))
 
     @app.post('/g/{guild_id}/maps/{map_id}/ocap-list')
     async def map_ocap_list(request: Request, guild_id: str, map_id: int):

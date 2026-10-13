@@ -17,6 +17,8 @@
         <button type="button" class="tmtool" data-tool="unit">🛡️ Unit</button>
         <button type="button" class="tmtool" data-tool="point">📍 Marker</button>
         <button type="button" class="tmtool" data-tool="line">➟ Line</button>
+        <button type="button" class="tmtool" data-tool="phase"
+                title="A phase line: a line named at both ends">⎯ Phase line</button>
         <button type="button" class="tmtool" data-tool="area">⬟ Area</button>
         <button type="button" class="tmtool" data-tool="rect">▭ Rectangle</button>
         <button type="button" class="tmtool" data-tool="ellipse">◯ Ellipse</button>
@@ -55,11 +57,11 @@
           <option value="free">Freehand</option>
         </select></label>
         <label data-for="rect ellipse">Fill <select id="tmfill"></select></label>
-        <label data-for="select line area rect ellipse">Line <select id="tmstyle"></select></label>
-        <label data-for="select line area rect ellipse"
+        <label data-for="select line phase area rect ellipse">Line <select id="tmstyle"></select></label>
+        <label data-for="select line phase area rect ellipse"
                title="On this map only — Arma draws every line at one width">Thickness
           <select id="tmweight"></select></label>
-        <span class="tmswatches" data-for="select line area point rect ellipse" id="tmcolours"
+        <span class="tmswatches" data-for="select line phase area point rect ellipse" id="tmcolours"
               role="group" aria-label="Colour"></span>
         <label class="tmcheck" title="New and moved corners land on the nearest corner, symbol or marker">
           <input type="checkbox" id="tmsnap"> Snap</label>
@@ -155,6 +157,10 @@
               width.</span></label>
           <label class="field" data-for="line"><span>Arrow head</span>
             <select id="tmf-arrow"></select></label>
+          <label class="field" data-for="line"><span>Name at</span>
+            <select id="tmf-labelat"></select>
+            <span class="hint">In Arma the name goes on a small marker at the same
+              place — a line marker cannot show text.</span></label>
           <div class="actions">
             <button type="button" class="button" id="tmf-front">Bring to front</button>
             <button type="button" class="button danger" id="tmf-delete">Delete</button>
@@ -253,7 +259,13 @@
             <li><kbd>V</kbd> select · <kbd>U</kbd> unit · <kbd>M</kbd> marker ·
               <kbd>L</kbd> line · <kbd>A</kbd> area · <kbd>R</kbd> rectangle ·
               <kbd>E</kbd> ellipse · <kbd>O</kbd> AO · <kbd>T</kbd> text ·
-              <kbd>D</kbd> measure</li>
+              <kbd>D</kbd> measure · <kbd>P</kbd> phase line</li>
+            <li><kbd>Shift</kbd>+click adds to the selection,
+              <kbd>Shift</kbd>+drag on empty ground selects by box,
+              <kbd>Ctrl</kbd>+<kbd>A</kbd> selects everything shown ·
+              <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> copy and
+              paste, even into another map · <kbd>Ctrl</kbd>+<kbd>D</kbd>
+              duplicates</li>
             <li>Selected line or area: drag a corner to move it, drag a
               segment's middle dot to add one, <kbd>Alt</kbd>+click or
               right-click a corner to delete it</li>

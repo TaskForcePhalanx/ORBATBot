@@ -8,6 +8,7 @@ import gzip
 import json
 import math
 import re
+import pytest
 
 from utils import tacmap
 
@@ -2040,3 +2041,90 @@ def test_lengths_and_grid_references_come_from_the_arma_corners():
     x, y = 450 / 8.192, 1000 - 1120 / 8.192
     assert tacmap.grid_ref(doc, x, y) == '004011'
     assert tacmap.grid_ref(doc, x, y, digits=8) == '00450112'   # 10 m squares
+
+
+# -- phase lines: names at the ends ------------------------------------------
+
+def test_a_phase_line_is_named_at_both_ends():
+    item = _parse_one({'kind': 'line', 'label': 'PL AMBER', 'label_at': 'ends',
+                       'points': [[100, 500], [900, 500]]})
+    spots = tacmap.line_label_spots(item)
+    assert [s[2] for s in spots] == ['end', 'start']       # each reads away from the line
+    assert spots[0][0] < 100 < 900 < spots[1][0]
+    assert tacmap.item_svg(item).count('PL AMBER') == 2
+    assert _parse_one({'kind': 'line', 'label_at': 'sideways',
+                       'points': [[1, 1], [2, 2]]})['label_at'] == 'middle'
+
+
+def test_a_line_name_rides_on_its_own_marker_in_arma():
+    doc = _arma_doc({'kind': 'line', 'label': 'PL AMBER', 'label_at': 'ends',
+                     'points': [[100, 500], [900, 500]]})
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    assert sqf.count('setMarkerText "PL AMBER"') == 2
+    assert sqf.count(f'"{tacmap.LINE_LABEL_MARKER}"') == 2
+    editable = tacmap.to_sqf(doc, prefix='tm7', editable=True)
+    assert editable.count('createMarker') == editable.count('_n pushBack _m;')
+
+
+# -- back from Arma ----------------------------------------------------------
+
+def test_sqf_arrays_read_back_with_their_doubled_quotes():
+    assert tacmap.parse_sqf_value('[["a", 1, true, [2.5, -3]], "say ""hi"""]') == \
+        [['a', 1.0, True, [2.5, -3.0]], 'say "hi"']
+    with pytest.raises(tacmap.SQFError):
+        tacmap.parse_sqf_value('[1, 2')
+
+
+def _dump(*rows):
+    return '[' + ','.join(rows) + ']'
+
+
+def test_a_mission_s_markers_come_back_as_the_map_s_own():
+    doc = _arma_doc()
+    doc['arma'] = {'terrain': '', 'left': 0, 'bottom': 0, 'right': 1000, 'top': 1000}
+    text = _dump(
+        '["_USER_DEFINED #2/0/1","ICON","mil_objective",[500,500],"OBJ GOLD","ColorRed",[1,1],0,"Solid",[]]',
+        '["m2","ICON","b_inf",[100,900],"1-1","ColorWEST",[1,1],45,"Solid",[]]',
+        '["m3","ICON","o_hq",[200,800],"","ColorEAST",[1,1],0,"Solid",[]]',
+        '["m4","POLYLINE","",[0,0],"PL AMBER","ColorBlack",[1,1],0,"Solid",[100,100,900,100]]',
+        '["m5","POLYLINE","",[0,0],"","Default",[1,1],0,"Solid",[100,100,200,100,200,200,100,100]]',
+        '["m6","RECTANGLE","",[500,500],"","ColorGreen",[50,25],30,"FDiagonal",[]]',
+        '["m7","ICON","loc_Church",[300,300],"","Default",[1,1],0,"Solid",[]]',
+        '["m8","ICON","mil_dot",[5000,5000],"far","Default",[1,1],0,"Solid",[]]',
+    )
+    items, notes = tacmap.import_arma_markers(doc, text)
+    kinds = [i['kind'] for i in items]
+    assert kinds == ['point', 'unit', 'unit', 'line', 'area', 'shape', 'point']
+    assert items[0]['marker'] == 'objective' and items[0]['color'] == '#e03b3b'
+    assert (items[1]['side'], items[1]['symbol'], items[1]['rotation']) == ('friend', 'inf', 45.0)
+    assert items[2]['hq'] and items[2]['side'] == 'hostile'
+    assert items[3]['points'] == [[100.0, 900.0], [900.0, 900.0]]
+    assert len(items[4]['points']) == 3                      # closed polyline → area
+    assert (items[5]['w'], items[5]['h'], items[5]['fill']) == (100.0, 50.0, 'hatch')
+    assert items[6]['label'] == 'loc_Church'                  # not drawn yet: a named dot
+    assert any('outside' in n for n in notes)
+    only, _ = tacmap.import_arma_markers(doc, text, players_only=True)
+    assert len(only) == 1
+    # What comes back parses as a document, unchanged in substance.
+    doc['items'] = items
+    assert tacmap.parse(doc).ok
+
+
+def test_a_round_trip_through_arma_keeps_the_plan():
+    doc = _arma_doc({'kind': 'unit', 'symbol': 'armor', 'side': 'hostile', 'x': 400, 'y': 300},
+                    {'kind': 'line', 'points': [[100, 100], [300, 200]], 'color': '#3d8ee8'})
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    # What the dump would say about those markers, built from the script.
+    assert '"o_armor"' in sqf and 'ColorBlue' in sqf
+
+
+def test_the_export_report_says_what_does_not_survive():
+    doc = _arma_doc({'kind': 'line', 'style': 'dashed', 'weight': 4,
+                     'points': [[0, 0], [100, 0]]},
+                    {'kind': 'area', 'points': [[0, 0], [9, 0], [9, 9]]},
+                    {'kind': 'unit', 'symbol': 'sniper', 'x': 5, 'y': 5})
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    report = tacmap.export_report(doc, sqf)
+    assert report['markers'] == sqf.count('createMarker')
+    text = ' '.join(report['notes'])
+    assert 'dashes' in text and 'thickness' in text and 'outlines' in text and 'Sniper' in text
