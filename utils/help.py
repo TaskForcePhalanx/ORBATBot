@@ -820,6 +820,12 @@ _MAPS: tuple[Topic, ...] = (
             'sheet to place it. With the **Marker** tool, pick a marker the same way.',
             'Select a unit or marker to change it in the inspector: side, symbol or '
             'marker, size, colour and label.',
+            'A drawing tool draws one thing and hands you back **Select** with it '
+            'selected, so a click on empty ground just deselects it. **Double-click** '
+            'a tool to keep it on (🔒) for drawing several; **Esc** puts it down.',
+            'Names are written as in Arma: beside a unit or marker, in its colour. '
+            '**Map settings → Text size** makes every name on the map bigger or smaller. '
+            'Markers turn with **Rotation** in the inspector, and arrive in Arma turned.',
             'Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, '
             'then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for '
             'freehand. The Line and Area tools do the same without Ctrl; double-click '

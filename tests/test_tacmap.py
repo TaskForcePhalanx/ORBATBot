@@ -2079,3 +2079,34 @@ def test_the_coverage_lists_what_is_still_to_upload():
         len(tacmap.MARKERS) + len(tacmap.UNIT_CLASSES)
     assert any(path.endswith('objective_CA.paa') for path in rows['Military']['missing'])
 
+
+
+def test_names_are_written_the_way_arma_writes_marker_text():
+    doc = tacmap.parse(_doc(items=[
+        {'kind': 'point', 'marker': 'mil_dot', 'x': 100, 'y': 100, 'label': 'OBJ GOLD',
+         'color': '#e03b3b'},
+        unit(label='1 Plt', side='hostile'),
+        {'kind': 'line', 'points': [[0, 0], [100, 0]], 'label': 'PL AMBER',
+         'label_at': 'ends', 'color': '#3d8ee8'}])).doc
+    svg = tacmap.render(doc)
+    # Beside the marker, in its colour, in a narrow face with a thin shadow.
+    assert 'text-anchor="start"' in svg and 'fill="#e03b3b"' in svg and '>OBJ GOLD<' in svg
+    assert f'fill="{tacmap.AFFILIATIONS["hostile"]["fill"]}"' in svg
+    assert svg.count('fill="#3d8ee8"') >= 2 and 'Purista' in svg
+
+
+def test_the_text_scale_sizes_every_name_and_is_kept_in_bounds():
+    small = tacmap.parse(_doc(items=[unit(label='A', size=1.0)])).doc
+    big = dict(small, text_scale=2.0)
+    assert 'font-size="14.0"' in tacmap.render(small)
+    assert 'font-size="28.0"' in tacmap.render(big)
+    assert tacmap.parse(dict(_doc(), text_scale=99)).doc['text_scale'] == tacmap.MAX_TEXT_SCALE
+    assert tacmap.parse(_doc()).doc['text_scale'] == tacmap.DEFAULT_TEXT_SCALE
+
+
+def test_a_marker_turns_on_the_map_and_in_arma():
+    item = _parse_one({'kind': 'point', 'marker': 'mil_arrow', 'x': 10, 'y': 10,
+                       'rotation': 90})
+    assert 'rotate(90.0)' in tacmap.item_svg(item, icons={'mil_arrow'})
+    script = tacmap.to_sqf(tacmap.parse(_doc(items=[item])).doc, prefix='m1')
+    assert 'setMarkerDir 90.0' in script

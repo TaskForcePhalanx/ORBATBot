@@ -129,15 +129,24 @@
     return Math.max(size, catalog.minLineSize);
   }
 
+  // The map's one text size, as Arma has one size for marker text.
+  function textScale() { return Number(state.doc.text_scale) || catalog.textScale['default']; }
+
+  function fontSize(size) {
+    return Math.round(labelSize(size) * textScale() * 10) / 10;
+  }
+
   function label(text, x, y, size, fill, anchor) {
+    // Mirrors _label_svg() in utils/tacmap.py: Arma's way of writing marker
+    // text — a narrow face in the marker's colour, a thin opposite shadow.
     if (!text) return '';
-    var font = labelSize(size);
+    var font = fontSize(size);
+    var colour = fill || catalog.defaultInk;
     return '<text x="' + round(x) + '" y="' + round(y) + '" text-anchor="' +
-      (anchor || 'middle') + '"' +
-      ' font-size="' + font + '" font-weight="600"' +
-      ' font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"' +
-      ' fill="' + (fill || '#ffffff') + '" stroke="#11161c"' +
-      ' stroke-width="' + round(font * 0.22) + '"' +
+      (anchor || 'middle') + '" class="tm-label" font-size="' + font + '"' +
+      ' font-family="' + attr(catalog.armaFont) + '" font-weight="600"' +
+      ' fill="' + colour + '" stroke="' + inkBacking(colour) + '"' +
+      ' stroke-opacity="0.75" stroke-width="' + round(font * 0.14) + '"' +
       ' paint-order="stroke" stroke-linejoin="round">' + esc(text) + '</text>';
   }
 
@@ -219,7 +228,7 @@
 
   function aoTabSVG(item) {
     if (!item.label) return '';
-    var font = labelSize(item.size);
+    var font = fontSize(item.size);
     var pad = round(font * 0.4);
     var corner = aoCorner(item);
     var w = round(item.label.length * font * 0.6 + 2 * pad);
@@ -231,7 +240,7 @@
       '" fill="' + colour + '" stroke="' + contrast + '" stroke-width="' +
       round(font * 0.12) + '"/><text x="' + round(corner[0] + pad) + '" y="' +
       round(corner[1] + h * 0.72) + '" text-anchor="start" font-size="' + font +
-      '" font-weight="700" font-family="' + FONT + '" fill="' + contrast + '">' +
+      '" font-weight="700" font-family="' + attr(catalog.armaFont) + '" fill="' + contrast + '">' +
       esc(item.label) + '</text></g>';
   }
 
@@ -276,9 +285,9 @@
     var parts = [pictureSVG(unitPicture(item), colour)];
     var echelon = echelons[item.echelon];
     if (echelon && iconKeys[echelon.picture]) parts.push(pictureSVG(echelon.picture, colour));
-    var drop = catalog.unitBox * item.size * catalog.unitLabelDrop + 6;
     return '<g transform="' + transform + '">' + parts.join('') + '</g>' +
-      label(item.label, item.x, item.y + drop, item.size);
+      label(item.label, item.x + catalog.unitBox * item.size * catalog.unitLabelGap,
+        item.y + fontSize(item.size) * 0.35, item.size, colour, 'start');
   }
 
   function markerKey(item) {
@@ -288,11 +297,13 @@
   function pointSVG(item) {
     // Mirrors _point_svg() in utils/tacmap.py.
     var scale = catalog.pointBox * item.size / 100 * 1.55;
-    var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') scale(' +
-      scale + ') translate(-50,-50)';
+    var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') rotate(' +
+      (item.rotation || 0) + ') scale(' + scale + ') translate(-50,-50)';
     var name = ((item.glyph || '') + ' ' + item.label).trim();
-    return '<g transform="' + transform + '">' + pictureSVG(markerKey(item), itemColour(item)) +
-      '</g>' + label(name, item.x, item.y + catalog.pointBox * item.size * 0.8 + 8, item.size);
+    var ink = itemColour(item);
+    return '<g transform="' + transform + '">' + pictureSVG(markerKey(item), ink) +
+      '</g>' + label(name, item.x + catalog.pointBox * item.size * catalog.pointLabelGap,
+        item.y + fontSize(item.size) * 0.35, item.size, ink, 'start');
   }
 
   // Mirrors arrow_head() in utils/tacmap.py — a polygon rather than a marker,
@@ -347,7 +358,7 @@
       var middle = points[Math.floor(points.length / 2)];
       return [[middle[0], middle[1] - 10 * item.size, 'middle']];
     }
-    var font = labelSize(item.size);
+    var font = fontSize(item.size);
     var gap = font * 0.6;
     var ends = { ends: ['start', 'end'], end: ['end'], start: ['start'] }[place] || [];
     return ends.map(function (end) {
@@ -379,7 +390,8 @@
       return '<polygon points="' + points + '" ' +
         (item.ao ? 'fill="none"' : 'fill="' + colour + '" fill-opacity="0.22"') +
         ' ' + stroke + '/>' +
-        (item.ao ? aoTabSVG(item) : label(item.label, centre[0], centre[1], item.size));
+        (item.ao ? aoTabSVG(item) : label(item.label, centre[0], centre[1], item.size,
+          itemColour(item)));
     }
     var parts = ['<polyline points="' + points + '" fill="none" ' + stroke + '/>'];
     var ends = item.arrow === true ? [false] : (ARROW_ENDS[item.arrow] || []);
@@ -392,7 +404,7 @@
       }
     });
     lineLabelSpots(item).forEach(function (spot) {
-      parts.push(label(item.label, spot[0], spot[1], item.size, null, spot[2]));
+      parts.push(label(item.label, spot[0], spot[1], item.size, itemColour(item), spot[2]));
     });
     return parts.join('');
   }
@@ -466,7 +478,7 @@
     }
     parts.push(outline + ' ' + fill + ' ' + strokeAttrs(colour, weight, item.style) + '/>');
     return figureTurn(item) + parts.join('') + '</g>' +
-      (item.ao ? aoTabSVG(item) : label(item.label, item.x, item.y, item.size));
+      (item.ao ? aoTabSVG(item) : label(item.label, item.x, item.y, item.size, itemColour(item)));
   }
 
   function itemSVG(item) {
@@ -474,7 +486,7 @@
     if (item.kind === 'unit') return unitSVG(item);
     if (item.kind === 'point') return pointSVG(item);
     if (item.kind === 'text') {
-      return label(item.label || ' ', item.x, item.y, item.size * 1.6, item.color);
+      return label(item.label || ' ', item.x, item.y, item.size * 1.6, item.color || '#ffffff');
     }
     return shapeSVG(item);
   }
@@ -1452,6 +1464,18 @@
       return;
     }
 
+    // Right after a drawing that kept its selection (an AO or phase line
+    // waiting for a name), the next click on empty ground only lets go of it.
+    if (state.afterDraw && state.tool !== 'select' && !group && !state.draft) {
+      state.afterDraw = false;
+      if (selected()) {
+        event.preventDefault();
+        select(-1);
+        return;
+      }
+    }
+    state.afterDraw = false;
+
     if (state.tool === 'measure') {
       event.preventDefault();
       var from = snapPoint(point) || [round(point.x), round(point.y)];
@@ -1759,7 +1783,27 @@
     };
     if (box.ao) makeAO(item);
     add(item);
+    afterDrawn(box.ao);
     if (box.ao) nameAO();
+  }
+
+  // What happens once something is drawn. By default the tool goes back to
+  // Select with the new item selected, so the next click on empty ground just
+  // deselects it — it used to start another drawing, which is what people
+  // tripped over. A tool double-clicked in the rail stays on (locked) for
+  // drawing several in a row: then the new item is left unselected, unless
+  // it is an AO or a phase line still waiting for its name, and the click
+  // after that one only deselects (state.afterDraw).
+  function afterDrawn(needsName) {
+    if (!state.toolLock) {
+      setTool('select');
+      return;
+    }
+    if (needsName) {
+      state.afterDraw = true;
+    } else {
+      select(-1);
+    }
   }
 
   // An AO is a plain black border with a name, cut out of the grey: drawing
@@ -1825,6 +1869,8 @@
       item.style = 'solid';
     }
     add(item);
+    // A Ctrl-drawn line from the Select tool is already back where it began.
+    if (state.tool !== 'select') afterDrawn(draft.ao || draft.phase);
     if (draft.ao) nameAO();
     if (draft.phase) namePhaseLine();
   }
@@ -1840,8 +1886,10 @@
 
   /* -- toolbar -------------------------------------------------------------- */
 
-  function setTool(tool) {
+  function setTool(tool, lock) {
     if (state.draft) finishDraft();
+    state.toolLock = !!lock && tool !== 'select';
+    state.afterDraw = false;
     state.box = null;
     if (state.ruler) {
       state.ruler = null;
@@ -1851,6 +1899,7 @@
     state.tool = tool;
     Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
       button.classList.toggle('active', button.dataset.tool === tool);
+      button.classList.toggle('locked', button.dataset.tool === tool && state.toolLock);
     });
     // `data-for` is a list, the same as in the inspector: a field can belong
     // to more than one tool. Comparing the whole attribute silently hid every
@@ -1888,12 +1937,24 @@
     var title = document.getElementById('tmtooltitle');
     var hint = document.getElementById('tmtoolhint');
     if (title && button) title.textContent = button.title.replace(/\s*\(\w\)$/, '');
-    if (hint) hint.textContent = TOOL_HINTS[state.tool] || '';
+    if (hint) {
+      var drawsOne = ['line', 'phase', 'area', 'rect', 'ellipse', 'ao'].indexOf(state.tool) >= 0;
+      hint.textContent = (TOOL_HINTS[state.tool] || '') + (drawsOne
+        ? (state.toolLock ? ' 🔒 Stays on — Esc to stop.'
+          : ' Back to Select when done — double-click the tool to keep it on.')
+        : '');
+    }
     panel.hidden = state.tool === 'select' && selection().length > 0;
   }
 
   Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
+    // One click picks a tool for one drawing; a double-click keeps it on.
     button.addEventListener('click', function () { setTool(button.dataset.tool); });
+    button.addEventListener('dblclick', function () {
+      setTool(button.dataset.tool, true);
+      say('🔒 ' + button.title.replace(/\s*\(\w\)$/, '') +
+          ' stays on — Esc or Select to stop');
+    });
   });
 
   function swatchRow(host, read, write) {
@@ -2479,11 +2540,18 @@
     bottom: document.getElementById('tmf-bottom'),
     top: document.getElementById('tmf-top'),
     mask: document.getElementById('tmf-mask'),
-    maskOpacity: document.getElementById('tmf-maskop')
+    maskOpacity: document.getElementById('tmf-maskop'),
+    textScale: document.getElementById('tmf-textscale')
   };
   if (!state.doc.mask) state.doc.mask = { on: false, opacity: 0.55 };
   settings.mask.checked = !!state.doc.mask.on;
   settings.maskOpacity.value = state.doc.mask.opacity;
+  settings.textScale.value = textScale();
+  var textScaleOut = document.getElementById('tmf-textscaleout');
+  function showTextScale() {
+    if (textScaleOut) textScaleOut.textContent = Math.round(textScale() * 100) + '%';
+  }
+  showTextScale();
   var tiled = state.doc.background.kind === 'tiles';
   settings.bg.value = tiled ? '' : (state.doc.background.url || '');
   settings.zoom.value = state.doc.background.zoom;
@@ -2576,6 +2644,8 @@
                        opacity: Number(settings.maskOpacity.value) || 0.55 };
     state.doc.places.show = settings.places.checked;
     state.doc.places.scale = Number(settings.placeScale.value) || 1;
+    state.doc.text_scale = Number(settings.textScale.value) || catalog.textScale['default'];
+    showTextScale();
     var boxes = Array.prototype.slice.call(
       settings.placeGroups.querySelectorAll('[data-placegroup]'));
     var picked = boxes.filter(function (box) { return box.checked; })
@@ -2883,6 +2953,13 @@
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
     if (event.key === 'Escape') {
+      // With nothing selected, Esc puts a drawing tool down and goes back to
+      // Select, so a locked tool is never a trap.
+      if (state.selected < 0 && state.tool !== 'select') {
+        setTool('select');
+        say('');
+        return;
+      }
       if (state.selected < 0 && app.classList.contains('tm-focus')) {
         setFocus(false);
         return;

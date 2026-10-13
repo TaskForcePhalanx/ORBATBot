@@ -73,6 +73,10 @@ DEFAULT_SIZE = MIN_SIZE
 UNIT_BOX = 40
 # How far under a unit's centre its name sits, as a share of the symbol box.
 UNIT_LABEL_DROP = 0.6
+# How far right of its centre a unit's or a marker's name starts, as a share of
+# its box — beside the picture, where Arma writes marker text.
+UNIT_LABEL_GAP = 0.5
+POINT_LABEL_GAP = 0.62
 POINT_BOX = 26
 
 # However small a symbol is dragged, its name has to stay readable — the label
@@ -458,6 +462,15 @@ DEFAULT_PLACES = {'show': True, 'groups': [], 'scale': 1.0}
 # it cuts a clear hole in the cover and is drawn with a plain border. Off until
 # somebody turns it on, or draws an AO.
 DEFAULT_MASK = {'on': False, 'opacity': 0.55}
+# How big a map's writing is, against what label_size() works out — the one
+# setting for every name on the map, the way Arma has one marker text size.
+DEFAULT_TEXT_SCALE = 1.0
+MIN_TEXT_SCALE = 0.5
+MAX_TEXT_SCALE = 3.0
+# Arma writes marker text in Purista, its own face; where somebody has it
+# installed it is used, otherwise the nearest narrow sans.
+ARMA_FONT = ("Purista, 'PuristaMedium', 'Roboto Condensed', 'Arial Narrow', "
+             "'Liberation Sans Narrow', 'Helvetica Neue', Arial, sans-serif")
 MASK_COLOUR = '#565c63'
 MIN_MASK_OPACITY = 0.15
 MAX_MASK_OPACITY = 0.9
@@ -568,6 +581,7 @@ def blank_doc(width: int = DEFAULT_WIDTH, height: int = DEFAULT_HEIGHT) -> dict:
         # image of which terrain this is, and whether it is the whole map.
         'arma': dict(DEFAULT_EXTENT),
         'mask': dict(DEFAULT_MASK),
+        'text_scale': DEFAULT_TEXT_SCALE,
         'layers': [dict(DEFAULT_LAYER)],
         'items': [],
     }
@@ -742,6 +756,9 @@ def parse(raw) -> ParseResult:
                                     MIN_MASK_OPACITY, MAX_MASK_OPACITY), 2),
         }
 
+    doc['text_scale'] = round(_clamp(_number(raw.get('text_scale'), DEFAULT_TEXT_SCALE),
+                                     MIN_TEXT_SCALE, MAX_TEXT_SCALE), 2)
+
     doc['layers'] = _parse_layers(raw.get('layers'))
 
     items = raw.get('items')
@@ -805,6 +822,8 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
     elif kind == 'point':
         item['glyph'] = _text(raw.get('glyph'), MAX_GLYPH).upper()
         item['marker'] = _marker(raw.get('marker'), item['glyph'])
+        # Arma turns any marker (setMarkerDir), so a marker here turns too.
+        item['rotation'] = round(_clamp(_number(raw.get('rotation'), 0.0), -360, 360), 1)
 
     if kind in ('line', 'area', 'text', 'point', 'shape'):
         # The side says whose a symbol is and must keep saying it, but a line
@@ -1086,6 +1105,11 @@ def catalog() -> dict:
         'minHit': MIN_HIT,
         'defaultSize': DEFAULT_SIZE,
         'defaultMarker': DEFAULT_MARKER,
+        'armaFont': ARMA_FONT,
+        'textScale': {'min': MIN_TEXT_SCALE, 'max': MAX_TEXT_SCALE,
+                      'default': DEFAULT_TEXT_SCALE},
+        'unitLabelGap': UNIT_LABEL_GAP,
+        'pointLabelGap': POINT_LABEL_GAP,
         'unitLabelDrop': UNIT_LABEL_DROP,
         'missingPicture': MISSING_PICTURE,
     }
@@ -1193,17 +1217,20 @@ def label_size(size: float) -> float:
 
 
 def _label_svg(text: str, x: float, y: float, size: float, anchor: str = 'middle',
-               fill: str = '') -> str:
+               fill: str = '', ts: float = 1.0) -> str:
+    """A name, written the way Arma writes marker text: a narrow face in the
+    marker's own colour with a thin shadow in the opposite tone, rather than
+    white over a heavy halo. `ts` is the map's text scale."""
     if not text:
         return ''
-    font = label_size(size)
+    font = round(label_size(size) * ts, 1)
+    colour = fill or DEFAULT_INK
     return (
         f'<text{_attrs(x=round(x, 2), y=round(y, 2), text_anchor=anchor)} '
-        f'class="tm-label" font-size="{font}" '
-        f'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" '
-        f'font-weight="600" fill="{fill or _LABEL_FILL}" stroke="{_LABEL_HALO}" '
-        f'stroke-width="{round(font * 0.22, 2)}" paint-order="stroke" '
-        f'stroke-linejoin="round">{escape(text)}</text>'
+        f'class="tm-label" font-size="{font}" font-family="{ARMA_FONT}" '
+        f'font-weight="600" fill="{colour}" stroke="{ink_backing(colour)}" '
+        f'stroke-opacity="0.75" stroke-width="{round(font * 0.14, 2)}" '
+        f'paint-order="stroke" stroke-linejoin="round">{escape(text)}</text>'
     )
 
 
@@ -1235,21 +1262,21 @@ def ink_backing(colour: str) -> str:
     return _INK_DARK if luma > 0.5 else _INK_LIGHT
 
 
-def item_svg(item: dict, px: float = 1.0, icons=frozenset()) -> str:
+def item_svg(item: dict, px: float = 1.0, icons=frozenset(), ts: float = 1.0) -> str:
     """One item, drawn. The browser composes the same three or four elements.
     `px` is sheet units per pixel of the picture: 1 on a page, where line
     widths are screen pixels, and the crop over the picture's width for an
     ops trace."""
     kind = item['kind']
     if kind == 'unit':
-        return _unit_svg(item, icons)
+        return _unit_svg(item, icons, ts)
     if kind == 'point':
-        return _point_svg(item, icons)
+        return _point_svg(item, icons, ts)
     if kind == 'text':
-        return _text_svg(item)
+        return _text_svg(item, ts)
     if kind == 'shape':
-        return _figure_svg(item, px)
-    return _shape_svg(item, px)
+        return _figure_svg(item, px, ts)
+    return _shape_svg(item, px, ts)
 
 
 def is_ao(item: dict) -> bool:
@@ -1281,14 +1308,14 @@ def ao_corner(item: dict) -> tuple:
     return round(x, 2), round(y, 2)
 
 
-def ao_tab(item: dict) -> dict | None:
+def ao_tab(item: dict, ts: float = 1.0) -> dict | None:
     """The name tab's box and text position, or None without a name. Its width
     is estimated from the character count rather than measured, so the browser
     and this module — which cannot measure text — draw the same box."""
     text = item.get('label') or ''
     if not text:
         return None
-    font = label_size(item['size'])
+    font = round(label_size(item['size']) * ts, 1)
     pad = round(font * 0.4, 2)
     x, y = ao_corner(item)
     w = round(len(text) * font * 0.6 + 2 * pad, 2)
@@ -1297,12 +1324,12 @@ def ao_tab(item: dict) -> dict | None:
             'tx': round(x + pad, 2), 'ty': round(y + h * 0.72, 2)}
 
 
-def _ao_tab_svg(item: dict) -> str:
+def _ao_tab_svg(item: dict, ts: float = 1.0) -> str:
     """An AO's name in a small tab filled with its border colour, hung inside
     its top-left corner: the tab ties the name to the border it belongs to.
     The text takes the backing colour, so it reads on a yellow tab and a
     blue one alike."""
-    tab = ao_tab(item)
+    tab = ao_tab(item, ts)
     if tab is None:
         return ''
     colour = item_colour(item)
@@ -1312,8 +1339,7 @@ def _ao_tab_svg(item: dict) -> str:
         f'height="{tab["h"]}" rx="{round(tab["font"] * 0.2, 2)}" fill="{colour}" '
         f'stroke="{contrast}" stroke-width="{round(tab["font"] * 0.12, 2)}"/>'
         f'<text x="{tab["tx"]}" y="{tab["ty"]}" text-anchor="start" '
-        f'font-size="{tab["font"]}" font-weight="700" '
-        f'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" '
+        f'font-size="{tab["font"]}" font-weight="700" font-family="{ARMA_FONT}" '
         f'fill="{contrast}">{escape(item["label"])}</text></g>'
     )
 
@@ -1353,7 +1379,7 @@ def mask_svg(doc: dict) -> str:
             f'mask="url(#{key})" pointer-events="none"/>')
 
 
-def _unit_svg(item: dict, icons=frozenset()) -> str:
+def _unit_svg(item: dict, icons=frozenset(), ts: float = 1.0) -> str:
     """One unit: Arma's NATO marker in its side's colour, Arma's size marker
     over it when it has one, and its name underneath."""
     colour = item_colour(item)
@@ -1371,8 +1397,10 @@ def _unit_svg(item: dict, icons=frozenset()) -> str:
             # Arma's size pictures are drawn to sit over the unit marker in
             # the same box, which is how a mission maker stacks the two.
             parts.append(_picture_svg(size_key, colour, icons))
-    drop = UNIT_BOX * item['size'] * UNIT_LABEL_DROP + 6
-    label = _label_svg(item['label'], item['x'], item['y'] + drop, item['size'])
+    # Beside the marker, as Arma writes it, in the marker's colour.
+    font = label_size(item['size']) * ts
+    label = _label_svg(item['label'], item['x'] + UNIT_BOX * item['size'] * UNIT_LABEL_GAP,
+                       item['y'] + font * 0.35, item['size'], 'start', colour, ts)
     return f'<g transform="{transform}">{"".join(parts)}</g>{label}'
 
 
@@ -1381,18 +1409,20 @@ def unit_picture(item: dict) -> str:
     return picture_key(unit_class(item.get('side', DEFAULT_SIDE), item.get('symbol')))
 
 
-def _point_svg(item: dict, icons=frozenset()) -> str:
+def _point_svg(item: dict, icons=frozenset(), ts: float = 1.0) -> str:
     """One marker: the game's picture, in the marker's colour."""
     ink = item_colour(item)
     scale = POINT_BOX * item['size'] / 100 * 1.55
     transform = (f"translate({round(item['x'], 2)},{round(item['y'], 2)}) "
+                 f"rotate({item.get('rotation', 0)}) "
                  f"scale({round(scale, 4)}) translate(-50,-50)")
     shape = f'<g transform="{transform}">{_picture_svg(marker_key(item), ink, icons)}</g>'
-    reach = POINT_BOX * item['size'] * 0.8
-    # Arma writes a marker's text beside it, not inside; here the short text
-    # goes in front of the name.
+    # Arma writes a marker's text beside it, in the marker's colour; the
+    # short text goes in front of the name.
     label = f"{item.get('glyph', '')} {item['label']}".strip()
-    return shape + _label_svg(label, item['x'], item['y'] + reach + 8, item['size'])
+    font = label_size(item['size']) * ts
+    return shape + _label_svg(label, item['x'] + POINT_BOX * item['size'] * POINT_LABEL_GAP,
+                              item['y'] + font * 0.35, item['size'], 'start', ink, ts)
 
 
 def marker_key(item: dict) -> str:
@@ -1401,9 +1431,9 @@ def marker_key(item: dict) -> str:
     return marker if marker in MARKERS else DEFAULT_MARKER
 
 
-def _text_svg(item: dict) -> str:
+def _text_svg(item: dict, ts: float = 1.0) -> str:
     return _label_svg(item['label'] or ' ', item['x'], item['y'], item['size'] * 1.6,
-                      fill=item.get('color') or _LABEL_FILL)
+                      fill=item.get('color') or _LABEL_FILL, ts=ts)
 
 
 def _centroid(points: list) -> tuple:
@@ -1467,7 +1497,7 @@ def _stroke(colour: str, weight: int, style: str, px: float) -> str:
     return attrs
 
 
-def _shape_svg(item: dict, px: float = 1.0) -> str:
+def _shape_svg(item: dict, px: float = 1.0, ts: float = 1.0) -> str:
     # No backing pass any more: a line is drawn once, in its own colour, as
     # thin as asked. The halo under it made the thinnest line three times as
     # wide as it said, which is the "outline" lines should not have.
@@ -1478,9 +1508,10 @@ def _shape_svg(item: dict, px: float = 1.0) -> str:
         fill = 'fill="none"' if item.get('ao') else f'fill="{colour}" fill-opacity="0.22"'
         shape = f'<polygon points="{path}" {fill} {stroke}/>'
         if item.get('ao'):
-            return shape + _ao_tab_svg(item)
+            return shape + _ao_tab_svg(item, ts)
         centre = _centroid(item['points'])
-        return shape + _label_svg(item['label'], centre[0], centre[1], item['size'])
+        return shape + _label_svg(item['label'], centre[0], centre[1], item['size'],
+                                  fill=colour, ts=ts)
 
     parts = [f'<polyline points="{path}" fill="none" {stroke}/>']
     weight = item.get('weight', DEFAULT_WEIGHT)
@@ -1490,12 +1521,13 @@ def _shape_svg(item: dict, px: float = 1.0) -> str:
         if head:
             corners = ' '.join(f'{x},{y}' for x, y in head)
             parts.append(f'<polygon points="{corners}" fill="{colour}"/>')
-    for x, y, anchor in line_label_spots(item):
-        parts.append(_label_svg(item['label'], x, y, item['size'], anchor=anchor))
+    for x, y, anchor in line_label_spots(item, ts):
+        parts.append(_label_svg(item['label'], x, y, item['size'], anchor=anchor,
+                                fill=colour, ts=ts))
     return ''.join(parts)
 
 
-def line_label_spots(item: dict) -> list:
+def line_label_spots(item: dict, ts: float = 1.0) -> list:
     """Where a line's name is written, as (x, y, text-anchor) on the sheet:
     above its middle corner, or just beyond an end, reading away from the
     line — a phase line's name sits off both ends. The editor mirrors this."""
@@ -1506,7 +1538,8 @@ def line_label_spots(item: dict) -> list:
     if place == 'middle':
         middle = points[len(points) // 2]
         return [(middle[0], middle[1] - 10 * item['size'], 'middle')]
-    gap = label_size(item['size']) * 0.6
+    font = label_size(item['size']) * ts
+    gap = font * 0.6
     spots = []
     ends = {'ends': ('start', 'end'), 'end': ('end',), 'start': ('start',)}[place]
     for end in ends:
@@ -1514,10 +1547,10 @@ def line_label_spots(item: dict) -> list:
         dx, dy = tip[0] - back[0], tip[1] - back[1]
         length = math.hypot(dx, dy) or 1
         x = tip[0] + dx / length * gap
-        y = tip[1] + dy / length * gap + label_size(item['size']) * 0.35
+        y = tip[1] + dy / length * gap + font * 0.35
         anchor = 'start' if dx > abs(dy) * 0.3 else 'end' if -dx > abs(dy) * 0.3 else 'middle'
         if anchor == 'middle':
-            y += label_size(item['size']) * (0.6 if dy > 0 else -0.6)
+            y += font * (0.6 if dy > 0 else -0.6)
         spots.append((round(x, 2), round(y, 2), anchor))
     return spots
 
@@ -1572,7 +1605,7 @@ def shape_corners(item: dict) -> list:
             for dx, dy in ((-a, -b), (a, -b), (a, b), (-a, b))]
 
 
-def _figure_svg(item: dict, px: float = 1.0) -> str:
+def _figure_svg(item: dict, px: float = 1.0, ts: float = 1.0) -> str:
     """A rectangle or an ellipse: drawn in its own frame, centred on 0,0, and
     turned into place — so the hatching and the outline turn with it. Drawn
     once, in its own colour, with no backing pass, the same as a line."""
@@ -1603,8 +1636,9 @@ def _figure_svg(item: dict, px: float = 1.0) -> str:
     turn = item.get('rotation') or 0
     return (f'<g transform="translate({item["x"]} {item["y"]}) rotate({turn})">'
             + ''.join(parts) + '</g>'
-            + (_ao_tab_svg(item) if ao
-               else _label_svg(item['label'], item['x'], item['y'], item['size'])))
+            + (_ao_tab_svg(item, ts) if ao
+               else _label_svg(item['label'], item['x'], item['y'], item['size'],
+                               fill=colour, ts=ts)))
 
 
 def tile_url(background: dict, zoom: int, column: int, row: int) -> str:
@@ -1726,7 +1760,8 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     px = box[2] / size[0] if size and size[0] else 1.0
     icons = frozenset(marker_images or ())
     shown = ordered_items(doc)
-    body = ''.join(item_svg(item, px, icons) for item in shown)
+    ts = doc.get('text_scale', DEFAULT_TEXT_SCALE)
+    body = ''.join(item_svg(item, px, icons, ts) for item in shown)
     names = places_svg(doc, places or [])
     box_text = ' '.join(f'{round(v, 2):g}' for v in box)
     dims = f' width="{int(size[0])}" height="{int(size[1])}"' if size else ''
@@ -2266,7 +2301,7 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
         if item['size'] != 1:
             size = round(item['size'], 2)
             lines.append(f'_m setMarkerSize [{size}, {size}];')
-        if item['kind'] == 'unit' and item.get('rotation'):
+        if item['kind'] in ('unit', 'point') and item.get('rotation'):
             lines.append(f"_m setMarkerDir {round(item['rotation'] % 360, 1)};")
         if editable:
             lines.append('_n pushBack _m;')
@@ -3002,7 +3037,8 @@ def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> 
         key = points_by_marker.get(mtype) or by_lower.get(mtype.lower())
         if key:
             items.append({'kind': 'point', 'marker': key, 'x': x, 'y': y, 'label': label,
-                          'color': '' if MARKERS[key].get('paint') else tint, 'size': scale})
+                          'color': '' if MARKERS[key].get('paint') else tint, 'size': scale,
+                          'rotation': round(float(direction or 0) % 360, 1)})
             continue
         found = _unit_from_class(mtype)
         if found:
