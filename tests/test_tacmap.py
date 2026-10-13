@@ -2018,18 +2018,21 @@ def test_a_marker_is_drawn_from_its_picture_in_its_colour():
         {'kind': 'point', 'marker': 'mil_dot', 'x': 10, 'y': 10, 'color': '#e03b3b'},
         {'kind': 'point', 'marker': 'mil_box', 'x': 20, 'y': 20}])).doc
     svg = tacmap.render(doc, marker_images={'mil_dot': '/g/1/mi/mil_dot.png'})
-    assert '<mask id="tmk-mil_dot"' in svg and 'href="/g/1/mi/mil_dot.png"' in svg
-    assert 'fill="#e03b3b" mask="url(#tmk-mil_dot)"' in svg
+    assert '<image id="tmk-mil_dot" href="/g/1/mi/mil_dot.png"' in svg
+    # Tinted the way Arma does it: the picture multiplied by the colour.
+    assert '<use href="#tmk-mil_dot" filter="url(#tmt-e03b3b)"/>' in svg
+    assert '<filter id="tmt-e03b3b"' in svg and 'values="0.8784 0 0 0 0 0 0.2314' in svg
     assert svg.count('stroke-dasharray="8 6"') == 1          # the box has no picture
-    assert '<mask' not in tacmap.render(doc)
+    assert '<image' not in tacmap.render(doc)
 
 
 def test_a_unit_is_its_sides_marker_with_its_size_stacked_on_it():
     item = _parse_one(unit(side='hostile', symbol='armor', echelon='platoon'))
     svg = tacmap.item_svg(item, icons={'o_armor', 'group_3'})
     colour = tacmap.AFFILIATIONS['hostile']['fill']
-    assert f'fill="{colour}" mask="url(#tmk-o_armor)"' in svg
-    assert f'fill="{colour}" mask="url(#tmk-group_3)"' in svg
+    tint = colour.lstrip('#')
+    assert f'<use href="#tmk-o_armor" filter="url(#tmt-{tint})"/>' in svg
+    assert f'<use href="#tmk-group_3" filter="url(#tmt-{tint})"/>' in svg
     script = tacmap.to_sqf(tacmap.parse(_doc(items=[item])).doc, prefix='m1')
     assert 'setMarkerType "o_armor"' in script and 'setMarkerType "group_3"' in script
 
@@ -2049,10 +2052,9 @@ def test_a_flag_is_its_own_colours_in_both_places():
     item = _parse_one({'kind': 'point', 'marker': 'flag_uk', 'x': 10, 'y': 10,
                        'color': '#e03b3b'})
     svg = tacmap.item_svg(item, icons={'flag_uk'})
-    assert '<use href="#tmk-flag_uk"/>' in svg and 'mask=' not in svg
+    assert '<use href="#tmk-flag_uk"/>' in svg and 'filter=' not in svg
     assert tacmap.arma_colour(item) == 'Default'
-    defs = tacmap.defs({'flag_uk': '/x.png'})
-    assert '<g id="tmk-flag_uk"><image' in defs and '<mask' not in defs
+    assert '<image id="tmk-flag_uk"' in tacmap.defs({'flag_uk': '/x.png'})
 
 
 def test_marker_pictures_are_matched_by_where_the_game_keeps_them():

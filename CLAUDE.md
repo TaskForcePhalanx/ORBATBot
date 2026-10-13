@@ -2448,13 +2448,17 @@ it, and anything without a picture is not offered.
   then a file named after its class, then a file name only one picture has.
   `picture_coverage()` is what the Terrains page lists: per group, how many
   pictures this server has and the game paths of the ones it lacks.
-- **Tinted with a mask.** Arma's pictures are white on transparent and the
-  game multiplies them by the marker colour, so `icon_masks()` puts one
-  `<mask>` per picture in the defs and a marker or unit is a rect in its
-  colour through it (`_picture_svg()`, mirrored by `pictureSVG()` in
-  `tacmap.js`). A flag (`paint`, the Flags group) is in its own colours and is
-  placed as an `<image>` instead. Ops traces get the pictures as data URIs
-  (`marker_images_inline()`), since resvg fetches nothing.
+- **Tinted by multiplying, as the game does.** Arma draws a marker picture
+  multiplied by the marker colour: white becomes the colour, black stays
+  black, transparency is the picture's — which is why a NATO marker is a
+  coloured frame with black line work and its size dots are black. So each
+  picture is an `<image>` in the defs, placed with `<use>` through a colour
+  matrix filter per colour (`tint_filter()`, id `tmt-<hex>`; `render()` emits
+  one for every colour on the map, `tintId()` in `tacmap.js` adds any new
+  one). It replaced a luminance `<mask>`, which made exactly the black line
+  work disappear. A flag (`paint`, the Flags group) is placed as it is. Ops
+  traces get the pictures as data URIs (`marker_images_inline()`), since
+  resvg fetches nothing.
 - **Missing is a placeholder, never a guess.** A map drawn before the
   pictures were uploaded, or copied from another server, draws a dashed **?**
   (`MISSING_PICTURE`) where a picture is missing. The editor's lists offer only

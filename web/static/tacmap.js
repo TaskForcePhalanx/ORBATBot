@@ -235,14 +235,36 @@
       esc(item.label) + '</text></g>';
   }
 
+  // Mirrors tint_filter() in utils/tacmap.py: Arma multiplies a marker's
+  // picture by its colour. The server put a filter in the defs for every
+  // colour on the map when it was drawn; a new colour gets one here.
+  var svgDefs = svg.querySelector('defs') ||
+    svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg', 'defs'), svg.firstChild);
+
+  function tintId(colour) {
+    var hex = String(colour || '').replace('#', '').toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(hex)) hex = 'ffffff';
+    if (!document.getElementById('tmt-' + hex)) {
+      var parts = [0, 2, 4].map(function (at) {
+        return Math.round(parseInt(hex.slice(at, at + 2), 16) / 255 * 10000) / 10000;
+      });
+      var filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+      filter.setAttribute('id', 'tmt-' + hex);
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      filter.innerHTML = '<feColorMatrix type="matrix" values="' + parts[0] + ' 0 0 0 0 0 ' +
+        parts[1] + ' 0 0 0 0 0 ' + parts[2] + ' 0 0 0 0 0 1 0"/>';
+      svgDefs.appendChild(filter);
+    }
+    return 'tmt-' + hex;
+  }
+
   function pictureSVG(key, colour) {
     // Mirrors _picture_svg() in utils/tacmap.py: the game's picture tinted
     // with the item's colour, a flag as it is, a placeholder when this
     // server has none.
     if (!iconKeys[key]) return catalog.missingPicture;
     if (markers[key] && markers[key].paint) return '<use href="#tmk-' + key + '"/>';
-    return '<rect x="0" y="0" width="100" height="100" fill="' + colour +
-      '" mask="url(#tmk-' + key + ')"/>';
+    return '<use href="#tmk-' + key + '" filter="url(#' + tintId(colour) + ')"/>';
   }
 
   function unitSVG(item) {

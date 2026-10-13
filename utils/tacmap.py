@@ -1112,30 +1112,40 @@ def _paints(key: str) -> bool:
 
 
 def icon_masks(images: dict | None) -> str:
-    """The game's own pictures this guild uploaded, once each.
+    """The game's own pictures this guild uploaded, once each, for a `<use>`.
 
-    Arma's pictures are white on transparent and the game tints them with the
-    marker's colour, so each is a mask: a fill in the item's colour let
-    through exactly where the picture is. A flag is in its own colours and is
-    placed as it is. `images` is key → href: a URL on a page, a data URI in an
-    ops trace, which resvg draws without fetching anything."""
+    `images` is key → href: a URL on a page, a data URI in an ops trace,
+    which resvg draws without fetching anything."""
     parts = []
     for key, href in sorted((images or {}).items()):
         if not re.fullmatch(r'[a-z0-9_]+', key):
             continue
-        picture = (f'<image href={quoteattr(href)} x="0" y="0" width="100" height="100" '
-                   'preserveAspectRatio="xMidYMid meet"/>')
-        if _paints(key):
-            parts.append(f'<g id="{icon_mask_id(key)}">{picture}</g>')
-        else:
-            parts.append(f'<mask id="{icon_mask_id(key)}" maskUnits="userSpaceOnUse" '
-                         f'x="0" y="0" width="100" height="100">{picture}</mask>')
+        parts.append(f'<image id="{icon_mask_id(key)}" href={quoteattr(href)} x="0" y="0" '
+                     'width="100" height="100" preserveAspectRatio="xMidYMid meet"/>')
     return ''.join(parts)
 
 
-def defs(images: dict | None = None) -> str:
-    """The pictures, once, for both renderers to place."""
-    return f'<defs>{icon_masks(images)}</defs>'
+def tint_id(colour: str) -> str:
+    return 'tmt-' + (colour or '').lstrip('#').lower()
+
+
+def tint_filter(colour: str) -> str:
+    """Arma tints a marker picture by multiplying it with the marker colour:
+    white becomes the colour, black stays black, the transparency is the
+    picture's. A colour matrix is exactly that multiplication."""
+    rgb = _rgb(colour) or (255, 255, 255)
+    r, g, b = (round(v / 255, 4) for v in rgb)
+    return (f'<filter id="{tint_id(colour)}" color-interpolation-filters="sRGB">'
+            f'<feColorMatrix type="matrix" values="{r} 0 0 0 0 0 {g} 0 0 0 '
+            f'0 0 {b} 0 0 0 0 0 1 0"/></filter>')
+
+
+def defs(images: dict | None = None, tints=()) -> str:
+    """The pictures and the colours they are tinted in, once each, for both
+    renderers to place."""
+    filters = ''.join(tint_filter(colour) for colour in sorted(set(tints))
+                      if _rgb(colour))
+    return f'<defs>{icon_masks(images)}{filters}</defs>'
 
 
 def _picture_svg(key: str, colour: str, icons) -> str:
@@ -1144,9 +1154,13 @@ def _picture_svg(key: str, colour: str, icons) -> str:
     if key in icons:
         if _paints(key):
             return f'<use href="#{icon_mask_id(key)}"/>'
-        return (f'<rect x="0" y="0" width="100" height="100" fill="{colour}" '
-                f'mask="url(#{icon_mask_id(key)})"/>')
+        return f'<use href="#{icon_mask_id(key)}" filter="url(#{tint_id(colour)})"/>'
     return MISSING_PICTURE
+
+
+def _tints(items) -> set:
+    """The colours the pictured items on a map are tinted in."""
+    return {item_colour(item) for item in items if item['kind'] in ('unit', 'point')}
 
 
 # What stands in for a marker or unit this server has no picture for — a map
@@ -1711,7 +1725,8 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     # the widths are given in sheet units per pixel of the picture instead.
     px = box[2] / size[0] if size and size[0] else 1.0
     icons = frozenset(marker_images or ())
-    body = ''.join(item_svg(item, px, icons) for item in ordered_items(doc))
+    shown = ordered_items(doc)
+    body = ''.join(item_svg(item, px, icons) for item in shown)
     names = places_svg(doc, places or [])
     box_text = ' '.join(f'{round(v, 2):g}' for v in box)
     dims = f' width="{int(size[0])}" height="{int(size[1])}"' if size else ''
@@ -1720,7 +1735,7 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     return (
         f'<svg{namespace} viewBox="{box_text}"{dims} '
         f'class={quoteattr(classes)} preserveAspectRatio="xMidYMid meet">'
-        f'{defs(marker_images)}<g id="tm-back">'
+        f'{defs(marker_images, _tints(shown))}<g id="tm-back">'
         f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
         f'{_grid_svg(doc)}{names}</g>'
         f'<g id="tm-mask">{mask_svg(doc)}</g>'
