@@ -814,8 +814,14 @@ _MAPS: tuple[Topic, ...] = (
             'Pick a symbol from the palette and click the sheet to place it.',
             'Select a symbol to open the inspector: side, what it is, size, '
             'mobility, parent unit, whether it is only planned, and its label.',
-            '**Drag** with the Line or Area tool to draw — or hold **Ctrl** and '
-            'drag from any tool, which is the gesture Arma’s own map uses.',
+            'Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, '
+            'then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for '
+            'freehand. The Line and Area tools do the same without Ctrl; double-click '
+            'or press **Enter** to finish. **Shift** keeps a segment straight and '
+            'snaps it to 15°.',
+            'Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 '
+            'pixels — it stays that thin at every zoom) and its arrow heads (end, '
+            'start or both) in the toolbar or the inspector.',
             'For a box or a circle, drag corner to corner with **Rectangle** or '
             '**Ellipse** — hold **Shift** for a square or a circle. Select it to '
             'resize it by a corner, turn it by the round handle, and choose an '
@@ -838,8 +844,11 @@ _MAPS: tuple[Topic, ...] = (
             'Whatever colour you pick is the colour it comes out in Arma, on '
             'the nearest marker colour the game ships. Cyan and purple are '
             'the two Arma has no match for.',
-            'Two people drawing at once will overwrite each other’s save. '
-            'Agree who has the pen.',
+            'If somebody else saved the map after you opened it, your save is '
+            'stopped and you choose: reload theirs, or save yours over it.',
+            'On a campaign map, an AO’s layer is the planner’s: its name follows the '
+            'AO, and deleting it deletes the AO when you save. A phase’s layer on an '
+            'AO map cannot be deleted here.',
         ),
         page='maps',
         related=('map-layers', 'map-background', 'share-a-map'),
@@ -1019,8 +1028,12 @@ _MAPS: tuple[Topic, ...] = (
             'marker, so their labels stay on the website’s map.',
             'AOs come across as their borders. The grey mask around them does not: '
             'Arma cannot draw a cover with holes in it from a pasted script.',
-            'Dashed is lost — Arma has no dashed marker. The debug console has '
-            'to be enabled in the mission’s `description.ext`.',
+            'Arma has no dashed line and draws every line at one width, so a '
+            'dashed or dotted line arrives as its dashes — one short line marker '
+            'each, at most 150 per line — and thickness stays on the website. '
+            'Arrow heads arrive as Arma arrow markers at whichever ends have one.',
+            'The debug console has to be enabled in the mission’s '
+            '`description.ext`.',
         ),
         page='maps',
     ),

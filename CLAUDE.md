@@ -102,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(612 cases), and every one of them covers a module that imports nothing beyond
+(620 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -307,6 +307,7 @@ One row is one tactical map — see
 | `channel_id` / `message_id` | TEXT | Where the map was last announced |
 | `created_by` / `created_by_name` | TEXT | |
 | `updated_by_name` | TEXT | Who last drew on it — including *someone with the link* |
+| `doc_rev` | INTEGER | Bumped by every write of `doc`. A save names the revision it was made on and is refused if somebody else saved since |
 | `created_at` / `updated_at` | TIMESTAMP | |
 
 ### `tac_terrains` and `tac_terrain_tiles`
@@ -1347,9 +1348,21 @@ their **layers** in step with its AOs and phases.
   ground. Its ops traces carry the same look.
 - **12 layers per map** (`tacmap.MAX_LAYERS`). Both syncs stop there and say
   which AO or phase did not fit.
-- **A sync rewrites the stored document**, so somebody with that map open in
-  the editor saves the old layers back over it; the next sync puts them right.
-  Live collaboration is not here, as the map section below says.
+- **A sync rewrites the stored document**, which bumps `tac_maps.doc_rev`, so
+  somebody with that map open in the editor is told on their next save that
+  it changed, and chooses (see *Two people saving one map*).
+- **The planner's layers are the planner's in the editor too.** `tacmap.js`
+  (`plannerLayer()`) shows a `cpao`/`cpp` layer's name read-only; an AO
+  layer's ✕ deletes the layer **with its outline**, which is deleting the AO;
+  a phase layer has no ✕. Deleting an AO layer used to move the outline to
+  the first layer, where `campaign_map_changes()` — which skipped an AO
+  whose layer was missing as "never on this map" — read it as a brand-new AO
+  of the same name, and the sync gave the old one its layer back: **the
+  duplicated layer**. Now `campaign_map_changes(…, previous)` counts an AO
+  whose layer was on the map before the save as deleted, so an outline moved
+  by an old editor finds its way home by its name and a deleted one deletes
+  the AO (or, if the AO is in use, `reconcile_campaign_map()` puts the layer
+  and the outline back).
 
 The campaign page draws the campaign map server-side (`campaign_map_svg()`,
 `tacmap.render()`), and a mission's **Maps** card lists the AOs, the ones its
@@ -2588,21 +2601,47 @@ free colour field is still there beside the swatches for anything else.
 `marker` — a marker cannot take the colour of the line it sits on, so a
 recoloured line would have kept its side's arrow.
 
-**Everything that is not a unit frame is drawn twice**, `ink_backing()`
-under `item_colour()`, because the ink is now usually dark and the bare
-sheet is dark too. The backing is **wider and always solid**: a dashed
-backing under a dashed line leaves the gaps unbacked, which is precisely
-where a dark line over dark terrain vanishes. Points already did this with
-the side's `edge`/`fill` pair; lines and areas did not, and black default
-ink is what made that visible — the first cut of this change rendered three
-phase lines that were nearly invisible on the default sheet, which is why
-it was looked at in a browser rather than trusted.
+**A line is drawn once, as thin as it says.** Lines, areas' edges and shape
+outlines carry a `weight` in **screen pixels** (`LINE_WEIGHTS`, 1–6, old
+items get one from their size) and are drawn with
+`vector-effect: non-scaling-stroke`, so they keep that width at every zoom —
+which is what Arma's own map lines do, and what makes the thinnest a true
+1px line. There is **no backing pass** under them any more (`ink_backing()`
+is still used for task markers and AO tabs): the halo made the thinnest line
+three times as wide as it said, and a planner asked for lines without an
+outline. Black ink on the bare dark sheet is therefore hard to see — on a
+terrain, which every real map has, it is not.
+
+**resvg ignores `non-scaling-stroke`** (checked: it draws the width in sheet
+units), so `render()` works out `px` — sheet units per pixel of the picture,
+`view width / size width` — whenever it is given a `size`, and `_stroke()`
+multiplies the width and the dash pattern by it. On a page `px` is 1 and the
+browser does the rest; in an ops trace the line comes out as thick as on
+screen. Arrow heads (`arrow_head()`) are sized from the weight times `px`
+for the same reason.
+
+`style` is `solid`, `dashed` or `dotted` (`dash_pattern()`: a dot is a
+zero-length dash with a round cap, as wide as the line). `arrow` on a line is
+`''`, `end`, `start` or `both` (`ARROWS`); a line saved when it was a plain
+`true` reads as `end`.
 
 ### The same colour in Arma
 
 `arma_colour()` is what the export reads, and it used to read the side
 alone — so a line painted red here arrived as `ColorWEST` blue there.
 It now maps `item_colour()` onto the nearest name in `ARMA_COLOURS`.
+
+**A dashed line is its dashes in Arma.** Checked in game: a polyline marker
+ignores `setMarkerBrush` and `setMarkerSize` — every line is solid and one
+width. So `dash_runs()` cuts a dashed or dotted line (or area edge) into
+`EXPORT_DASH` lengths, in sheet units so the dashes are as long against the
+terrain as on the website at its fitted zoom, and `to_sqf()` writes one
+POLYLINE marker per dash. `MAX_DASHES` (150) caps the cost: past it the
+dashes get longer rather than more numerous. A dashed shape becomes its
+outline's dashes (`shape_outline()`; an ellipse as a 48-gon) plus, when it is
+filled, the shape marker carrying only the fill. Arrow heads are a
+`mil_arrow` marker at each end that has one. Thickness has no Arma
+counterpart and stays on the website.
 
 `setMarkerColor` takes a class out of `CfgMarkerColors` and nothing else —
 there is no hex form, and a plan pasted into the debug console cannot
@@ -2637,29 +2676,34 @@ server-side and the editor takes that markup over rather than building it from
 nothing, so the fallback is a map you can read, not an empty box. That is also
 why the read-only page and the share link need no JavaScript at all.
 
-#### A line is drawn by dragging, and only by dragging
+#### A line is plotted by clicking or dragged freehand, as in Arma
 
-Click, click, click, Enter was a mode, and one you had to leave before
-anything else worked. It is gone. **Dragging is the only way**: with the
-Line or Area tool, or by holding Ctrl from any tool including Select, which
-is the gesture Arma's own map uses. The Area tool closes the shape;
-everything else leaves it a line.
+Hold **Ctrl** and **click** each corner, let go of Ctrl to finish — Arma's
+own gesture — or hold Ctrl and **drag** for freehand. The Line and Area
+tools do the same without Ctrl, finishing on a double-click or Enter. Both
+can be mixed in one line: a drag while plotting carries the same line on
+freehand. The Area tool closes the shape.
+
+How it tells them apart: a press that never moves 5px before it is let go is
+a **click**, and the first click turns the draft into a chain
+(`draft.chain`); `draft.byCtrl` says whether letting go of Ctrl ends it.
+Between clicks a rubber band runs from the last corner to the pointer.
+**The double-click is detected in pointerdown** (`draft.lastClick`, 450 ms
+and 6px), not from the browser's `dblclick`, which never fired: the draft
+redraws under the pointer between the two clicks. The draft itself carries
+`pointer-events="none"` for the same reason.
 
 **A line never gets an arrowhead on its own.** One says *this way*, and most
 lines on a plan are boundaries and phase lines that say no such thing; the
 inspector puts one on the lines that mean it.
 
-**Shift straightens the segment being drawn**, from the last point fixed
-before Shift went down to wherever the pointer is (`draft.anchor`). Dragging
-alone is freehand, which is only as straight as a hand — and a boundary is
-not. Releasing Shift clears the anchor so freehand carries on from the
-straight end, which is what lets one stroke be a straight leg, a curve and a
-straight leg again. Measured on the same deliberately shaky drag: 27 points
-wandering 2.1% off straight without it, 2 points and 0.00% with it.
+**Shift keeps a segment straight.** While plotting it snaps the next corner
+to 15° from the last (`snapCorner()`); while dragging it straightens the
+segment from the last point fixed before Shift went down (`draft.anchor`),
+and letting go carries on freehand from the straight end.
 
-This is the half that went missing when click-by-click was removed: that
-mode's one virtue was exact straight segments, and nothing replaced it for
-two rounds.
+**The status line never wraps** (unless it is an error): a hint that grew a
+line between two clicks moved the map under the pointer.
 
 Three details are load-bearing:
 
@@ -3121,8 +3165,18 @@ it stays current while the plan is still being edited.
   `catalog()` puts a new symbol in the palette on its own.
 - **The editor page is `.widepage`**, the same escape from the 900px column the
   ORBAT editor uses.
-- **Live collaboration is not here.** Two people drawing at once will overwrite
-  each other's save, as two people editing one ORBAT would. Server-Sent Events
+- **Two people saving one map** no longer overwrite each other silently.
+  Every write of the document bumps `tac_maps.doc_rev`; the editor sends the
+  revision it opened on, and `database.save_tac_map_doc_if()` stores only if
+  it still matches (one `UPDATE … WHERE doc_rev = $n`). Otherwise the route
+  answers 409 and the editor offers *Reload theirs* or *Save mine over it*
+  (`force`). An edit made while a save was in flight is kept: the editor
+  only swaps in a campaign map's returned document when nothing changed
+  since it sent (`state.edits`). After an undo, a delete or a returned
+  document, `refreshLayers()` redraws the layer panel and pickers, whose
+  rows otherwise kept editing layer objects the document no longer had.
+- **Live collaboration is not here.** Two people drawing at once are told, not
+  merged. Server-Sent Events
   were sketched for the roster and would fit here the same way — the request
   handler already sees every change, because it runs in the bot's process.
 

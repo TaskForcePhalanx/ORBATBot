@@ -1915,7 +1915,7 @@ def ao_legend(doc: dict | None) -> list:
             for _, _, i in sorted(entries, key=lambda e: (e[0], e[1]))]
 
 
-def campaign_map_changes(doc: dict, aos: list) -> dict:
+def campaign_map_changes(doc: dict, aos: list, previous: dict | None = None) -> dict:
     """What somebody did to the AOs by drawing on the campaign map, worked out
     from the saved document (`aos`: [{id, name}]):
 
@@ -1926,22 +1926,32 @@ def campaign_map_changes(doc: dict, aos: list) -> dict:
                    items to the first one) whose label names an AO that has
                    lost its outline: it goes back, rather than becoming a twin
         renamed    {ao id: name}         an outline relabelled on the map
-        missing    [ao id]               AOs whose outline was deleted — only
-                   an AO whose layer is on the map, so an AO that never had
-                   room there is not mistaken for a deleted one
+        missing    [ao id]               AOs whose outline was deleted, or
+                   whose layer was — only an AO whose layer is on the map, or
+                   was on it before this save (`previous`), so an AO that
+                   never had room there is not mistaken for a deleted one
 
     Nothing here is applied; `place_ao_items()` and the web layer do that.
     """
     known = {ao_layer_id(a['id']): a for a in aos}
     layers = {l['id'] for l in doc['layers']}
+    before = {l['id'] for l in (previous or {}).get('layers', [])}
     by_name = {}
     missing = []
     renamed = {}
     for ao in aos:
         key = ao_layer_id(ao['id'])
         if key not in layers:
-            # Never on this map — it had no room, or was never synced. That is
-            # not somebody deleting it, and must not delete it.
+            if key in before:
+                # Its layer was deleted in the editor, which is deleting the
+                # AO. Counting it as never-on-the-map instead is what turned
+                # its outline, moved to the first layer, into a second AO of
+                # the same name and gave the old one its layer back — the
+                # duplicated layer.
+                missing.append(ao['id'])
+                by_name.setdefault((ao['name'] or '').strip().lower(), ao['id'])
+            # Otherwise never on this map — it had no room, or was never
+            # synced. That is not somebody deleting it, and must not delete it.
             continue
         # A map from before AOs were flagged has a plain outline on the
         # layer: that is still the AO's outline, not a deletion.

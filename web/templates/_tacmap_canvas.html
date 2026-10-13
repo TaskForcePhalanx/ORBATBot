@@ -8,6 +8,7 @@
 <div class="tmapp" id="tmapp"
      data-save="{{ save_url }}"
      data-editable="{{ '1' if editable else '0' }}"
+     data-rev="{{ map_rev|default('', true) }}"
      data-csrf="{{ csrf }}">
   {% if editable %}
     <div class="tmbar">
@@ -25,13 +26,13 @@
       </div>
       {# The gesture is the one Arma's own map uses, so it is what people try
          first — but nothing on the page would otherwise say it is here. #}
-      <p class="tmhint">Draw a line by dragging: with the Line or Area tool, or
-        by holding <kbd>Ctrl</kbd> from any tool. Hold <kbd>Shift</kbd> while
-        you drag for a <strong>straight</strong> segment — let go of it and
-        freehand carries on, hold it again for the next corner.
-        <kbd>Esc</kbd> throws the stroke away. Rectangles and ellipses are
-        dragged corner to corner — <kbd>Shift</kbd> makes a square or a circle —
-        and resized or turned by their handles once selected. The <strong>AO</strong>
+      <p class="tmhint">Lines work as on Arma's map: hold <kbd>Ctrl</kbd> and
+        <strong>click</strong> each corner, let go of <kbd>Ctrl</kbd> to finish — or
+        hold <kbd>Ctrl</kbd> and <strong>drag</strong> for freehand. The Line and Area
+        tools do the same without <kbd>Ctrl</kbd> (double-click or <kbd>Enter</kbd> to
+        finish). <kbd>Shift</kbd> keeps a segment straight and snaps it to 15°;
+        <kbd>Esc</kbd> throws it away. Rectangles and ellipses are dragged corner to
+        corner — <kbd>Shift</kbd> makes a square or a circle. The <strong>AO</strong>
         tool greys out the map and clears each area you draw; on a campaign map,
         every AO drawn becomes one of the campaign's AOs when you save.</p>
       <div class="tmpick">
@@ -52,10 +53,10 @@
           <option value="free">Freehand</option>
         </select></label>
         <label data-for="rect ellipse">Fill <select id="tmfill"></select></label>
-        <label data-for="select line area rect ellipse">Line <select id="tmstyle">
-          <option value="solid">Solid</option>
-          <option value="dashed">Dashed</option>
-        </select></label>
+        <label data-for="select line area rect ellipse">Line <select id="tmstyle"></select></label>
+        <label data-for="select line area rect ellipse"
+               title="On this map only — Arma draws every line at one width">Thickness
+          <select id="tmweight"></select></label>
         <span class="tmswatches" data-for="select line area point rect ellipse" id="tmcolours"
               role="group" aria-label="Colour"></span>
       </div>
@@ -137,12 +138,15 @@
             </div>
           </div>
           <label class="field" data-for="line area shape"><span>Line</span>
-            <select id="tmf-style">
-              <option value="solid">Solid</option>
-              <option value="dashed">Dashed</option>
-            </select></label>
-          <label class="field tmcheck" data-for="line">
-            <input type="checkbox" id="tmf-arrow"> <span>Arrow head</span></label>
+            <select id="tmf-style"></select>
+            <span class="hint">Arma has no dashed line, so a dashed or dotted one
+              goes across as its dashes — one marker each.</span></label>
+          <label class="field" data-for="line area shape"><span>Thickness</span>
+            <select id="tmf-weight"></select>
+            <span class="hint">On this map only: Arma draws every line at one
+              width.</span></label>
+          <label class="field" data-for="line"><span>Arrow head</span>
+            <select id="tmf-arrow"></select></label>
           <div class="actions">
             <button type="button" class="button" id="tmf-front">Bring to front</button>
             <button type="button" class="button danger" id="tmf-delete">Delete</button>
@@ -241,8 +245,10 @@
             <li><kbd>V</kbd> select · <kbd>U</kbd> unit · <kbd>M</kbd> marker ·
               <kbd>L</kbd> line · <kbd>A</kbd> area · <kbd>R</kbd> rectangle ·
               <kbd>E</kbd> ellipse · <kbd>O</kbd> AO · <kbd>T</kbd> text</li>
-            <li>Line and area: drag to draw, <kbd>Shift</kbd> for a straight
-              segment, <kbd>Esc</kbd> cancels</li>
+            <li>Line and area: <kbd>Ctrl</kbd>+click corners (let go of
+              <kbd>Ctrl</kbd> to finish) or <kbd>Ctrl</kbd>+drag freehand;
+              <kbd>Shift</kbd> straight and 15° snap, <kbd>Enter</kbd> or
+              double-click finishes, <kbd>Esc</kbd> cancels</li>
             <li>Rectangle and ellipse: drag corner to corner, <kbd>Shift</kbd> for a
               square or circle; drag a corner handle to resize, the round one to
               turn (<kbd>Shift</kbd> snaps to 15°)</li>

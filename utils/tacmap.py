@@ -473,7 +473,31 @@ MARKERS = {
 }
 DEFAULT_MARKER = 'dot'
 
-LINE_STYLES = ('solid', 'dashed')
+LINE_STYLES = ('solid', 'dashed', 'dotted')
+LINE_STYLE_LABELS = {'solid': 'Solid', 'dashed': 'Dashed', 'dotted': 'Dotted'}
+
+# How thick a line, an area's edge or a shape's outline is drawn, in screen
+# pixels. Lines keep that width at every zoom (`vector-effect:
+# non-scaling-stroke`), the way Arma's own map lines do, so the thinnest is a
+# true 1px line however far in or out you are. Arma draws every line marker
+# at one fixed width, so this is the website's alone — the export says so.
+LINE_WEIGHTS = (1, 2, 3, 4, 6)
+DEFAULT_WEIGHT = 2
+MAX_WEIGHT = 8
+
+# Where a line carries an arrow head. Each one becomes a `mil_arrow` marker in
+# Arma, turned along the end of the line it sits on.
+ARROWS = (('', 'None'), ('end', 'At the end'), ('start', 'At the start'),
+          ('both', 'Both ends'))
+
+# A dashed or dotted line in Arma, in sheet units: Arma has no dashed marker,
+# so the export cuts the line into short line markers, one per dash. Measured
+# in sheet units so the dashes come out as long, against the terrain, as they
+# look on this map at its fitted zoom.
+EXPORT_DASH = {'dashed': (14.0, 9.0), 'dotted': (2.0, 7.0)}
+# The most markers one dashed item may become. A long dashed line would
+# otherwise be hundreds of markers; past this the dashes get longer instead.
+MAX_DASHES = 150
 
 # A shape is a rectangle or an ellipse with a centre, a size and a rotation —
 # an objective box, a sector, a no-fire zone. It is its own kind rather than an
@@ -1066,7 +1090,10 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         item['points'] = points
         item['style'] = raw.get('style') if raw.get('style') in LINE_STYLES else 'solid'
         if kind == 'line':
-            item['arrow'] = bool(raw.get('arrow'))
+            item['arrow'] = _arrow(raw.get('arrow'))
+
+    if kind in ('line', 'area', 'shape'):
+        item['weight'] = _weight(raw.get('weight'), item['size'])
 
     if kind in ('area', 'shape'):
         # An AO: clear in the mask, drawn as a border with no fill.
@@ -1084,6 +1111,22 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
                                  doc['height'] * 1.5), 2)
         item['rotation'] = round(_clamp(_number(raw.get('rotation'), 0.0), -360, 360), 1)
     return item
+
+
+def _arrow(raw) -> str:
+    """Where a line's arrow heads go. A line saved before there was a choice
+    stored a plain true or false, which meant one at the end."""
+    if raw is True:
+        return 'end'
+    return raw if raw in dict(ARROWS) else ''
+
+
+def _weight(raw, size: float) -> int:
+    """A line's thickness in screen pixels. A line from before there was one
+    was as thick as its size made it, so it keeps about that."""
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(raw):
+        return int(_clamp(round(raw), 1, MAX_WEIGHT))
+    return int(_clamp(round(4 * line_size(size)), 1, LINE_WEIGHTS[-1]))
 
 
 def _parse_layers(raw) -> list:
@@ -1235,6 +1278,11 @@ def catalog() -> dict:
         'points': [{'glyph': glyph, 'label': label} for glyph, label in POINT_PRESETS],
         'terrains': [{'name': name, 'size': size} for name, size in ARMA_TERRAINS],
         'lineStyles': list(LINE_STYLES),
+        'lineStyleLabels': dict(LINE_STYLE_LABELS),
+        'lineWeights': list(LINE_WEIGHTS),
+        'defaultWeight': DEFAULT_WEIGHT,
+        'maxWeight': MAX_WEIGHT,
+        'arrows': [{'key': key, 'label': label} for key, label in ARROWS],
         'shapes': [{'key': key, 'label': value['label']} for key, value in SHAPES.items()],
         'fills': [{'key': key, 'label': value['label']}
                   for key, value in SHAPE_FILLS.items()],
@@ -1397,8 +1445,11 @@ def ink_backing(colour: str) -> str:
     return _INK_DARK if luma > 0.5 else _INK_LIGHT
 
 
-def item_svg(item: dict) -> str:
-    """One item, drawn. The browser composes the same three or four elements."""
+def item_svg(item: dict, px: float = 1.0) -> str:
+    """One item, drawn. The browser composes the same three or four elements.
+    `px` is sheet units per pixel of the picture: 1 on a page, where line
+    widths are screen pixels, and the crop over the picture's width for an
+    ops trace."""
     kind = item['kind']
     if kind == 'unit':
         return _unit_svg(item)
@@ -1407,8 +1458,8 @@ def item_svg(item: dict) -> str:
     if kind == 'text':
         return _text_svg(item)
     if kind == 'shape':
-        return _figure_svg(item)
-    return _shape_svg(item)
+        return _figure_svg(item, px)
+    return _shape_svg(item, px)
 
 
 def is_ao(item: dict) -> bool:
@@ -1691,22 +1742,28 @@ def _centroid(points: list) -> tuple:
             sum(point[1] for point in points) / len(points))
 
 
-def arrow_head(points: list, size: float) -> list:
-    """The three corners of the head on the end of a line, or [].
+def arrow_head(points: list, weight: int = DEFAULT_WEIGHT, px: float = 1.0,
+               start: bool = False) -> list:
+    """The three corners of the head on the end of a line (or its start), or [].
+
+    Sized from the line's thickness rather than the map's zoom-dependent
+    units, so a 1px line gets a fine head and a thick one a bold head. `px` is
+    sheet units per pixel — 1 on a page, more for an ops trace drawn into a
+    briefing pack.
 
     Drawn as a polygon rather than an SVG `marker`, because a marker cannot
     take its colour from the line it sits on — `context-stroke` is not
     everywhere — and a line with a colour of its own would have kept the
     side's arrow.
     """
-    (x1, y1), (x2, y2) = points[-2], points[-1]
+    (x1, y1), (x2, y2) = (points[1], points[0]) if start else (points[-2], points[-1])
     length = math.hypot(x2 - x1, y2 - y1)
     if not length:
         return []
     along = ((x2 - x1) / length, (y2 - y1) / length)
-    back, wide = 13 * size, 5.5 * size
+    back, wide, tip = (8 + 3 * weight) * px, (3 + 1.5 * weight) * px, weight * px / 2
     return [
-        (round(x2 + along[0] * 2 * size, 2), round(y2 + along[1] * 2 * size, 2)),
+        (round(x2 + along[0] * tip, 2), round(y2 + along[1] * tip, 2)),
         (round(x2 - along[0] * back - along[1] * wide, 2),
          round(y2 - along[1] * back + along[0] * wide, 2)),
         (round(x2 - along[0] * back + along[1] * wide, 2),
@@ -1714,43 +1771,53 @@ def arrow_head(points: list, size: float) -> list:
     ]
 
 
-def _shape_svg(item: dict) -> str:
+def dash_pattern(style: str, weight: int) -> tuple | None:
+    """A dashed or dotted line's on/off lengths, in screen pixels. A dot is a
+    dash with no length and a round cap, so it is as wide as the line."""
+    if style == 'dashed':
+        return (3 * weight + 6, 2 * weight + 4)
+    if style == 'dotted':
+        return (0.01, 2 * weight + 3)
+    return None
+
+
+def _stroke(colour: str, weight: int, style: str, px: float) -> str:
+    """The stroke of a line, an area's edge or a shape's outline.
+
+    `vector-effect: non-scaling-stroke` keeps it the same number of screen
+    pixels at every zoom, as Arma's map lines are. A renderer that ignores
+    that (resvg, which draws the ops traces) reads the width in sheet units,
+    which is why `px` — sheet units per pixel of the picture — scales it: the
+    trace comes out with the line as thick as it is on screen."""
+    attrs = (f'stroke="{colour}" stroke-width="{round(weight * px, 3):g}" '
+             'vector-effect="non-scaling-stroke" stroke-linecap="round" '
+             'stroke-linejoin="round"')
+    dash = dash_pattern(style, weight)
+    if dash:
+        attrs += f' stroke-dasharray="{round(dash[0] * px, 3):g} {round(dash[1] * px, 3):g}"'
+    return attrs
+
+
+def _shape_svg(item: dict, px: float = 1.0) -> str:
+    # No backing pass any more: a line is drawn once, in its own colour, as
+    # thin as asked. The halo under it made the thinnest line three times as
+    # wide as it said, which is the "outline" lines should not have.
     colour = item_colour(item)
-    backing = ink_backing(colour)
     path = ' '.join(f'{round(x, 2)},{round(y, 2)}' for x, y in item['points'])
-    drawn = line_size(item['size'])
-    width = round(4 * drawn, 2)
-    # The backing is drawn wider and always solid. Wider so it shows either
-    # side of the ink; solid because a dashed backing under a dashed line
-    # leaves the gaps unbacked, which is exactly where a dark line over dark
-    # terrain disappears.
-    back_width = round(width + 2.6 * drawn, 2)
-    dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
-        if item['style'] == 'dashed' else ''
+    stroke = _stroke(colour, item.get('weight', DEFAULT_WEIGHT), item['style'], px)
     if item['kind'] == 'area':
         fill = 'fill="none"' if item.get('ao') else f'fill="{colour}" fill-opacity="0.22"'
-        shape = (
-            f'<polygon points="{path}" fill="none" stroke="{backing}" '
-            f'stroke-width="{back_width}" stroke-linejoin="round"/>'
-            f'<polygon points="{path}" {fill} '
-            f'stroke="{colour}" stroke-width="{width}"{dash} '
-            f'stroke-linejoin="round"/>'
-        )
+        shape = f'<polygon points="{path}" {fill} {stroke}/>'
         if item.get('ao'):
             return shape + _ao_tab_svg(item)
         centre = _centroid(item['points'])
         return shape + _label_svg(item['label'], centre[0], centre[1], item['size'])
 
-    parts = [
-        f'<polyline points="{path}" fill="none" stroke="{backing}" '
-        f'stroke-width="{back_width}" stroke-linecap="round" '
-        f'stroke-linejoin="round"/>',
-        f'<polyline points="{path}" fill="none" stroke="{colour}" '
-        f'stroke-width="{width}"{dash} stroke-linecap="round" '
-        f'stroke-linejoin="round"/>'
-    ]
-    if item.get('arrow'):
-        head = arrow_head(item['points'], drawn)
+    parts = [f'<polyline points="{path}" fill="none" {stroke}/>']
+    weight = item.get('weight', DEFAULT_WEIGHT)
+    ends = {'end': (False,), 'start': (True,), 'both': (True, False)}.get(item.get('arrow'), ())
+    for at_start in ends:
+        head = arrow_head(item['points'], weight, px, start=at_start)
         if head:
             corners = ' '.join(f'{x},{y}' for x, y in head)
             parts.append(f'<polygon points="{corners}" fill="{colour}"/>')
@@ -1811,17 +1878,14 @@ def shape_corners(item: dict) -> list:
             for dx, dy in ((-a, -b), (a, -b), (a, b), (-a, b))]
 
 
-def _figure_svg(item: dict) -> str:
+def _figure_svg(item: dict, px: float = 1.0) -> str:
     """A rectangle or an ellipse: drawn in its own frame, centred on 0,0, and
-    turned into place — so the hatching and the outline turn with it. The
-    outline is backed the same way a line is, wider and always solid."""
+    turned into place — so the hatching and the outline turn with it. Drawn
+    once, in its own colour, with no backing pass, the same as a line."""
     colour = item_colour(item)
-    backing = ink_backing(colour)
     drawn = line_size(item['size'])
-    width = round(4 * drawn, 2)
-    back_width = round(width + 2.6 * drawn, 2)
-    dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
-        if item['style'] == 'dashed' else ''
+    weight = item.get('weight', DEFAULT_WEIGHT)
+    stroke = _stroke(colour, weight, item['style'], px)
     a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
     ao = bool(item.get('ao'))
     if ao:
@@ -1832,20 +1896,16 @@ def _figure_svg(item: dict) -> str:
         outline = f'<rect x="{-a}" y="{-b}" width="{round(2 * a, 2)}" height="{round(2 * b, 2)}"'
     fill = (f'fill="{colour}" fill-opacity="0.22"' if item['fill'] == 'light'
             else 'fill="none"')
-    parts = [f'{outline} fill="none" stroke="{backing}" stroke-width="{back_width}" '
-             'stroke-linejoin="round"/>']
+    parts = []
     if item['fill'] == 'hatch':
         lines = ''.join(f'M{x1},{y1}L{x2},{y2}' for x1, y1, x2, y2
                         in hatch_segments(item['shape'], 2 * a, 2 * b, HATCH_GAP * drawn))
         if lines:
-            # Backed like the outline: black hatching over a dark sheet is
-            # otherwise invisible, which is the default ink on the default sheet.
-            parts.append(f'<path d="{lines}" stroke="{backing}" '
-                         f'stroke-width="{round(3.4 * drawn, 2)}" stroke-opacity="0.55"/>')
+            hatch = max(1, weight / 2)
             parts.append(f'<path d="{lines}" stroke="{colour}" '
-                         f'stroke-width="{round(1.6 * drawn, 2)}"/>')
-    parts.append(f'{outline} {fill} stroke="{colour}" stroke-width="{width}"{dash} '
-                 'stroke-linejoin="round"/>')
+                         f'stroke-width="{round(hatch * px, 3):g}" '
+                         'vector-effect="non-scaling-stroke"/>')
+    parts.append(f'{outline} {fill} {stroke}/>')
     turn = item.get('rotation') or 0
     return (f'<g transform="translate({item["x"]} {item["y"]}) rotate({turn})">'
             + ''.join(parts) + '</g>'
@@ -1962,9 +2022,13 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     """
     classes = ('tacmap ' + extra_class).strip()
     namespace = ' xmlns="http://www.w3.org/2000/svg"' if standalone else ''
-    body = ''.join(item_svg(item) for item in ordered_items(doc))
-    names = places_svg(doc, places or [])
     box = view or (0, 0, doc['width'], doc['height'])
+    # A line is so many screen pixels thick. A page's browser does that by
+    # itself; a picture of a known size is drawn by resvg, which does not, so
+    # the widths are given in sheet units per pixel of the picture instead.
+    px = box[2] / size[0] if size and size[0] else 1.0
+    body = ''.join(item_svg(item, px) for item in ordered_items(doc))
+    names = places_svg(doc, places or [])
     box_text = ' '.join(f'{round(v, 2):g}' for v in box)
     dims = f' width="{int(size[0])}" height="{int(size[1])}"' if size else ''
     # The sheet and the plan are separate groups so the editor can redraw either
@@ -2258,6 +2322,63 @@ def _map_number(prefix: str) -> str:
     return digits or str(sum(ord(character) for character in prefix) % 900 + 100)
 
 
+def dash_runs(points: list, style: str, closed: bool = False) -> list:
+    """A dashed or dotted line as the pieces Arma will draw, in sheet units:
+    a list of polylines, one per dash. Arma has no dashed line marker, so a
+    dashed line goes across as many short solid ones. A solid line is one run,
+    itself.
+
+    Past `MAX_DASHES` the dashes are lengthened rather than multiplied, so a
+    long dashed boundary costs at most that many markers."""
+    path = [tuple(p) for p in points] + ([tuple(points[0])] if closed and points else [])
+    if style not in EXPORT_DASH or len(path) < 2:
+        return [path]
+    total = sum(math.dist(path[n], path[n + 1]) for n in range(len(path) - 1))
+    on, off = EXPORT_DASH[style]
+    if total / (on + off) > MAX_DASHES:
+        stretch = total / (on + off) / MAX_DASHES
+        on, off = on * stretch, off * stretch
+    runs, run = [], [path[0]]
+    drawing, left = True, on
+    for a, b in zip(path, path[1:]):
+        length = math.dist(a, b)
+        done = 0.0
+        while length - done > left:
+            done += left
+            t = done / length
+            cut = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+            if drawing:
+                run.append(cut)
+                runs.append(run)
+            else:
+                run = [cut]
+            drawing = not drawing
+            left = on if drawing else off
+        left -= length - done
+        if drawing:
+            run.append(b)
+    if drawing and len(run) > 1:
+        runs.append(run)
+    return [[(round(x, 2), round(y, 2)) for x, y in r] for r in runs if len(r) > 1]
+
+
+def shape_outline(item: dict, steps: int = 48) -> list:
+    """A rectangle's corners or an ellipse as a polygon, turned into place —
+    for an outline Arma has to draw as line markers (a dashed one)."""
+    if item['shape'] != 'ellipse':
+        return shape_corners(item)
+    a, b = item['w'] / 2, item['h'] / 2
+    turn = math.radians(item.get('rotation') or 0)
+    cos, sin = math.cos(turn), math.sin(turn)
+    out = []
+    for n in range(steps):
+        t = 2 * math.pi * n / steps
+        dx, dy = a * math.cos(t), b * math.sin(t)
+        out.append((round(item['x'] + dx * cos - dy * sin, 2),
+                    round(item['y'] + dx * sin + dy * cos, 2)))
+    return out
+
+
 def to_sqf(doc: dict, *, prefix: str, title: str = '',
            editable: bool = False, channel: int = DEFAULT_CHANNEL) -> str:
     """The map as a script that puts these markers into a running mission.
@@ -2360,6 +2481,32 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
         name = marker_name(index)
         text = _marker_text(item)
 
+        def polylines(runs: list, suffix: str):
+            """Line markers for each run — one for a solid line, one per dash
+            for a dashed or dotted one."""
+            for number, run in enumerate(runs):
+                world = [to_world(doc, x, y) for x, y in run]
+                flat = ', '.join(f'{point[0]}, {point[1]}' for point in world)
+                piece = name if number == 0 and not suffix else marker_name(
+                    index, f'{suffix}{number}')
+                lines.append(f'_m = createMarker [{piece}, [{world[0][0]}, {world[0][1]}]];')
+                lines.append('_m setMarkerShape "POLYLINE";')
+                lines.append(f'_m setMarkerColor "{colour}";')
+                lines.append(f'_m setMarkerPolyline [{flat}];')
+                if editable:
+                    lines.append('_n pushBack _m;')
+
+        if item['kind'] == 'shape' and item['style'] != 'solid' and not item.get('ao'):
+            # Arma's rectangle and ellipse markers have no dashed border, so
+            # a dashed outline goes across as dashes of line markers — and the
+            # fill, if there is one, as the shape with no border of its own.
+            polylines(dash_runs(shape_outline(item), item['style'], closed=True), 'd')
+            if item['fill'] != 'none':
+                item = {**item, 'style': 'solid'}
+                name = marker_name(index, 'f')
+            else:
+                continue
+
         if item['kind'] == 'shape':
             centre = to_world(doc, item['x'], item['y'])
             # setMarkerSize takes the half-width and half-height, in metres.
@@ -2384,25 +2531,23 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
             continue
 
         if item['kind'] in ('line', 'area'):
-            points = [to_world(doc, x, y) for x, y in item['points']]
-            if item['kind'] == 'area':
-                points.append(points[0])       # Arma has no closed polyline
-            flat = ', '.join(f'{point[0]}, {point[1]}' for point in points)
-            lines.append(f'_m = createMarker [{name}, '
-                         f'[{points[0][0]}, {points[0][1]}]];')
-            lines.append('_m setMarkerShape "POLYLINE";')
-            lines.append(f'_m setMarkerColor "{colour}";')
-            lines.append(f'_m setMarkerPolyline [{flat}];')
+            # Arma has no closed polyline, so an area repeats its first point;
+            # and no dashed one, so a dashed line is cut into its dashes.
+            runs = dash_runs(item['points'], item['style'], closed=item['kind'] == 'area')
+            polylines(runs, '' if len(runs) == 1 else 'd')
             if text:
                 lines.append(f'_m setMarkerText {_sqf_string(text)};')
-            if editable:
-                lines.append('_n pushBack _m;')
-            if item['kind'] == 'line' and item.get('arrow') and len(points) > 1:
-                lines.append(f'_m = createMarker [{marker_name(index, "a")}, '
-                             f'[{points[-1][0]}, {points[-1][1]}]];')
+            points = [to_world(doc, x, y) for x, y in item['points']]
+            ends = {'end': ((-2, -1),), 'start': ((1, 0),),
+                    'both': ((1, 0), (-2, -1))}.get(item.get('arrow') or '', ())
+            if item['kind'] != 'line' or len(points) < 2:
+                ends = ()
+            for count, (back, tip) in enumerate(ends):
+                lines.append(f'_m = createMarker [{marker_name(index, "a" + str(count))}, '
+                             f'[{points[tip][0]}, {points[tip][1]}]];')
                 lines.append('_m setMarkerType "mil_arrow";')
                 lines.append(f'_m setMarkerColor "{colour}";')
-                lines.append(f'_m setMarkerDir {_bearing(points[-2], points[-1])};')
+                lines.append(f'_m setMarkerDir {_bearing(points[back], points[tip])};')
                 if editable:
                     lines.append('_n pushBack _m;')
             continue

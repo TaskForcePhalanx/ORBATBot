@@ -845,7 +845,8 @@ async def reconcile_campaign_map(campaign: dict, member=None, previous=None) -> 
         return []
     doc = tacmap.parse(record['doc']).doc
     aos = await database.list_cp_aos(campaign['id'])
-    changes = rules.campaign_map_changes(doc, [{'id': a['id'], 'name': a['name']} for a in aos])
+    changes = rules.campaign_map_changes(doc, [{'id': a['id'], 'name': a['name']} for a in aos],
+                                         previous)
     if not any(changes.values()):
         return []
     notes, moves = [], {}
@@ -873,6 +874,12 @@ async def reconcile_campaign_map(campaign: dict, member=None, previous=None) -> 
             key = rules.ao_layer_id(ao_id)
             old = [i for i in (previous or {}).get('items', [])
                    if i['layer'] == key and tacmap.is_ao(i)]
+            if old and not any(l['id'] == key for l in doc['layers']):
+                # Its whole layer was deleted: put the layer back where it was,
+                # so the outline has somewhere to go.
+                layer = next((l for l in previous['layers'] if l['id'] == key), None)
+                if layer is not None and len(doc['layers']) < tacmap.MAX_LAYERS:
+                    doc['layers'].append(json.loads(json.dumps(layer)))
             if old and any(l['id'] == key for l in doc['layers']):
                 doc['items'].extend(json.loads(json.dumps(old)))
                 notes.append(f"Kept the {ao['name']} AO and put its outline back: {why}. "
