@@ -23,6 +23,8 @@
         <button type="button" class="tmtool" data-tool="ao"
                 title="Draw an area of operations: clear ground in the grey mask">⬚ AO</button>
         <button type="button" class="tmtool" data-tool="text">🔤 Text</button>
+        <button type="button" class="tmtool" data-tool="measure"
+                title="Measure a distance and bearing — nothing is drawn">📏 Measure</button>
       </div>
       {# The gesture is the one Arma's own map uses, so it is what people try
          first — but nothing on the page would otherwise say it is here. #}
@@ -59,6 +61,8 @@
           <select id="tmweight"></select></label>
         <span class="tmswatches" data-for="select line area point rect ellipse" id="tmcolours"
               role="group" aria-label="Colour"></span>
+        <label class="tmcheck" title="New and moved corners land on the nearest corner, symbol or marker">
+          <input type="checkbox" id="tmsnap"> Snap</label>
       </div>
       <div class="tmdo">
         <span class="tmstatus" id="tmstatus"></span>
@@ -71,12 +75,16 @@
   <div class="tmstage">
     <div class="tmcanvas" id="tmcanvas">
       <button type="button" class="tmfull" id="tmfull">⛶ Full screen</button>
+      {# Where the pointer is on Arma's grid, and how long a line being drawn
+         is — for everybody looking, not only whoever may draw. #}
+      <div class="tmreadout" id="tmreadout" aria-live="off"></div>
       {{ svg|safe }}
     </div>
     <aside class="tmside">
       {% if editable %}
         <div class="tmpanel" id="tminspector" hidden>
           <h3>Selected</h3>
+          <p class="tmmeasure" id="tmf-measure" hidden></p>
           <label class="field"><span>Label</span>
             <input id="tmf-label" maxlength="48"></label>
           <label class="field" data-for="unit point line area shape"><span>Note</span>
@@ -244,7 +252,11 @@
           <ul>
             <li><kbd>V</kbd> select · <kbd>U</kbd> unit · <kbd>M</kbd> marker ·
               <kbd>L</kbd> line · <kbd>A</kbd> area · <kbd>R</kbd> rectangle ·
-              <kbd>E</kbd> ellipse · <kbd>O</kbd> AO · <kbd>T</kbd> text</li>
+              <kbd>E</kbd> ellipse · <kbd>O</kbd> AO · <kbd>T</kbd> text ·
+              <kbd>D</kbd> measure</li>
+            <li>Selected line or area: drag a corner to move it, drag a
+              segment's middle dot to add one, <kbd>Alt</kbd>+click or
+              right-click a corner to delete it</li>
             <li>Line and area: <kbd>Ctrl</kbd>+click corners (let go of
               <kbd>Ctrl</kbd> to finish) or <kbd>Ctrl</kbd>+drag freehand;
               <kbd>Shift</kbd> straight and 15° snap, <kbd>Enter</kbd> or

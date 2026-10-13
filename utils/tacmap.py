@@ -2224,6 +2224,34 @@ def to_world(doc: dict, x: float, y: float) -> tuple:
     return (round(world_x, 2), round(world_y, 2))
 
 
+def metres_per_unit(doc: dict) -> tuple:
+    """How many metres one sheet unit is across and down, from the sheet's
+    Arma corners — what lengths and grid references are measured with."""
+    arma = doc.get('arma') or DEFAULT_EXTENT
+    return (abs(arma['right'] - arma['left']) / doc['width'],
+            abs(arma['top'] - arma['bottom']) / doc['height'])
+
+
+def length_m(doc: dict, points: list, closed: bool = False) -> float:
+    """A line's length on the ground, in metres. The editor mirrors this."""
+    across, down = metres_per_unit(doc)
+    path = list(points) + ([points[0]] if closed and points else [])
+    return round(sum(math.hypot((b[0] - a[0]) * across, (b[1] - a[1]) * down)
+                     for a, b in zip(path, path[1:])), 1)
+
+
+def grid_ref(doc: dict, x: float, y: float, digits: int = 6) -> str:
+    """The Arma grid reference of a point on the sheet — `045112` for six
+    digits, 100 m squares. Counted from the terrain's south-west corner, as
+    most terrains' map grids are."""
+    world_x, world_y = to_world(doc, x, y)
+    half = digits // 2
+    size = 10 ** (5 - half)
+    width = half
+    return (f'{max(0, int(world_x // size)) % 10 ** width:0{width}d}'
+            f'{max(0, int(world_y // size)) % 10 ** width:0{width}d}')
+
+
 def _sqf_string(value: str) -> str:
     """SQF quotes a quote by doubling it, and has no escape for a newline."""
     flat = ' '.join((value or '').split())

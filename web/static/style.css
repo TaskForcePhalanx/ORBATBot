@@ -771,6 +771,20 @@ svg.tacmap {
   cursor: pointer;
 }
 .tmfull:hover { border-color: var(--muted); }
+/* The grid reference under the pointer, and lengths while drawing. */
+.tmreadout {
+  position: absolute; left: 10px; top: 10px; z-index: 2;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(16, 20, 26, 0.78); color: #e6edf3;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none; white-space: nowrap;
+}
+.tmreadout:empty { display: none; }
+.tmmeasure { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+/* A line's corners, once it is selected. */
+.tacmap .tm-vertex { fill: #ffffff; stroke: #1f6feb; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: move; }
+.tacmap .tm-mid { fill: #1f6feb; fill-opacity: 0.55; stroke: #ffffff; stroke-width: 1; vector-effect: non-scaling-stroke; cursor: copy; }
+.tacmap .tm-snapmark { fill: none; stroke: #ffd166; stroke-width: 2; vector-effect: non-scaling-stroke; }
 
 /* Full screen, and the fallback for a browser that refuses it. */
 .tmapp:fullscreen { background: #10141a; display: flex; flex-direction: column; }

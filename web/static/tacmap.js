@@ -667,6 +667,7 @@
   }
 
   function draftSVG() {
+    if (state.ruler) return rulerSVG();
     if (state.box) return boxDraftSVG();
     if (!state.draft || state.draft.points.length === 0) return '';
     var paint = colours[state.side];
@@ -786,7 +787,12 @@
     Array.prototype.forEach.call(overlay.querySelectorAll('.tm-handle, .tm-stalk'),
       function (node) { node.remove(); });
     var item = selected();
-    if (!editable || !item || item.kind !== 'shape') return;
+    if (!editable || !item) return;
+    if (item.kind === 'line' || item.kind === 'area') {
+      drawVertexHandles(item);
+      return;
+    }
+    if (item.kind !== 'shape') return;
     var a = item.w / 2;
     var b = item.h / 2;
     var r = round(view.w / 110);
@@ -858,6 +864,211 @@
     if (snap) angle = Math.round(angle / 15) * 15;
     item.rotation = Math.round(angle * 10) / 10;
     return item;
+  }
+
+  /* -- a line's corners: drag, add, delete --------------------------------- */
+
+  // Every corner of a selected line or area is a handle to drag; the dot in
+  // the middle of each segment adds a corner there when it is dragged; Alt+
+  // click or right-click on a corner deletes it. Redrawing a line to move
+  // one corner was the only way before.
+  function drawVertexHandles(item) {
+    var r = round(view.w / 140);
+    var points = item.points;
+    var html = '';
+    var count = item.kind === 'area' ? points.length : points.length - 1;
+    for (var i = 0; i < count; i++) {
+      var a = points[i];
+      var b = points[(i + 1) % points.length];
+      html += '<circle class="tm-handle tm-mid" data-h="m' + i + '" cx="' +
+        round((a[0] + b[0]) / 2) + '" cy="' + round((a[1] + b[1]) / 2) + '" r="' +
+        round(r * 0.7) + '"><title>Drag to add a corner here</title></circle>';
+    }
+    points.forEach(function (point, index) {
+      html += '<circle class="tm-handle tm-vertex" data-h="v' + index + '" cx="' +
+        round(point[0]) + '" cy="' + round(point[1]) + '" r="' + r +
+        '"><title>Drag to move · Alt+click or right-click to delete</title></circle>';
+    });
+    overlay.insertAdjacentHTML('beforeend', html);
+  }
+
+  svg.addEventListener('contextmenu', function (event) {
+    var handle = event.target.closest ? event.target.closest('.tm-vertex') : null;
+    if (!handle || !selected()) return;
+    event.preventDefault();
+    removeVertex(state.selected, Number(handle.dataset.h.slice(1)));
+  });
+
+  function removeVertex(index, vertex) {
+    var item = state.doc.items[index];
+    if (!item || !item.points) return;
+    var least = item.kind === 'area' ? 3 : 2;
+    if (item.points.length <= least) {
+      say('A ' + (item.kind === 'area' ? 'area needs three' : 'line needs two') +
+          ' corners — delete the whole thing instead.', 'warn');
+      return;
+    }
+    snapshot();
+    item.points.splice(vertex, 1);
+    touched();
+    render();
+    fillInspector();
+  }
+
+  /* -- measuring: metres, and where you are on Arma's grid ------------------ */
+
+  // Mirrors metres_per_unit(), length_m() and grid_ref() in utils/tacmap.py:
+  // the sheet's Arma corners are what turn sheet units into the ground.
+  function metresPerUnit() {
+    var arma = state.doc.arma || {};
+    return [Math.abs((arma.right - arma.left) || 0) / state.doc.width,
+            Math.abs((arma.top - arma.bottom) || 0) / state.doc.height];
+  }
+
+  function lengthM(points, closed) {
+    var scale = metresPerUnit();
+    var path = closed ? points.concat([points[0]]) : points;
+    var total = 0;
+    for (var i = 1; i < path.length; i++) {
+      total += Math.hypot((path[i][0] - path[i - 1][0]) * scale[0],
+                          (path[i][1] - path[i - 1][1]) * scale[1]);
+    }
+    return total;
+  }
+
+  function metres(value) {
+    if (value >= 10000) return (value / 1000).toFixed(1) + ' km';
+    if (value >= 1000) return (value / 1000).toFixed(2) + ' km';
+    return Math.round(value) + ' m';
+  }
+
+  function toWorld(x, y) {
+    var arma = state.doc.arma || {};
+    return [arma.left + x / state.doc.width * (arma.right - arma.left),
+            arma.top - y / state.doc.height * (arma.top - arma.bottom)];
+  }
+
+  function pad(value, width) {
+    var text = String(Math.max(0, Math.floor(value)) % Math.pow(10, width));
+    while (text.length < width) text = '0' + text;
+    return text;
+  }
+
+  function gridRef(x, y) {
+    var world = toWorld(x, y);
+    return pad(world[0] / 100, 3) + ' ' + pad(world[1] / 100, 3);
+  }
+
+  // Bearing clockwise from north, in degrees — the sheet's y grows down.
+  function bearing(a, b) {
+    var scale = metresPerUnit();
+    var angle = Math.atan2((b[0] - a[0]) * scale[0], -(b[1] - a[1]) * scale[1]) * 180 / Math.PI;
+    return Math.round((angle + 360) % 360);
+  }
+
+  var readout = document.getElementById('tmreadout');
+
+  // The corner of the map: the grid reference under the pointer, and while
+  // something is being drawn or measured, how long it is.
+  function showReadout(point, extra) {
+    if (!readout) return;
+    var text = 'Grid ' + gridRef(point.x, point.y);
+    if (extra) text += ' · ' + extra;
+    readout.textContent = text;
+  }
+
+  function draftMeasure() {
+    var draft = state.draft;
+    if (!draft || !draft.points.length) return '';
+    var points = draft.points.concat(draft.cursor ? [draft.cursor] : []);
+    var last = points.length > 1 ? lengthM(points.slice(-2)) : 0;
+    var parts = [];
+    if (points.length > 1) parts.push('segment ' + metres(last) + ' at ' +
+      bearing(points[points.length - 2], points[points.length - 1]) + '°');
+    parts.push('total ' + metres(lengthM(points, draft.kind === 'area')));
+    return parts.join(' · ');
+  }
+
+  /* -- snapping ---------------------------------------------------------- */
+
+  var snapBox = document.getElementById('tmsnap');
+  state.snap = false;
+  try { state.snap = window.localStorage.getItem('tmsnap') === '1'; } catch (e) { /* none */ }
+  if (snapBox) {
+    snapBox.checked = state.snap;
+    snapBox.addEventListener('change', function () {
+      state.snap = snapBox.checked;
+      try { window.localStorage.setItem('tmsnap', state.snap ? '1' : '0'); } catch (e) { /* none */ }
+    });
+  }
+
+  // With Snap on, a corner being placed or dragged lands on the nearest
+  // corner of another line or area, a shape's corner or centre, or a symbol
+  // or marker — within a dozen screen pixels — so boundaries meet properly.
+  function snapPoint(point, skipIndex, skipVertex) {
+    if (!state.snap) return null;
+    var reach = view.w / svg.getBoundingClientRect().width * 12;
+    var best = null;
+    var bestDistance = reach;
+    function offer(x, y) {
+      var distance = Math.hypot(x - point.x, y - point.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = [round(x), round(y)];
+      }
+    }
+    var hidden = hiddenLayers();
+    state.doc.items.forEach(function (item, index) {
+      if (hidden[item.layer]) return;
+      if (item.points) {
+        item.points.forEach(function (corner, vertex) {
+          if (index === skipIndex && (skipVertex === undefined || vertex === skipVertex)) return;
+          offer(corner[0], corner[1]);
+        });
+      } else if (item.kind === 'shape') {
+        offer(item.x, item.y);
+        CORNERS.forEach(function (corner) {
+          var spot = turnPoint(item, corner[0] * item.w / 2, corner[1] * item.h / 2);
+          offer(spot[0], spot[1]);
+        });
+      } else if (index !== skipIndex) {
+        offer(item.x, item.y);
+      }
+    });
+    if (state.draft) {
+      // Closing a line on its own first corner.
+      var first = state.draft.points[0];
+      if (first && state.draft.points.length > 2) offer(first[0], first[1]);
+    }
+    return best;
+  }
+
+  function snapMark(spot) {
+    var old = overlay.querySelector('.tm-snapmark');
+    if (old) old.remove();
+    if (!spot) return;
+    var r = round(view.w / 90);
+    overlay.insertAdjacentHTML('beforeend', '<circle class="tm-snapmark" cx="' + spot[0] +
+      '" cy="' + spot[1] + '" r="' + r + '" pointer-events="none"/>');
+  }
+
+  /* -- the ruler: measure without drawing --------------------------------- */
+
+  function rulerSVG() {
+    var ruler = state.ruler;
+    if (!ruler) return '';
+    var a = ruler.from;
+    var b = ruler.to;
+    return '<g class="tm-ruler" pointer-events="none"><line x1="' + a[0] + '" y1="' + a[1] +
+      '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="#ffd166" stroke-width="2"' +
+      ' stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="' + round(view.w / 250) +
+      '" fill="#ffd166"/></g>';
+  }
+
+  function rulerText() {
+    var ruler = state.ruler;
+    return metres(lengthM([ruler.from, ruler.to])) + ' at ' + bearing(ruler.from, ruler.to) + '°';
   }
 
   /* -- the sheet, zoom and pan --------------------------------------------- */
@@ -1159,10 +1370,26 @@
     // it without Ctrl. Clicking a line out corner by corner is gone: it was a
     // mode you had to finish before anything else worked.
     var handle = event.target.closest ? event.target.closest('.tm-handle') : null;
-    if (handle && selected()) {
+    // Handles answer the Select tool. With a drawing tool in hand, a click
+    // on a corner starts something new there — which is what Snap is for.
+    if (handle && selected() && state.tool === 'select' && !state.draft) {
       event.preventDefault();
-      state.handle = { index: state.selected, which: handle.dataset.h, moved: false,
+      var which = handle.dataset.h;
+      if (which.charAt(0) === 'v' && event.altKey) {
+        removeVertex(state.selected, Number(which.slice(1)));
+        return;
+      }
+      state.handle = { index: state.selected, which: which, moved: false,
                        start: JSON.stringify(selected()) };
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (state.tool === 'measure') {
+      event.preventDefault();
+      var from = snapPoint(point) || [round(point.x), round(point.y)];
+      state.ruler = { from: from, to: from.slice() };
+      overlay.innerHTML = draftSVG();
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1215,7 +1442,7 @@
         press: { x: event.clientX, y: event.clientY, moved: false },
         kind: state.tool === 'area' || state.tool === 'ao' ? 'area' : 'line',
         ao: state.tool === 'ao',
-        points: [[round(point.x), round(point.y)]],
+        points: [snapPoint(point) || [round(point.x), round(point.y)]],
         cursor: null,
         // Where the straight segment starts, while Shift is held. null when
         // it is not.
@@ -1247,6 +1474,14 @@
   });
 
   svg.addEventListener('pointermove', function (event) {
+    var where = at(event);
+    if (state.ruler && state.ruler.live !== false) {
+      state.ruler.to = snapPoint(where) || [round(where.x), round(where.y)];
+      overlay.innerHTML = draftSVG();
+      showReadout(where, rulerText());
+      return;
+    }
+    showReadout(where, state.draft ? draftMeasure() : '');
     if (state.box) {
       var to = at(event);
       state.box.to = [to.x, to.y];
@@ -1260,6 +1495,25 @@
         state.handle.moved = true;
         snapshot();
       }
+      var kind = state.handle.which.charAt(0);
+      if (kind === 'v' || kind === 'm') {
+        var moving = JSON.parse(state.handle.start);
+        var at0 = Number(state.handle.which.slice(1));
+        if (kind === 'm') {
+          // Dragging a segment's middle adds a corner there, then moves it.
+          moving.points.splice(at0 + 1, 0, [0, 0]);
+          at0 += 1;
+        }
+        var target = snapPoint(spot, state.handle.index, at0) ||
+          [round(spot.x), round(spot.y)];
+        snapMark(snapPoint(spot, state.handle.index, at0));
+        moving.points[at0] = target;
+        state.doc.items[state.handle.index] = moving;
+        render();
+        showReadout(spot, metres(lengthM(moving.points, moving.kind === 'area')) +
+          (moving.kind === 'area' ? ' round' : ' long'));
+        return;
+      }
       state.doc.items[state.handle.index] = state.handle.which === 'turn'
         ? turnTo(state.handle.start, spot, event.shiftKey)
         : resizeTo(state.handle.start, Number(state.handle.which), spot, event.shiftKey);
@@ -1269,8 +1523,10 @@
     if (state.draft && !state.draft.press) {
       // Between clicks: a rubber band from the last corner to the pointer,
       // so you see the segment before you fix it.
-      state.draft.cursor = snapCorner(state.draft, at(event), event.shiftKey);
+      state.draft.cursor = snapCorner(state.draft, where, event.shiftKey);
       overlay.innerHTML = draftSVG();
+      snapMark(event.shiftKey ? null : snapPoint(where));
+      showReadout(where, draftMeasure());
       return;
     }
     if (state.draft) {
@@ -1345,6 +1601,13 @@
   });
 
   svg.addEventListener('pointerup', function () {
+    if (state.ruler && state.ruler.live !== false) {
+      // The measurement stays on screen until the next one, or Esc.
+      state.ruler.live = false;
+      say('Measured ' + rulerText() + ' — drag again to measure another, Esc to clear');
+      return;
+    }
+    snapMark(null);
     if (state.box) {
       finishBox();
       return;
@@ -1441,7 +1704,7 @@
   // boundary drawn by hand is only as straight as the hand.
   function snapCorner(draft, point, straight) {
     var last = draft.points[draft.points.length - 1];
-    if (!straight || !last) return [round(point.x), round(point.y)];
+    if (!straight || !last) return snapPoint(point) || [round(point.x), round(point.y)];
     var dx = point.x - last[0];
     var dy = point.y - last[1];
     var length = Math.hypot(dx, dy);
@@ -1477,6 +1740,11 @@
   function setTool(tool) {
     if (state.draft) finishDraft();
     state.box = null;
+    if (state.ruler) {
+      state.ruler = null;
+      overlay.innerHTML = '';
+      drawSelection();
+    }
     state.tool = tool;
     Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
       button.classList.toggle('active', button.dataset.tool === tool);
@@ -1766,6 +2034,40 @@
     fields.fill.value = item.fill || catalog.defaultFill;
     fields.ao.checked = !!item.ao;
     if (inspectorColours) markSwatches(inspectorColours, item.color);
+    fillMeasure(item);
+  }
+
+  // How big the selected thing is on the ground, from the sheet's corners.
+  function fillMeasure(item) {
+    var host = document.getElementById('tmf-measure');
+    if (!host) return;
+    var text = '';
+    if (item.kind === 'line') {
+      text = 'Length ' + metres(lengthM(item.points));
+    } else if (item.kind === 'area') {
+      var scale = metresPerUnit();
+      var sum = 0;
+      item.points.forEach(function (point, index) {
+        var next = item.points[(index + 1) % item.points.length];
+        sum += point[0] * scale[0] * next[1] * scale[1] - next[0] * scale[0] * point[1] * scale[1];
+      });
+      text = 'Perimeter ' + metres(lengthM(item.points, true)) + ' · ' + hectares(Math.abs(sum) / 2);
+    } else if (item.kind === 'shape') {
+      var size = metresPerUnit();
+      var w = item.w * size[0];
+      var h = item.h * size[1];
+      var area = item.shape === 'ellipse' ? Math.PI * w * h / 4 : w * h;
+      text = metres(w) + ' × ' + metres(h) + ' · ' + hectares(area);
+    } else if (item.x !== undefined) {
+      text = 'Grid ' + gridRef(item.x, item.y);
+    }
+    host.textContent = text;
+    host.hidden = !text;
+  }
+
+  function hectares(square) {
+    if (square >= 1e6) return (square / 1e6).toFixed(2) + ' km²';
+    return (square / 1e4).toFixed(square >= 1e5 ? 0 : 1) + ' ha';
   }
 
   function editField(field, read) {
@@ -2117,7 +2419,7 @@
   /* -- keyboard ------------------------------------------------------------- */
 
   var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text',
-                    r: 'rect', e: 'ellipse', o: 'ao' };
+                    r: 'rect', e: 'ellipse', o: 'ao', d: 'measure' };
 
   // Letting go of Shift fixes the straight segment where it is. Clearing the
   // anchor on the next freehand move is not enough: tapping Shift again
@@ -2160,6 +2462,13 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
       undo();
+      return;
+    }
+    if (event.key === 'Escape' && state.ruler) {
+      state.ruler = null;
+      overlay.innerHTML = '';
+      say('');
+      drawSelection();
       return;
     }
     if (event.key === 'Escape' && state.box) {

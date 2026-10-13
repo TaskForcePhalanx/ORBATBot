@@ -2025,3 +2025,18 @@ def test_every_dash_is_remembered_by_an_editable_export():
                      'points': [[0, 500], [100, 500]]})
     sqf = tacmap.to_sqf(doc, prefix='tm7', editable=True)
     assert sqf.count('createMarker') == sqf.count('_n pushBack _m;')
+
+
+# -- measuring --------------------------------------------------------------
+
+def test_lengths_and_grid_references_come_from_the_arma_corners():
+    doc = _arma_doc()
+    doc['arma'] = {'terrain': '', 'left': 0, 'bottom': 0, 'right': 8192, 'top': 8192}
+    # 1000 sheet units across an 8192 m terrain
+    assert tacmap.length_m(doc, [(0, 0), (100, 0)]) == 819.2
+    assert tacmap.length_m(doc, [(0, 0), (100, 0), (100, 100)], closed=True) == \
+        round(819.2 * 2 + math.hypot(819.2, 819.2), 1)
+    # A point 450 m east and 1120 m north of the south-west corner
+    x, y = 450 / 8.192, 1000 - 1120 / 8.192
+    assert tacmap.grid_ref(doc, x, y) == '004011'
+    assert tacmap.grid_ref(doc, x, y, digits=8) == '00450112'   # 10 m squares
