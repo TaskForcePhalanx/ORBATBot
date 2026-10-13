@@ -778,7 +778,7 @@ Choose who may plan, where the weekly drops are posted, and when they go out.
 >
 > Drop times are read in the server's time zone, and posts show every time as a Discord timestamp, so readers see their own time.
 >
-> Make the drop channel an Announcement channel and partner servers can **Follow** it to get each drop in their own server.
+> Make the drop channel an Announcement channel and partner servers can **Follow** it to get each drop in their own server: I publish every drop, which is what sends it on to them, and edits follow by themselves. Give me **Attach Files** there too, for drops with images.
 >
 > The survey link may contain `{op}`, which becomes the mission name with spaces as `%20`.
 >

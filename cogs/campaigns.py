@@ -216,6 +216,48 @@ async def update_drop(bot, mission: dict, drop: dict) -> tuple[str, list]:
     return str(channel.id), ids
 
 
+# Publishing tasks still running, so they are not garbage-collected mid-way.
+_publishing: set = set()
+
+
+def publish_later(bot, plan: dict, channel_id, message_ids, what: str) -> None:
+    """Publish a drop's messages when the drop channel is an Announcement
+    channel — without that, servers that Follow it never receive them.
+
+    In the background, never inside the mission lock: Discord allows only a
+    handful of publishes per channel per hour, and discord.py waits out that
+    limit (up to an hour) rather than failing, which would stall every other
+    drop if it ran in the loop itself."""
+    if not message_ids:
+        return
+    task = asyncio.create_task(_publish(bot, plan, channel_id, list(message_ids), what))
+    _publishing.add(task)
+    task.add_done_callback(_publishing.discard)
+
+
+async def _publish(bot, plan: dict, channel_id, message_ids: list, what: str) -> None:
+    try:
+        channel = await _text_channel(bot, channel_id)
+        if channel is None or not getattr(channel, 'is_news', lambda: False)():
+            return                  # an ordinary channel has nothing to publish
+        failed = None
+        for message_id in message_ids:
+            try:
+                await channel.get_partial_message(int(message_id)).publish()
+            except discord.HTTPException as e:
+                if getattr(e, 'code', None) == 40033:     # already published
+                    continue
+                failed = e
+        if failed is not None:
+            print(f"⚠️ campaigns: publishing {what} failed: {failed!r}")
+            await tell_team(bot, plan,
+                            f"⚠️ {what} posted in {channel.mention}, but I couldn't publish it, "
+                            f"so servers following the channel didn't get it: {failed}. "
+                            'Publish it by hand from the message menu.')
+    except Exception as e:          # a background task has nobody to raise to
+        print(f"❌ campaigns: publishing {what} failed: {e!r}")
+
+
 async def delete_messages(bot, pairs) -> int:
     """Delete posted drop messages — what clearing a test campaign away takes
     out of Discord. Returns how many went; one already gone counts as gone."""
@@ -396,6 +438,9 @@ class CampaignsCog(commands.Cog):
                     await database.mark_cp_drop_posted(mission['id'], drop['key'], channel,
                                                        ids, drop['hash'])
                     done.append(f"posted {drop['label']} for {name}")
+                    if not is_test:
+                        publish_later(self.bot, plan, channel, ids,
+                                      f"**{name}** — {drop['label']}")
                     if drop['key'] == plan['orbat_opens'] and not is_test:
                         started, note = await start_signups(self.bot, mission, plan, tz,
                                                             is_test=is_test)
@@ -407,9 +452,16 @@ class CampaignsCog(commands.Cog):
                                             f"sign-ups did not start. {note}"
                                             + (f"\n{url}" if url else ''))
                 elif action == 'edit':
+                    before = {int(i) for i in (drop['row'].get('message_ids') or [])}
                     channel_id, ids = await update_drop(self.bot, mission, drop)
                     await database.mark_cp_drop_posted(mission['id'], drop['key'], channel_id,
                                                        ids, drop['hash'])
+                    # Edits reach followers by themselves; a part sent new
+                    # (the drop grew, or one was deleted in Discord) does not.
+                    if not is_test:
+                        publish_later(self.bot, plan, channel_id,
+                                      [i for i in ids if int(i) not in before],
+                                      f"**{name}** — {drop['label']}")
                     done.append(f"updated {drop['label']} for {name}")
                 elif action == 'ping':
                     await database.mark_cp_drop_pinged(mission['id'], drop['key'])

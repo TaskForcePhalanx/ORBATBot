@@ -1262,6 +1262,16 @@ calls the same function, so there is no second copy of that either.
 - **Don't post** (`skipped`) is for a drop posted by hand or not wanted at all.
 - `allowed_mentions` is none: a drop quotes the mission team's text, which is
   not a licence to ping.
+- **A drop in an Announcement channel is published** (`publish_later()`), or
+  the servers that Follow it never receive it — Discord does not publish a
+  bot's message by itself. Edits reach followers on their own; a part sent new
+  during an edit is published too. Publishing runs as a background task,
+  **never inside the mission lock**: Discord allows few publishes per channel
+  per hour and discord.py waits out that limit rather than failing, which in
+  the loop would stall every drop behind it. A failed publish tells the team
+  channel. Test campaigns never publish. The settings page warns when the bot
+  lacks **Attach Files** in the drop or team channel, since a drop with images
+  would otherwise fail only when it falls due.
 
 **Sign-ups at the opening drop.** When the drop named by `orbat_opens` posts
 for the first time, `start_signups()` calls `start_operation()` on the
