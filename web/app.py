@@ -1009,11 +1009,14 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         if ocap_base is None:
             ocap_base = (await database.get_ocap_base_url(str(context['guild'].id))
                          or tacmap_service.DEFAULT_OCAP_BASE)
+        icons = await tacmap_service.marker_images(
+            context['guild'].id, f"/g/{context['guild'].id}/mi")
         return render(request, 'tacmap_edit.html', {
             **context,
             'doc_json': tacmap_lib.json_payload(doc),
             'catalog_json': _map_catalog,
-            'svg': tacmap_lib.render(doc, places=places),
+            'svg': tacmap_lib.render(doc, places=places, marker_images=icons),
+            'icon_keys_json': tacmap_lib.json_payload(sorted(icons)),
             'places_json': tacmap_lib.json_payload(places),
             'places_sqf': tacmap_lib.places_sqf(),
             'summary': tacmap_lib.summarise(doc),
@@ -1147,6 +1150,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             # mission — the general way in, since OCAP archives carry none.
             'places_sqf': tacmap_lib.places_sqf(),
             'place_groups': tacmap_lib.PLACE_GROUPS,
+            'icon_count': len(await database.tac_marker_icon_keys(str(context['guild'].id))),
             'error': error,
         }, status=status)
 
@@ -1424,17 +1428,65 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             }, status=404)
         doc = tacmap_service.load(record)
         places = await tacmap_service.places_for(record['guild_id'], doc)
+        icons = await tacmap_service.marker_images(record['guild_id'], f'/m/{token}/mi')
         return render(request, 'tacmap_view.html', {
             'record': record,
             'doc_json': tacmap_lib.json_payload(doc),
             'catalog_json': _map_catalog,
             'places_json': tacmap_lib.json_payload(places),
-            'svg': tacmap_lib.render(doc, places=places),
+            'svg': tacmap_lib.render(doc, places=places, marker_images=icons),
+            'icon_keys_json': tacmap_lib.json_payload(sorted(icons)),
             'summary': tacmap_lib.summarise(doc),
             'editable': record['share_mode'] == 'edit',
             'save_url': f'/m/{token}/save',
             'map_rev': str(record['doc_rev']),
         })
+
+    def _icon_response(body):
+        if body is None:
+            return Response(status_code=404)
+        # Private: these are Bohemia's pictures, uploaded for this guild, and
+        # must not sit in a shared cache. The URL carries a version, so the
+        # browser may keep them.
+        return Response(bytes(body), media_type='image/png', headers={
+            'Cache-Control': 'private, max-age=31536000, immutable',
+            'X-Content-Type-Options': 'nosniff'})
+
+    @app.get('/g/{guild_id}/mi/{key}.png')
+    async def marker_icon(request: Request, guild_id: str, key: str):
+        """One of the guild's marker pictures — its members only."""
+        context = await guild_context(request, guild_id)
+        return _icon_response(await database.get_tac_marker_icon(
+            str(context['guild'].id), key))
+
+    @app.get('/m/{token}/mi/{key}.png')
+    async def shared_marker_icon(request: Request, token: str, key: str):
+        """The same, for whoever holds a share link to one of the guild's maps."""
+        record = await database.get_tac_map_by_token(token)
+        if record is None:
+            return Response(status_code=404)
+        return _icon_response(await database.get_tac_marker_icon(record['guild_id'], key))
+
+    @app.post('/g/{guild_id}/terrains/marker-icons')
+    async def marker_icons_upload(request: Request, guild_id: str):
+        context = await guild_context(request, guild_id)
+        require_admin(context)
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        if form.get('action') == 'delete':
+            count = await database.delete_tac_marker_icons(str(context['guild'].id))
+            return redirect(request, f"/g/{guild_id}/terrains", 'ok',
+                            f'Removed {count} marker pictures — markers are drawn from '
+                            'the built-in line art again.')
+        upload = form.get('icons')
+        if upload is None or not getattr(upload, 'filename', ''):
+            return await terrain_page(request, context, status=400,
+                                      error='Choose the zip of marker pictures.')
+        try:
+            note = await tacmap_service.upload_marker_icons(context['guild'].id, upload.file)
+        except ValueError as e:
+            return await terrain_page(request, context, error=str(e), status=400)
+        return redirect(request, f"/g/{guild_id}/terrains", 'ok', note)
 
     @app.post('/m/{token}/save')
     async def shared_map_save(request: Request, token: str):

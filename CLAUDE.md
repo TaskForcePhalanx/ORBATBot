@@ -102,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(632 cases), and every one of them covers a module that imports nothing beyond
+(634 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -2560,6 +2560,22 @@ once, never tinted, and exported with `setMarkerColor "Default"`. The picker
 groups them by `MARKER_GROUPS`. Mod markers (RHS, 3CB flags) are left out —
 a player without the mod sees nothing for them; an imported one comes back
 as a dot named after its class.
+
+**A guild may draw its markers with the game's own pictures.** An admin
+uploads a zip of Arma's marker icons (white-on-transparent PNGs:
+`military/dot_ca.png`, `handdrawn/flag_ca.png`, or a file named after a class
+such as `loc_Church.png`) on the Terrains page; `read_marker_icons()` matches
+each to a marker by its Arma class and drops anything else. They are
+**Bohemia's artwork and this repository is public**, so they are never
+committed: `tac_marker_icons` keeps them per guild, and they are served only
+behind guild membership (`/g/{guild}/mi/{key}.png`) or a live share link
+(`/m/{token}/mi/{key}.png`), `Cache-Control: private`. `render(…,
+marker_images=)` puts one `<mask>` per picture in the defs (`icon_masks()`,
+ids `tmk-<key>`) and draws such a marker as a rect in its colour through the
+mask — Arma's own tinting; the editor reads which keys have pictures from
+`data-icons` and does the same. Ops traces get the pictures as data URIs
+(`marker_images_inline()`), since resvg fetches nothing. A flag (`paint`) is
+never replaced. Removing the pictures puts the line art back.
 
 **Every unit exports as a marker the game has.** Arma's civilian markers are
 only `c_unknown/car/ship/air/plane` and its unknown side has only

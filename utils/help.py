@@ -860,6 +860,10 @@ _MAPS: tuple[Topic, ...] = (
             'The **Marker** tool has every marker vanilla Arma ships — military, '
             'hand-drawn, map locations, unit sizes, respawn points, Zeus and flags — '
             'grouped as in the game, and each exports as exactly that marker.',
+            'An admin can upload the game’s own marker icons (a zip of PNGs) at the '
+            'bottom of the **Terrains** page; every map on the server then draws '
+            'those markers from them, in the marker’s colour. They stay private to '
+            'the server’s members and share-link holders.',
             'Lines get an arrow head only when you ask for one — most lines on '
             'a plan are boundaries and phase lines, which point nowhere.',
             'Lines, areas, shapes and markers are black until you colour them, and '

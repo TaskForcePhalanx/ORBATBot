@@ -2181,3 +2181,44 @@ def test_a_locked_layer_stays_locked_and_others_carry_nothing_new():
                                     'locked': True}], 'items': []}).doc
     assert doc['layers'][1]['locked'] is True
     assert 'locked' not in doc['layers'][0]
+
+
+# -- the game's own marker pictures -----------------------------------------
+#
+# Made-up PNG bytes here: the real pictures are Bohemia's and never go in the
+# repository.
+
+def _icon_zip(files):
+    import io
+    import zipfile
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        for name, body in files.items():
+            archive.writestr(name, body)
+    return out.getvalue()
+
+
+PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 20
+
+
+def test_marker_pictures_are_matched_by_their_arma_class():
+    icons, notes = tacmap.read_marker_icons(_icon_zip({
+        'military/dot_ca.png': PNG, 'handdrawn/flag_ca.png': PNG,
+        'loc_Church.png': PNG, 'military/nonsense_ca.png': PNG,
+        'military/box_ca.png': b'not a png', 'readme.txt': b'hi',
+    }))
+    assert sorted(icons) == ['dot', 'hd_flag', 'loc_church']
+    assert any('left out' in note for note in notes)
+    with pytest.raises(ValueError):
+        tacmap.read_marker_icons(b'not a zip')
+
+
+def test_a_marker_with_an_uploaded_picture_is_drawn_from_it():
+    doc = tacmap.parse(_doc(items=[{'kind': 'point', 'marker': 'dot', 'x': 10, 'y': 10,
+                                    'color': '#e03b3b'},
+                                   {'kind': 'point', 'marker': 'box', 'x': 20, 'y': 20}])).doc
+    svg = tacmap.render(doc, marker_images={'dot': '/g/1/mi/dot.png'})
+    assert '<mask id="tmk-dot"' in svg and 'href="/g/1/mi/dot.png"' in svg
+    assert 'fill="#e03b3b" mask="url(#tmk-dot)"' in svg       # tinted with the marker's colour
+    assert 'href="#tmm-box"' in svg                           # the rest stay line art
+    assert '<mask id="tmk-' not in tacmap.render(doc)

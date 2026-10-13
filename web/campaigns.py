@@ -1013,10 +1013,11 @@ async def campaign_map_view(guild, campaign: dict) -> tuple[str | None, list]:
     record = await database.get_tac_map(fresh['map_id']) if fresh.get('map_id') else None
     if record is None:
         return None, []
-    from web.tacmap import places_for
+    from web.tacmap import marker_images, places_for
     doc = tacmap.parse(record['doc']).doc
     tacmap.colour_aos(doc['items'])
-    svg = tacmap.render(doc, places=await places_for(str(guild.id), doc), extra_class='cpmap')
+    svg = tacmap.render(doc, places=await places_for(str(guild.id), doc), extra_class='cpmap',
+                        marker_images=await marker_images(guild.id, f'/g/{guild.id}/mi'))
     return svg, rules.ao_legend(doc)
 
 

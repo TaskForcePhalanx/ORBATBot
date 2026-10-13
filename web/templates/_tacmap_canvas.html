@@ -9,6 +9,7 @@
      data-save="{{ save_url }}"
      data-editable="{{ '1' if editable else '0' }}"
      data-rev="{{ map_rev|default('', true) }}"
+     data-icons='{{ icon_keys_json|default("[]", true) }}'
      data-csrf="{{ csrf }}">
   {% if editable %}
     {# One bar: the page's menus on the left (terrain, Arma, sharing… —

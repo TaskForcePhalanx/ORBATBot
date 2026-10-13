@@ -122,11 +122,12 @@ async def draw(guild_id: str, doc: dict, layer_id: str) -> bytes | None:
     def href(z, x, y):
         return uris.get((z, x, y) if z is not None else None, _EMPTY)
 
-    from web.tacmap import places_for
+    from web.tacmap import marker_images_inline, places_for
     places = await places_for(guild_id, doc)
     width = rules.TRACE_WIDTH
     svg = tacmap.render(rules.trace_doc(doc, layer_id), standalone=True, places=places,
                         view=view, tile_zoom=zoom, tile_href=href,
+                        marker_images=await marker_images_inline(guild_id),
                         size=(width, round(width / rules.TRACE_ASPECT)))
     return await asyncio.to_thread(_rasterise, svg)
 

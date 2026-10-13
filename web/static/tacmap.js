@@ -71,6 +71,12 @@
     dirty: false
   };
   var editable = app.dataset.editable === '1';
+  // Markers drawn from the game's own pictures on this server (see
+  // icon_masks() in utils/tacmap.py).
+  var iconKeys = {};
+  try {
+    JSON.parse(app.dataset.icons || '[]').forEach(function (key) { iconKeys[key] = true; });
+  } catch (e) { /* none */ }
 
   var colours = {};
   catalog.sides.forEach(function (side) { colours[side.key] = side; });
@@ -346,9 +352,14 @@
     var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') scale(' +
       scale + ') translate(-50,-50)';
     var dash = dashOf(item);
-    // A flag: its own colours, drawn once and never tinted.
+    // A flag: its own colours, drawn once and never tinted. A marker the
+    // guild uploaded the game's own picture for: its colour let through the
+    // picture, which the server put in the page's defs as a mask.
     var shape = markers[key] && markers[key].paint
       ? '<g transform="' + transform + '"><use href="#tmm-' + key + '"/></g>'
+      : iconKeys[key]
+      ? '<g transform="' + transform + '"><rect x="-10" y="-10" width="120" height="120" fill="' +
+        ink + '" mask="url(#tmk-' + key + ')"/></g>'
       : '<g transform="' + transform + '">' +
       '<use href="#tmm-' + key + '" fill="none" stroke="' + backing +
       '" color="' + backing + '" stroke-width="15"' +
