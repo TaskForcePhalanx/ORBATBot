@@ -53,6 +53,7 @@ utils/
   objectives_seed.py    # The Objectives Library as first written — what a guild's library is seeded from
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
+  arma_icons.py         # Every vanilla Arma marker and NATO unit marker: class, label, the game's picture path — no artwork
   tiles.py              # A terrain's tile pyramid, read out of an uploaded archive
   help.py               # Every feature as a how-to — the site's wiki and the README's
 web/                    # Optional browser UI — Discord OAuth2 login, events, roster, approvals, maps
@@ -102,7 +103,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(634 cases), and every one of them covers a module that imports nothing beyond
+(616 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -111,7 +112,7 @@ all:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
+| `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, units and markers drawn from uploaded pictures, how an upload is matched and how old maps read, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
@@ -2419,201 +2420,74 @@ document's own order. Leaving it to whatever was added last is what buried a
 platoon under a boundary drawn after it. Within one kind the document order
 still decides, which is what **Bring to front** moves.
 
-### The symbol geometry is in Python, once
+### Every unit and marker is the game's own picture
 
-`defs()` emits every frame, icon, marker and arrowhead as `<g>` elements in one
-`<defs>` block, and **both** renderers only ever place a
-`<use href="#tmi-inf">` at coordinates. So the browser and the server draw the
-same infantry symbol, and adding one means adding one entry to `SYMBOLS` or
-`MARKERS`. What is written twice is the composition — three attributes per item
-— and `item_svg()` in the library and the mirror of it in `tacmap.js` have to
-change together. Anything more than that belongs in the defs.
+There is no drawing of a symbol or a marker in this repository any more. The
+first versions drew APP-6 frames and pictograms and a line-art copy of every
+Arma marker; the unit asked for the game's own look instead, so **every unit
+and every marker is drawn with Arma's picture**, tinted the way the game tints
+it, and anything without a picture is not offered.
 
-Referenced content is `<g>`, not `<symbol>`: a `<symbol>` establishes a viewport
-and clips, which would cut the staff off a headquarters.
+- **The pictures are Bohemia's and this repository is public**, so they are
+  never committed. `utils/arma_icons.py` holds only names and paths — every
+  marker in `CfgMarkers` (class, label, group, and where the game keeps its
+  `.paa`) and Arma's NATO unit markers — read out of a running game. An admin
+  uploads the pictures on the Terrains page; `tac_marker_icons` keeps them per
+  guild, and they are served only behind guild membership
+  (`/g/{guild}/mi/{key}.png`) or a live share link (`/m/{token}/mi/{key}.png`),
+  `Cache-Control: private`.
+- **Everything is keyed by Arma class in lower case** (`picture_key()`):
+  `MARKERS['mil_dot']`, `MARKERS['loc_church']`, `UNIT_CLASSES['b_inf']`. That
+  is the stored marker, the picture's key and its mask id (`tmk-mil_dot`).
+  `init_db()` renames pictures stored under the first release's short keys
+  (`dot` → `mil_dot`).
+- **An upload is matched by where the game keeps the picture**
+  (`read_marker_icons()`): the last folder and the file name, without `_ca` /
+  `_co`, against each entry's path — `military/dot_ca.png` is `mil_dot`,
+  `nato/b_inf.png` is `b_inf`, `mapcontrol/Church_CA.png` is `loc_church` —
+  then a file named after its class, then a file name only one picture has.
+  `picture_coverage()` is what the Terrains page lists: per group, how many
+  pictures this server has and the game paths of the ones it lacks.
+- **Tinted with a mask.** Arma's pictures are white on transparent and the
+  game multiplies them by the marker colour, so `icon_masks()` puts one
+  `<mask>` per picture in the defs and a marker or unit is a rect in its
+  colour through it (`_picture_svg()`, mirrored by `pictureSVG()` in
+  `tacmap.js`). A flag (`paint`, the Flags group) is in its own colours and is
+  placed as an `<image>` instead. Ops traces get the pictures as data URIs
+  (`marker_images_inline()`), since resvg fetches nothing.
+- **Missing is a placeholder, never a guess.** A map drawn before the
+  pictures were uploaded, or copied from another server, draws a dashed **?**
+  (`MISSING_PICTURE`) where a picture is missing. The editor's lists offer only
+  what has a picture (plus, in the inspector, whatever the selected item
+  already is, marked *no picture*).
 
-**The set is APP-6**, drawn the way the planning tools and the pocket cards
-this hobby already uses draw it. That was reversed once — the symbols were
-briefly Arma's own flat markers, one rectangle for every side — and the
-reference everybody actually plans from put it back: a frame whose **shape**
-says whose a unit is reads when the plan is printed, projected, or looked at
-by somebody who is colour-blind, and Arma's own map is not where the plan is
-written.
+**A unit is one of Arma's NATO markers.** `SYMBOLS` is the game's set
+(infantry, motorized, mechanized, armor, recon, helicopter, plane, UAV, naval,
+medical, artillery, mortar, HQ, support, maintenance, service, installation,
+anti-air, explosives, unknown, and the civilian car and ship);
+`unit_class(side, symbol)` is the marker: the side gives the prefix (`b_`,
+`o_`, `n_`, `c_`; the unknown side uses `n_` in the unknown colour and
+`u_installation`), and a symbol a side has no marker for falls to that side's
+unknown. Its colour is the side's Arma colour (`AFFILIATIONS`), as in game.
+**Size is Arma's own size marker** (`ECHELONS` → `group_0` … `group_11`),
+drawn in the same box over the unit and exported as a second marker at the
+same spot; the import folds a size marker lying on a unit back into its size
+(`_stack_sizes()`).
 
-- **A frame per side.** Rectangle friendly, diamond hostile, square neutral,
-  quatrefoil unknown, rectangle again for civilian in its own colour. The
-  diamond and the quatrefoil are drawn **larger than the rectangle**: a
-  diamond is narrowest exactly where the pictogram is tallest, and one sized
-  like the rectangle cuts the arms off an infantry X.
-- **And a frame per dimension.** *"A closed frame is used to denote the Land
-  and Sea Surface Dimensions, a frame open at the bottom to denote the Air
-  and Space Dimensions and a frame open at the top to denote the Sea
-  Subsurface Dimension."* So `_FRAMES` is keyed side **and** dimension, and
-  an air symbol is the same pictogram in a frame missing its floor rather
-  than an icon of its own.
-- **Pale fill, dark line work.** `fill` is the frame, `edge` its outline and
-  `glyph` both the pictogram and every modifier — so unlike a solid block
-  with a white icon, the whole symbol stays legible against a terrain that is
-  bright sand in one corner and dark jungle in the other.
-- **`SYMBOLS` covers both columns of the card**: the unit symbols (infantry,
-  recon, armour, mechanised, mortars, artillery, medical, engineers, supply
-  and the rest) and the equipment ones (truck, APC, IFV, tank, MMG, HMG,
-  grenade launcher), so a weapons det or a single vehicle goes on the plan as
-  itself.
-- **Headquarters is a modifier, not a symbol**, because any unit can be the
-  one in charge. Where its staff hangs from differs per frame, which is why
-  `_FRAMES` holds a record per side rather than a path.
-
-### The frame says three things, and none of them is an icon
-
-Whose a unit is, where it is, and whether it is there yet — APP-6 puts all
-three on the frame, which is why they live in `_FRAMES` and `STATUSES`
-rather than in `SYMBOLS`.
-
-- **An open frame is still filled.** SVG closes an open subpath implicitly
-  when it fills one, so an air frame keeps the pale field its pictogram
-  needs. The first cut set `fill="none"` on those paths and both the line
-  work and the icon disappeared into a dark terrain — a frame nobody can
-  see is not a frame.
-- **The hostile air frame is a roof on short walls, not half a diamond.**
-  Half a diamond stops at y 50 and the pictogram box runs to y 67, so an
-  infantry X hung out of its own symbol. `test_every_frame_encloses_the_
-  pictogram_box` checks `top <= 33 and bottom >= 67` for all fifteen frames
-  rather than for the one that broke.
-- **Status is a dashed frame**: solid is what is there, dashed is planned or
-  anticipated. It rides on unit frames and on task markers — a point is
-  dashed on **both** of its passes, or the solid one shows through the gaps
-  — and deliberately not on lines and areas, which already say it with
-  `style`. Two switches for one fact is how they end up disagreeing.
-
-**`ECHELONS` and `STRENGTHS` are what a card has and a map marker does not.**
-The size marks sit above the frame — Ø team, • squad, •• section, ••• platoon,
-I company, II battalion, III regiment, X brigade, XX division — with `(+)`,
-`(-)` or `(±)` beside them, and a short abbreviation (SF, CH, MP) in the
-frame. Three things about them:
-
-- **The lift is per frame.** `ECHELON_LIFT` is measured from that frame's own
-  `top`, because a diamond reaches half the box higher than a rectangle and a
-  fixed offset would bury a hostile unit's size mark in its own frame.
-- **Everything outside the frame is drawn twice**, dark over a pale outline
-  (`_chrome_text()`, and the two passes on the echelon `<use>`). A pocket card
-  is ink on paper; these sit on satellite imagery and have to hold up over
-  both ends of it.
-- **The abbreviation never lands on the pictogram.** An empty frame has room
-  for it; a frame that already carries an icon does not, so it goes beside the
-  symbol — which is where APP-6 puts free text anyway.
-- **Arma has neither**, so `_marker_text()` writes them into the exported
-  marker's text: `1-1 Alpha (Plt +)` rather than a platoon that arrives in the
-  mission as an unqualified name.
-
-**`MOBILITY` and the higher formation are the two amplifier fields that
-change what a symbol means.** Field R hangs a chassis — wheeled, tracked,
-towed, amphibious — under whatever the frame's own bottom happens to be, so
-it sits on a diamond's tip and a rectangle's edge alike; field M writes the
-parent unit on the line above the frame, opposite the strength, so the two
-read as one designation. Three things follow:
-
-- **The label drop is measured from the frame**, not fixed, because the
-  chassis and a headquarters staff both hang below it. The old fixed value
-  is kept as a **floor**, so no existing map's name moves.
-- **The chassis is drawn twice**, pale under dark, like everything else
-  outside the frame — but thinner than the echelon marks are, or the pale
-  pass swallows the shape instead of backing it.
-- **Arma has neither of these either**, so both go into the marker text:
-  `1-1 Alpha / A Coy (planned Plt twd)`. A symbol in an air frame also gets
-  the game's own `*_air` marker rather than its branch icon, since that
-  says more about it.
-
-**`MARKERS` is the other half of the game's set** — `mil_dot`, `mil_objective`,
-`mil_destroy`, `mil_flag` and the rest. A point carries one of those shapes and
-is drawn the way the game draws them, as line art in the side's colour rather
-than a filled block, which is what tells a task marker from a unit at a glance.
-Three things about them:
-
-- **Each is drawn twice**, once thick in the side's dark edge and once in its
-  colour on top, so the shape holds up over terrain without an SVG filter.
-- **That costs a hit area.** Line art has no fill, so a click in the middle of
-  an X or a circle would land on the terrain behind it — `hitSVG()` in
-  `tacmap.js` gives a point an invisible disc, the same reason a line carries
-  a fat invisible copy of itself.
-- **The glyph survives.** Only the dot, circle, box and triangle have room to
-  write in (`text` in the table); on the others the glyph goes in front of the
-  label rather than being dropped. A point drawn before the shapes existed has
-  no marker, so `parse()` reads its glyph — one typed `OBJ` becomes the
-  objective marker, which is what the export already assumed it meant.
-
-**Every vanilla marker is in `MARKERS`** — the military set here, and the
-rest (hand-drawn `hd_`, map locations `loc_`, unit sizes `group_`, respawn,
-Zeus and 44 flags) in `utils/arma_markers.py`, merged at import. The list is
-the game's own `CfgMarkers` read out of a running game (scope > 0, icon under
-`\A3\`), and each entry keeps its exact class name, which is what exports and
-what an imported marker is matched by (case-insensitively). **The drawings are
-our own**: Arma's icons are Bohemia's artwork, so each is a plain pictogram of
-what it means; national flags are the flags; a fictional faction's or an
-organisation's flag (NATO, UN, CSAT, AAF…) is a plain cloth with its short
-name rather than a copy of its emblem. The **hand-drawn set** is the military set
-under `tm-rough`, an SVG displacement filter in `defs()` — the same wobble in
-the browser and in resvg — and the picker puts a rule between the groups so
-the two styles never run together. A new marker carries no text until some
-is picked. A flag is `paint`: full colour, drawn
-once, never tinted, and exported with `setMarkerColor "Default"`. The picker
-groups them by `MARKER_GROUPS`. Mod markers (RHS, 3CB flags) are left out —
-a player without the mod sees nothing for them; an imported one comes back
-as a dot named after its class.
-
-**A guild may draw its markers with the game's own pictures.** An admin
-uploads a zip of Arma's marker icons (white-on-transparent PNGs:
-`military/dot_ca.png`, `handdrawn/flag_ca.png`, or a file named after a class
-such as `loc_Church.png`) on the Terrains page; `read_marker_icons()` matches
-each to a marker by its Arma class and drops anything else. They are
-**Bohemia's artwork and this repository is public**, so they are never
-committed: `tac_marker_icons` keeps them per guild, and they are served only
-behind guild membership (`/g/{guild}/mi/{key}.png`) or a live share link
-(`/m/{token}/mi/{key}.png`), `Cache-Control: private`. `render(…,
-marker_images=)` puts one `<mask>` per picture in the defs (`icon_masks()`,
-ids `tmk-<key>`) and draws such a marker as a rect in its colour through the
-mask — Arma's own tinting; the editor reads which keys have pictures from
-`data-icons` and does the same. Ops traces get the pictures as data URIs
-(`marker_images_inline()`), since resvg fetches nothing. A flag (`paint`) is
-never replaced. Removing the pictures puts the line art back.
-
-**Every unit exports as a marker the game has.** Arma's civilian markers are
-only `c_unknown/car/ship/air/plane` and its unknown side has only
-`u_installation`, so `ARMA_CIVILIAN` maps civilians onto those and an unknown
-unit takes the neutral frame in the unknown colour; `civ` used to export as
-`u_inf` and the like, which draw nothing. The equipment symbols (truck, APC,
-IFV, tank, HMG, GL) and the new EOD symbol (`b_Ordnance`) are in
-`ARMA_TYPES`. `test_every_unit_exports_as_a_marker_arma_has` checks every
-side × symbol × HQ × dimension against the game's list.
+`parse()` reads older maps as what they always exported as: the APP-6 symbol
+keys through `LEGACY_SYMBOLS` (with `hq: true` → `hq`, an air-dimension symbol →
+helicopter, and a civilian one onto the civilian markers), and the military
+markers' short keys through `LEGACY_MARKERS`. Strength, mobility, dimension,
+status, abbreviation and higher formation are gone — Arma's markers have none
+of them — and are dropped on the next save.
 
 `UNIT_BOX` is small on purpose. A platoon plan puts twenty symbols on one
-sheet, and what reads as comfortable with three of them is a wall of colour
-with twenty; `MIN_SIZE` goes down to a sixth of that again. **`label_size()`
-floors the type at `MIN_LABEL` however small the symbol gets** — a symbol
-shrunk to nothing is still a symbol, but its name shrunk to nothing is a
-smudge, and the name is what the plan is read for.
-
-**`DEFAULT_SIZE` is `MIN_SIZE`: a new item starts at the bottom of the
-slider.** It began at 1.0 and every plan drawn here came out too big and was
-shrunk by hand, item by item, which is the wrong way round — growing the two
-symbols that have to stand out is one drag, shrinking twenty is twenty. It is
-the *new item* default and deliberately **not** `parse()`'s fallback, which
-stays at 1.0: an already-drawn map holding an item with no size must keep
-drawing it the size it always did.
-
-Two floors exist because of that default, and both are the `MIN_LABEL`
-argument applied again:
-
-- **`line_size()` floors a line's own geometry at `MIN_LINE_SIZE`** — width,
-  dash pattern and arrow head together, so they stay in proportion instead of
-  each growing a floor of its own. `4 × DEFAULT_SIZE` is 0.6 units on a
-  1000-unit sheet, under a device pixel, so without this a line drawn at the
-  new default was invisible.
-- **`MIN_HIT` floors the pointer targets**, which `hitSVG()` in `tacmap.js`
-  drew from the item's size alone — so at the small end the thing you could
-  see became a thing you could not click. A unit now carries the same
-  invisible disc a marker and a line already had; at size 1 that disc is
-  inscribed in the frame, so nothing about a normal symbol changes.
+sheet. **`label_size()` floors the type at `MIN_LABEL`** however small the
+symbol gets, and **`DEFAULT_SIZE` is `MIN_SIZE`**: a new item starts at the
+bottom of the slider, while `parse()`'s fallback stays 1.0 so an old item
+with no size draws as it always did. `line_size()` floors a line's geometry
+at `MIN_LINE_SIZE` and `MIN_HIT` floors the pointer targets, for the same
+reason.
 
 ### Colour says whose a *unit* is, and nothing else
 
@@ -2628,7 +2502,7 @@ So the rule is now per kind:
 
 | | drawn in |
 |---|---|
-| `unit` | its side's `fill` — the frame has no other way to say whose it is, and a symbol still may not take a colour of its own |
+| `unit` | its side's Arma colour (`AFFILIATIONS`) — what tells whose it is, as in game; a unit may not take a colour of its own |
 | `line`, `area`, `point` | the colour somebody picked, else `DEFAULT_INK` |
 | `text` | the colour somebody picked, else white — a free label is chrome, not a control measure |
 
@@ -3056,10 +2930,9 @@ Four things in there are load-bearing:
   there is no arrowhead on a polyline. Dashed is lost: Arma has no dashed
   marker.
 
-`ARMA_TYPES` maps our symbols onto the NATO markers vanilla Arma ships. Several
-have no counterpart — there is no anti-tank or sniper marker — so they land on
-the nearest thing that exists rather than on nothing, and `hq` wins over the
-branch icon because `b_hq` says more about the unit than its branch does.
+A unit exports as exactly the NATO marker it is drawn as (`unit_class()`),
+plus its size marker on top, and a marker as its own class — the editor only
+draws what the game has.
 
 **`editable=True` is the variant the plan can be touched in**, and it names
 its markers differently because that is the only thing that decides it. Arma
@@ -3289,11 +3162,10 @@ it stays current while the plan is still being edited.
   `utils/orbat.py` and `utils/reddit.py`. Keep it that way: it is the only
   reason the document rules and the escaping are tested at all
   (`tests/test_tacmap.py`).
-- **Adding a symbol is one entry in `SYMBOLS`.** The icon is drawn in x 25–75,
-  y 33–67 of a 100 × 100 box, which is the largest box that fits inside every
-  frame — the diamond is the binding one, and `test_the_pictogram_fits_inside_
-  every_frame` is what keeps a new frame from quietly clipping every icon.
-  `catalog()` puts a new symbol in the palette on its own.
+- **The marker list is the game's.** A new vanilla marker is one row in
+  `utils/arma_icons.py` (class, label, group, the game's path); a unit symbol
+  is one entry in `SYMBOLS` naming the Arma type. `catalog()` puts either in
+  the editor, which offers it once a server has its picture.
 - **The editor page is `.widepage`**, the same escape from the 900px column the
   ORBAT editor uses.
 - **Two people saving one map** no longer overwrite each other silently.

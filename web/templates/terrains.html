@@ -151,18 +151,30 @@
     </div>
   </form>
 
-  <h2 style="margin-top:28px" id="marker-icons">Arma's own marker pictures</h2>
+  <h2 style="margin-top:28px" id="marker-icons">Arma's marker pictures</h2>
+  {% set icon_count = icon_coverage | sum(attribute='have') %}
   <p class="hint">
-    Markers are drawn from built-in line art. Upload a zip of the game's own
-    marker icons — white-on-transparent PNGs such as
-    <code>military/dot_ca.png</code> and <code>handdrawn/flag_ca.png</code>, or
-    files named after a marker class like <code>loc_Church.png</code> — and every
-    map on this server draws those markers from them instead, in the marker's
-    colour. They are kept in this bot's database, not in its public code, and
-    only this server's members and the holders of a map's share link can load
-    them.
+    Every marker and unit on the maps is drawn with the game's own picture, in
+    its colour, as Arma draws it. The pictures are Bohemia's, so they are not
+    part of this bot: upload them here as a zip of PNGs, laid out as the game
+    keeps them (<code>military/dot_ca.png</code>, <code>nato/b_inf.png</code>,
+    <code>mapcontrol/Church_CA.png</code>) or named after the marker class
+    (<code>loc_Church.png</code>). Only the markers and units this server has a
+    picture for are offered in the editor. The pictures are kept in this bot's
+    database and only this server's members and the holders of a map's share
+    link can load them. Uploading again adds to what is here.
   </p>
-  <p>{% if icon_count %}<strong>{{ icon_count }}</strong> marker pictures in use.{% else %}None uploaded — the line art is used.{% endif %}</p>
+  <div class="tablewrap"><table class="rawslots">
+    <thead><tr><th>Group</th><th>Pictures</th><th>Still to upload — where the game keeps them</th></tr></thead>
+    <tbody>
+    {% for row in icon_coverage %}
+      <tr><td>{{ row.group }}</td><td>{{ row.have }} / {{ row.total }}</td>
+        <td>{% if row.missing %}<details><summary>{{ row.missing | length }} files</summary>
+          <code style="white-space:pre-line;font-size:12px">{{ row.missing | join('\n') }}</code>
+          </details>{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
   <form class="form" method="post" enctype="multipart/form-data"
         action="/g/{{ guild.id }}/terrains/marker-icons">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -172,7 +184,7 @@
       <button class="button primary" type="submit">Upload pictures</button>
       {% if icon_count %}
         <button class="button danger" type="submit" name="action" value="delete"
-                onclick="return confirm('Remove the marker pictures and go back to the line art?')">
+                onclick="return confirm('Remove every marker picture? Markers and units will show as placeholders until they are uploaded again.')">
           Remove them</button>
       {% endif %}
     </div>

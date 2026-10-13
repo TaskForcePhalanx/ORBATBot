@@ -431,6 +431,14 @@ async def init_db():
                 PRIMARY KEY (guild_id, key)
             )
         ''')
+        # The first release stored the military pictures under the marker's
+        # old name (`dot`); every picture is keyed by its Arma class now.
+        await db.execute('''
+            UPDATE tac_marker_icons SET key = 'mil_' || key
+             WHERE key IN ('dot', 'circle', 'box', 'triangle', 'objective', 'destroy',
+                           'warning', 'unknown', 'flag', 'arrow', 'arrow2', 'ambush',
+                           'start', 'end', 'pickup', 'join', 'marker')
+        ''')
         # A terrain uploaded as a tile archive, and served back by this bot —
         # see utils/tiles.py. The tiles live here rather than on disk because
         # the container's filesystem does not survive a redeploy, and a map

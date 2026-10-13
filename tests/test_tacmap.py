@@ -84,12 +84,6 @@ def test_an_unknown_kind_is_dropped_with_a_warning():
     assert result.warnings
 
 
-def test_an_unknown_symbol_becomes_an_empty_frame():
-    result = tacmap.parse(_doc(items=[unit(symbol='deathstar')]))
-    assert result.doc['items'][0]['symbol'] == 'generic'
-    assert result.warnings
-
-
 def test_an_unknown_side_falls_back_to_friendly():
     assert tacmap.parse(_doc(items=[unit(side='martian')])).doc['items'][0]['side'] \
         == tacmap.DEFAULT_SIDE
@@ -428,36 +422,6 @@ def test_an_imported_terrain_lands_where_arma_puts_it():
 
 # -- drawing -----------------------------------------------------------------
 
-def test_every_symbol_frame_and_marker_is_in_the_defs():
-    defs = tacmap.defs()
-    for symbol in tacmap.SYMBOLS:
-        assert f'id="tmi-{symbol}"' in defs
-    for marker in tacmap.MARKERS:
-        assert f'id="tmm-{marker}"' in defs
-    for side in tacmap.AFFILIATIONS:
-        for dimension in tacmap.DIMENSIONS:
-            assert f'id="tmf-{side}-{dimension}"' in defs
-            assert f'id="tmh-{side}-{dimension}"' in defs
-    for echelon in tacmap.ECHELONS:
-        assert f'id="tmx-{echelon}"' in defs
-    for mobility in tacmap.MOBILITY:
-        assert f'id="tmv-{mobility}"' in defs
-    # No arrow markers: a marker cannot take a line's own colour, so the head
-    # is a polygon the renderer works out.
-    assert '<marker' not in defs
-
-
-def test_each_side_has_a_frame_of_its_own_shape():
-    """The shape says whose a unit is before the colour does."""
-    for side in tacmap.AFFILIATIONS:
-        svg = tacmap.item_svg(_parse_one({'kind': 'unit', 'side': side, 'x': 10,
-                                          'y': 10, 'symbol': 'inf'}))
-        assert f'#tmf-{side}-land' in svg
-        assert tacmap.AFFILIATIONS[side]['fill'] in svg
-    paths = {shapes['land']['path'] for shapes in tacmap._FRAMES.values()}
-    # Friendly and civilian share the rectangle; the other three do not share.
-    assert len(paths) == 4
-
 
 def test_the_pictogram_fits_inside_every_frame():
     """The icon box is the largest one a diamond will take without clipping.
@@ -472,47 +436,10 @@ def test_the_pictogram_fits_inside_every_frame():
         assert 50 - reach <= 25 and 50 + reach >= 75
 
 
-def test_every_nato_marker_arma_ships_has_a_symbol():
-    """The palette covers a3\\ui_f\\data\\map\\markers\\nato, so the export maps."""
-    wanted = {
-        'inf', 'motor_inf', 'mech_inf', 'armor', 'recon', 'air', 'plane', 'uav',
-        'naval', 'med', 'art', 'mortar', 'installation', 'maint', 'service',
-        'support', 'antiair', 'unknown',
-    }
-    assert wanted <= set(tacmap.ARMA_TYPES.values())
-
-
-def test_a_point_carries_one_of_armas_markers():
-    item = _parse_one({'kind': 'point', 'x': 10, 'y': 10, 'marker': 'objective'})
-    assert item['marker'] == 'objective'
-    assert tacmap._arma_type(item) == 'mil_objective'
-    assert '#tmm-objective' in tacmap.item_svg(item)
-
-
 def test_an_unknown_marker_falls_back_to_the_dot():
     item = _parse_one({'kind': 'point', 'x': 10, 'y': 10, 'marker': 'spaceship'})
     assert item['marker'] == tacmap.DEFAULT_MARKER
     assert tacmap._arma_type(item) == 'mil_dot'
-
-
-def test_a_point_drawn_before_the_shapes_existed_reads_its_glyph():
-    """An older map said what a point was by typing OBJ or LZ into it."""
-    item = _parse_one({'kind': 'point', 'x': 10, 'y': 10, 'glyph': 'obj'})
-    assert item['marker'] == 'objective'
-    plain = _parse_one({'kind': 'point', 'x': 10, 'y': 10, 'glyph': 'AB'})
-    assert plain['marker'] == tacmap.DEFAULT_MARKER
-
-
-def test_a_glyph_with_nowhere_to_go_joins_the_label():
-    """Only the round and boxy markers have room to write in."""
-    inside = tacmap.item_svg(_parse_one({'kind': 'point', 'x': 10, 'y': 10,
-                                         'marker': 'box', 'glyph': 'A1',
-                                         'label': 'Cache'}))
-    assert '>A1<' in inside and '>Cache<' in inside
-    beside = tacmap.item_svg(_parse_one({'kind': 'point', 'x': 10, 'y': 10,
-                                         'marker': 'flag', 'glyph': 'A1',
-                                         'label': 'Cache'}))
-    assert '>A1 Cache<' in beside
 
 
 def test_the_civilian_side_exports_as_its_own_colour():
@@ -522,16 +449,6 @@ def test_the_civilian_side_exports_as_its_own_colour():
     script = tacmap.to_sqf(tacmap.parse(doc).doc, prefix='m1')
     assert 'ColorCIV' in script
     assert 'u_installation' in script
-
-
-def test_the_catalog_offers_exactly_what_can_be_drawn():
-    catalog = tacmap.catalog()
-    assert [entry['key'] for entry in catalog['symbols']] == list(tacmap.SYMBOLS)
-    assert [entry['key'] for entry in catalog['sides']] == list(tacmap.AFFILIATIONS)
-    # The editor skips the icon <use> for a frame with no icon, so it has to be
-    # told which those are.
-    assert not next(e for e in catalog['symbols'] if e['key'] == 'generic')['hasIcon']
-    assert next(e for e in catalog['symbols'] if e['key'] == 'inf')['hasIcon']
 
 
 def test_a_new_item_starts_at_the_smallest_size():
@@ -635,16 +552,6 @@ def test_every_kind_draws_something():
                  {'kind': 'text', 'x': 1, 'y': 1, 'label': 'Phase 1'}):
         doc = tacmap.parse(_doc(items=[item])).doc
         assert tacmap.item_svg(doc['items'][0]).strip(), item['kind']
-
-
-def test_a_headquarters_carries_its_staff_and_moves_its_label_clear_of_it():
-    plain = tacmap.item_svg(tacmap.parse(_doc(items=[unit(label='A')])).doc['items'][0])
-    hq = tacmap.item_svg(
-        tacmap.parse(_doc(items=[unit(label='A', hq=True)])).doc['items'][0]
-    )
-    assert '#tmh-friend' in hq and '#tmh-friend' not in plain
-    # The staff hangs below the frame, so the name has to hang below the staff.
-    assert _label_y(hq) > _label_y(plain)
 
 
 def _label_y(svg: str) -> float:
@@ -801,48 +708,6 @@ def test_the_summary_counts_what_is_on_the_map():
     assert tacmap.summarise(tacmap.blank_doc()) == 'empty'
 
 
-def test_a_unit_carries_its_size_strength_and_abbreviation():
-    item = _parse_one(unit(echelon='platoon', strength='reinforced', text='SF'))
-    assert (item['echelon'], item['strength'], item['text']) == (
-        'platoon', 'reinforced', 'SF')
-    svg = tacmap.item_svg(item)
-    assert '#tmx-platoon' in svg
-    assert '(+)' in svg
-    assert '>SF<' in svg
-
-
-def test_a_size_mark_this_version_does_not_know_is_dropped():
-    item = _parse_one(unit(echelon='corps', strength='doubled'))
-    assert item['echelon'] == '' and item['strength'] == ''
-    assert '#tmx-' not in tacmap.item_svg(item)
-
-
-def test_the_size_mark_clears_whatever_the_frame_reaches():
-    """A diamond reaches much higher than a rectangle, so the lift is per frame."""
-    tops = {side: tacmap.frame_of(side)['top'] for side in tacmap.AFFILIATIONS}
-    assert tops['hostile'] < tops['friend']
-    for side in tacmap.AFFILIATIONS:
-        svg = tacmap.item_svg(_parse_one(unit(side=side, echelon='company')))
-        shift = round(tops[side] - tacmap.ECHELON_LIFT - 50, 2)
-        assert f'translate(0,{shift})' in svg
-
-
-def test_an_abbreviation_never_lands_on_the_pictogram():
-    """It sits in an empty frame, and beside a frame that has an icon in it."""
-    empty = tacmap.item_svg(_parse_one(unit(symbol='generic', text='CH')))
-    assert 'x="50" y="61"' in empty
-    busy = tacmap.item_svg(_parse_one(unit(symbol='inf', text='CH')))
-    assert 'x="102"' in busy
-
-
-def test_the_export_writes_what_arma_cannot_draw():
-    """Arma's markers have no echelon and no strength, so the text carries them."""
-    doc = _doc(items=[unit(label='1-1 Alpha', echelon='platoon',
-                           strength='reinforced')])
-    script = tacmap.to_sqf(tacmap.parse(doc).doc, prefix='m1')
-    assert '"1-1 Alpha (Plt +)"' in script
-
-
 def test_the_export_is_read_only_in_game_by_default():
     doc = _doc(items=[unit(label='A')])
     script = tacmap.to_sqf(tacmap.parse(doc).doc, prefix='map1')
@@ -915,67 +780,10 @@ def test_both_exports_delete_what_they_are_about_to_draw():
 # ---------------------------------------------------------------------------
 
 
-def test_every_frame_encloses_the_pictogram_box():
-    """An open frame is still a frame: it has to contain the icon.
-
-    This is the bug the hostile air frame shipped with for one round — drawn
-    as half a diamond it stopped at y 50, and the bottom half of an infantry
-    X hung outside its own symbol. The icon box is x 25-75, y 33-67, so a
-    frame that starts below 33 or ends above 67 clips it.
-    """
-    for side, shapes in tacmap._FRAMES.items():
-        for dimension, frame in shapes.items():
-            assert frame['top'] <= 33, f'{side}/{dimension} starts below the icon'
-            assert frame['bottom'] >= 67, f'{side}/{dimension} ends above the icon'
-
-
-def test_an_air_frame_is_open_at_the_bottom_and_a_subsurface_one_at_the_top():
-    """Neither closes with Z, which is the whole difference from land."""
-    for side, shapes in tacmap._FRAMES.items():
-        assert 'Z' in shapes['land']['path'], side
-        assert 'Z' not in shapes['air']['path'], side
-        assert 'Z' not in shapes['sub']['path'], side
-
-
-def test_a_symbol_is_drawn_in_the_frame_of_its_own_dimension():
-    for dimension in tacmap.DIMENSIONS:
-        svg = tacmap.item_svg(_parse_one(unit(dimension=dimension)))
-        assert f'#tmf-friend-{dimension}' in svg
-
-
-def test_a_dimension_this_version_does_not_know_lands_on_land():
-    item = _parse_one(unit(dimension='orbital'))
-    assert item['dimension'] == 'land'
-    assert '#tmf-friend-land' in tacmap.item_svg(item)
-
-
-def test_planned_is_dashed_and_present_is_not():
-    """The one thing the frame says that no icon could."""
-    present = tacmap.item_svg(_parse_one(unit(status='present')))
-    planned = tacmap.item_svg(_parse_one(unit(status='planned')))
-    assert 'stroke-dasharray' not in present
-    assert f'stroke-dasharray="{tacmap.STATUSES["planned"]["dash"]}"' in planned
-
-
-def test_a_planned_task_marker_is_dashed_on_both_passes():
-    """One solid pass under a dashed one would show through the gaps."""
-    svg = tacmap.item_svg(_parse_one({'kind': 'point', 'x': 10, 'y': 10,
-                                      'marker': 'objective', 'status': 'planned'}))
-    assert svg.count('stroke-dasharray') == 2
-
-
 def test_a_line_has_no_status_because_style_already_says_it():
     item = _parse_one({'kind': 'line', 'points': [[1, 1], [2, 2]],
                        'status': 'planned'})
     assert 'status' not in item
-
-
-def test_the_mobility_chassis_hangs_under_the_frame_it_is_on():
-    """A diamond's tip is 30 box units lower than a rectangle's edge."""
-    for side in ('friend', 'hostile'):
-        item = _parse_one(unit(side=side, mobility='wheeled'))
-        under = tacmap.frame_of(side)['bottom'] + tacmap.MOBILITY_DROP
-        assert f'translate(0,{under})' in tacmap.item_svg(item)
 
 
 def _label_baseline(svg: str) -> float:
@@ -983,36 +791,6 @@ def _label_baseline(svg: str) -> float:
     match = re.search(r'<text x="[-\d.]+" y="([-\d.]+)"[^>]*class="tm-label"', svg)
     assert match, svg
     return float(match.group(1))
-
-
-def test_the_label_clears_the_mobility_chassis():
-    """Whatever hangs under the frame pushes the name further down, never up."""
-    plain = tacmap.item_svg(_parse_one(unit(side='hostile', label='A')))
-    moving = tacmap.item_svg(_parse_one(unit(side='hostile', label='A',
-                                             mobility='tracked')))
-    assert _label_baseline(moving) > _label_baseline(plain)
-
-
-def test_a_symbol_with_nothing_hanging_off_it_keeps_the_label_where_it_was():
-    """The drop that shipped is a floor, so no existing map's name moves."""
-    svg = tacmap.item_svg(_parse_one(unit(label='A', size=1)))
-    assert _label_baseline(svg) == round(200 + tacmap.UNIT_BOX * 0.62 + 6, 2)
-
-
-def test_the_higher_formation_sits_opposite_the_strength():
-    """Field M on one side of the size marks, the strength on the other."""
-    svg = tacmap.item_svg(_parse_one(unit(higher='A Coy', echelon='platoon',
-                                          strength='reinforced')))
-    assert 'x="-3"' in svg and 'text-anchor="end"' in svg
-    assert 'x="103"' in svg
-
-
-def test_the_export_writes_the_frame_into_the_marker_name():
-    """Arma has no dashed marker and no second designation field."""
-    item = _parse_one(unit(label='1-1 Alpha', higher='A Coy', status='planned',
-                           echelon='platoon', mobility='towed'))
-    text = tacmap._marker_text(item)
-    assert text == '1-1 Alpha / A Coy (planned Plt twd)'
 
 
 def test_an_air_symbol_exports_as_armas_own_air_marker():
@@ -2096,9 +1874,9 @@ def test_a_mission_s_markers_come_back_as_the_map_s_own():
     items, notes = tacmap.import_arma_markers(doc, text)
     kinds = [i['kind'] for i in items]
     assert kinds == ['point', 'unit', 'unit', 'line', 'area', 'shape', 'point', 'point']
-    assert items[0]['marker'] == 'objective' and items[0]['color'] == '#e03b3b'
+    assert items[0]['marker'] == 'mil_objective' and items[0]['color'] == '#e03b3b'
     assert (items[1]['side'], items[1]['symbol'], items[1]['rotation']) == ('friend', 'inf', 45.0)
-    assert items[2]['hq'] and items[2]['side'] == 'hostile'
+    assert (items[2]['side'], items[2]['symbol']) == ('hostile', 'hq')
     assert items[3]['points'] == [[100.0, 900.0], [900.0, 900.0]]
     assert len(items[4]['points']) == 3                      # closed polyline → area
     assert (items[5]['w'], items[5]['h'], items[5]['fill']) == (100.0, 50.0, 'hatch')
@@ -2123,13 +1901,12 @@ def test_a_round_trip_through_arma_keeps_the_plan():
 def test_the_export_report_says_what_does_not_survive():
     doc = _arma_doc({'kind': 'line', 'style': 'dashed', 'weight': 4,
                      'points': [[0, 0], [100, 0]]},
-                    {'kind': 'area', 'points': [[0, 0], [9, 0], [9, 9]]},
-                    {'kind': 'unit', 'symbol': 'sniper', 'x': 5, 'y': 5})
+                    {'kind': 'area', 'points': [[0, 0], [9, 0], [9, 9]]})
     sqf = tacmap.to_sqf(doc, prefix='tm7')
     report = tacmap.export_report(doc, sqf)
     assert report['markers'] == sqf.count('createMarker')
     text = ' '.join(report['notes'])
-    assert 'dashes' in text and 'thickness' in text and 'outlines' in text and 'Sniper' in text
+    assert 'dashes' in text and 'thickness' in text and 'outlines' in text
 
 
 # -- the full marker set -----------------------------------------------------
@@ -2145,16 +1922,6 @@ VANILLA_UNIT_MARKERS = {
 } | {'c_unknown', 'c_car', 'c_ship', 'c_air', 'c_plane', 'u_installation'}
 
 
-def test_every_unit_exports_as_a_marker_arma_has():
-    for side in tacmap.AFFILIATIONS:
-        for symbol in tacmap.SYMBOLS:
-            for hq in (False, True):
-                for dimension in tacmap.DIMENSIONS:
-                    item = {'kind': 'unit', 'side': side, 'symbol': symbol, 'hq': hq,
-                            'dimension': dimension}
-                    assert tacmap._arma_type(item) in VANILLA_UNIT_MARKERS, item
-
-
 def test_every_marker_has_a_drawing_a_group_and_its_own_class():
     names = [m['arma'] for m in tacmap.MARKERS.values()]
     assert len(names) == len(set(names))
@@ -2164,15 +1931,6 @@ def test_every_marker_has_a_drawing_a_group_and_its_own_class():
     for name in ('mil_ambush', 'mil_arrow2', 'hd_join', 'loc_PowerWind', 'group_11',
                  'respawn_para', 'MinefieldAP', 'flag_UK', 'RedCrystal'):
         assert name in names
-
-
-def test_a_flag_is_its_own_colours_in_both_places():
-    item = _parse_one({'kind': 'point', 'marker': 'flag_uk', 'x': 10, 'y': 10,
-                       'color': '#e03b3b'})
-    svg = tacmap.item_svg(item)
-    assert svg.count('<use href="#tmm-flag_uk"') == 1 and 'stroke-width="15"' not in svg
-    assert tacmap.arma_colour(item) == 'Default'
-    assert '<g id="tmm-flag_uk">' in tacmap.defs()
 
 
 def test_a_locked_layer_stays_locked_and_others_carry_nothing_new():
@@ -2201,24 +1959,121 @@ def _icon_zip(files):
 PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 20
 
 
-def test_marker_pictures_are_matched_by_their_arma_class():
+# -- drawn from the game's own pictures ---------------------------------------
+
+def test_every_unit_exports_as_a_marker_arma_has():
+    for side in tacmap.AFFILIATIONS:
+        for symbol in tacmap.SYMBOLS:
+            item = {'kind': 'unit', 'side': side, 'symbol': symbol}
+            assert tacmap._arma_type(item) in VANILLA_UNIT_MARKERS, item
+
+
+def test_every_marker_and_unit_knows_where_the_game_keeps_its_picture():
+    for key, marker in tacmap.MARKERS.items():
+        assert key == marker['arma'].lower() and marker['icon'].lower().startswith('\\a3\\')
+    assert set(tacmap.UNIT_CLASSES) >= {name.lower() for name in VANILLA_UNIT_MARKERS}
+    for echelon in tacmap.ECHELONS.values():
+        assert echelon['arma'].lower() in tacmap.MARKERS
+
+
+def test_an_old_map_reads_as_the_arma_markers_it_always_exported_as():
+    items = tacmap.parse(_doc(items=[
+        unit(symbol='mech', dimension='land'),
+        unit(symbol='inf', hq=True, dimension='land'),
+        unit(symbol='air', dimension='land'),               # APP-6 fixed wing
+        unit(symbol='inf', dimension='air'),
+        unit(symbol='truck', side='civ', dimension='land'),
+        {'kind': 'point', 'x': 1, 'y': 1, 'marker': 'objective'},
+        {'kind': 'point', 'x': 1, 'y': 1, 'marker': 'loc_church'},
+        {'kind': 'point', 'x': 1, 'y': 1, 'glyph': 'obj'},
+    ])).doc['items']
+    assert [i.get('symbol') for i in items[:5]] == ['mech_inf', 'hq', 'plane', 'heli', 'car']
+    assert [tacmap._arma_type(i) for i in items[:5]] == ['b_mech_inf', 'b_hq', 'b_plane',
+                                                         'b_air', 'c_car']
+    assert [i['marker'] for i in items[5:]] == ['mil_objective', 'loc_church', 'mil_objective']
+    # Parsing again changes nothing.
+    again = tacmap.parse(_doc(items=items)).doc['items']
+    assert [i.get('symbol') or i.get('marker') for i in again] == \
+        [i.get('symbol') or i.get('marker') for i in items]
+
+
+def test_an_unknown_symbol_is_drawn_as_unknown():
+    result = tacmap.parse(_doc(items=[unit(symbol='deathstar')]))
+    assert result.doc['items'][0]['symbol'] == 'unknown'
+    assert result.warnings
+
+
+def test_the_catalog_says_which_picture_each_symbol_is_on_every_side():
+    catalog = tacmap.catalog()
+    assert [entry['key'] for entry in catalog['symbols']] == list(tacmap.SYMBOLS)
+    inf = next(entry for entry in catalog['symbols'] if entry['key'] == 'inf')
+    assert inf['classes'] == {'friend': 'b_inf', 'hostile': 'o_inf', 'neutral': 'n_inf',
+                              'civ': 'c_unknown', 'unknown': 'n_inf'}
+    assert next(e for e in catalog['echelons'] if e['key'] == 'platoon')['picture'] == 'group_3'
+    assert '?' in catalog['missingPicture']
+
+
+def test_a_marker_is_drawn_from_its_picture_in_its_colour():
+    doc = tacmap.parse(_doc(items=[
+        {'kind': 'point', 'marker': 'mil_dot', 'x': 10, 'y': 10, 'color': '#e03b3b'},
+        {'kind': 'point', 'marker': 'mil_box', 'x': 20, 'y': 20}])).doc
+    svg = tacmap.render(doc, marker_images={'mil_dot': '/g/1/mi/mil_dot.png'})
+    assert '<mask id="tmk-mil_dot"' in svg and 'href="/g/1/mi/mil_dot.png"' in svg
+    assert 'fill="#e03b3b" mask="url(#tmk-mil_dot)"' in svg
+    assert svg.count('stroke-dasharray="8 6"') == 1          # the box has no picture
+    assert '<mask' not in tacmap.render(doc)
+
+
+def test_a_unit_is_its_sides_marker_with_its_size_stacked_on_it():
+    item = _parse_one(unit(side='hostile', symbol='armor', echelon='platoon'))
+    svg = tacmap.item_svg(item, icons={'o_armor', 'group_3'})
+    colour = tacmap.AFFILIATIONS['hostile']['fill']
+    assert f'fill="{colour}" mask="url(#tmk-o_armor)"' in svg
+    assert f'fill="{colour}" mask="url(#tmk-group_3)"' in svg
+    script = tacmap.to_sqf(tacmap.parse(_doc(items=[item])).doc, prefix='m1')
+    assert 'setMarkerType "o_armor"' in script and 'setMarkerType "group_3"' in script
+
+
+def test_a_size_marker_on_a_unit_comes_back_as_its_size():
+    doc = _arma_doc()
+    doc['arma'] = {'terrain': '', 'left': 0, 'bottom': 0, 'right': 1000, 'top': 1000}
+    items, _ = tacmap.import_arma_markers(doc, _dump(
+        '["m1","ICON","b_inf",[100,900],"1 Plt","ColorWEST",[1,1],0,"Solid",[]]',
+        '["m2","ICON","group_3",[100,900],"","ColorWEST",[1,1],0,"Solid",[]]',
+        '["m3","ICON","group_4",[500,500],"","ColorWEST",[1,1],0,"Solid",[]]'))
+    assert [(i['kind'], i.get('echelon'), i.get('marker')) for i in items] == \
+        [('unit', 'platoon', None), ('point', None, 'group_4')]
+
+
+def test_a_flag_is_its_own_colours_in_both_places():
+    item = _parse_one({'kind': 'point', 'marker': 'flag_uk', 'x': 10, 'y': 10,
+                       'color': '#e03b3b'})
+    svg = tacmap.item_svg(item, icons={'flag_uk'})
+    assert '<use href="#tmk-flag_uk"/>' in svg and 'mask=' not in svg
+    assert tacmap.arma_colour(item) == 'Default'
+    defs = tacmap.defs({'flag_uk': '/x.png'})
+    assert '<g id="tmk-flag_uk"><image' in defs and '<mask' not in defs
+
+
+def test_marker_pictures_are_matched_by_where_the_game_keeps_them():
     icons, notes = tacmap.read_marker_icons(_icon_zip({
         'military/dot_ca.png': PNG, 'handdrawn/flag_ca.png': PNG,
-        'loc_Church.png': PNG, 'military/nonsense_ca.png': PNG,
-        'military/box_ca.png': b'not a png', 'readme.txt': b'hi',
+        'nato/b_inf.png': PNG, 'a3/ui_f/data/map/mapcontrol/Church_CA.png': PNG,
+        'loc_Bunker.png': PNG, 'flags/UK_ca.png': PNG, 'group_3.png': PNG,
+        'military/nonsense_ca.png': PNG, 'military/box_ca.png': b'not a png',
+        'readme.txt': b'hi',
     }))
-    assert sorted(icons) == ['dot', 'hd_flag', 'loc_church']
+    assert sorted(icons) == ['b_inf', 'flag_uk', 'group_3', 'hd_flag', 'loc_bunker',
+                             'loc_church', 'mil_dot']
     assert any('left out' in note for note in notes)
     with pytest.raises(ValueError):
         tacmap.read_marker_icons(b'not a zip')
 
 
-def test_a_marker_with_an_uploaded_picture_is_drawn_from_it():
-    doc = tacmap.parse(_doc(items=[{'kind': 'point', 'marker': 'dot', 'x': 10, 'y': 10,
-                                    'color': '#e03b3b'},
-                                   {'kind': 'point', 'marker': 'box', 'x': 20, 'y': 20}])).doc
-    svg = tacmap.render(doc, marker_images={'dot': '/g/1/mi/dot.png'})
-    assert '<mask id="tmk-dot"' in svg and 'href="/g/1/mi/dot.png"' in svg
-    assert 'fill="#e03b3b" mask="url(#tmk-dot)"' in svg       # tinted with the marker's colour
-    assert 'href="#tmm-box"' in svg                           # the rest stay line art
-    assert '<mask id="tmk-' not in tacmap.render(doc)
+def test_the_coverage_lists_what_is_still_to_upload():
+    rows = {row['group']: row for row in tacmap.picture_coverage({'mil_dot', 'b_inf'})}
+    assert rows['Military']['have'] == 1 and rows['NATO units']['have'] == 1
+    assert sum(row['total'] for row in rows.values()) == \
+        len(tacmap.MARKERS) + len(tacmap.UNIT_CLASSES)
+    assert any(path.endswith('objective_CA.paa') for path in rows['Military']['missing'])
+
