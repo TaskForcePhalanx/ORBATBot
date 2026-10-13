@@ -825,7 +825,7 @@ Six steps from concept to after action, saved as you type, with each drop previe
 
 1. Open a mission from its campaign. The wizard starts on the first step that is not locked yet.
 2. Fill in the step. Fields marked * are needed to lock it; the step's chip turns into 🔒 when they are all filled.
-3. Watch the panel on the right: the **drop preview** is exactly what the bot will post, and **Checks** flags mistakes as you go.
+3. Watch the panel on the right: the **drop preview** is exactly what the bot will post, and **Checks** flags mistakes as you go. Press **Preview in Discord** to see the drop formatted the way readers will see it — headings, bold, quotes, times in your own time zone and images.
 4. In **Orders**, add the phases in order. Give each its AO and press **+ Add objective** to pick from the objectives library.
 5. When a drop reads right, press **Approve** under its preview. It posts by itself at its time — see *Approve and post the drops*.
 

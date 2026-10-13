@@ -380,6 +380,41 @@ def _drop_json(drop: dict, tz: str) -> dict:
     }
 
 
+def _mention_names(guild, texts) -> dict:
+    """The names behind the channel, role and user mentions in some drops,
+    from the bot's own view of the guild, for the formatted preview."""
+    from utils import discordmd
+    ids = {'channels': set(), 'roles': set(), 'users': set()}
+    for text in texts:
+        for kind, found in discordmd.mention_ids(text).items():
+            ids[kind] |= found
+    names = {'channels': {}, 'roles': {}, 'users': {}}
+    for cid in ids['channels']:
+        channel = guild.get_channel(int(cid))
+        if channel is not None:
+            names['channels'][cid] = channel.name
+    for rid in ids['roles']:
+        role = guild.get_role(int(rid))
+        if role is not None:
+            colour = f'#{role.colour.value:06x}' if role.colour.value else None
+            names['roles'][rid] = (role.name, colour)
+    for uid in ids['users']:
+        member = guild.get_member(int(uid))
+        if member is not None:
+            names['users'][uid] = member.display_name
+    return names
+
+
+def _formatted(guild, drops: list, tz: str) -> None:
+    """Each drop's parts as Discord will show them (`html`), beside the raw
+    text the bot sends. Rendered here, once, so the wizard's pop-up and the
+    schedule page draw the same thing."""
+    from utils import discordmd
+    names = _mention_names(guild, [p for d in drops for p in d['parts']])
+    for drop in drops:
+        drop['html'] = [discordmd.render(part, names, tz) for part in drop['parts']]
+
+
 async def mission_state(guild, mission: dict, tz: str) -> dict:
     """The mission and everything worked out from it: progress, the schedule,
     each drop's text as it would post, and the checks. One answer for both the
@@ -394,6 +429,8 @@ async def mission_state(guild, mission: dict, tz: str) -> dict:
     ctx = await post_context(str(guild.id), plan, tz)
     today = today_in(tz)
     drops = [_drop_json(d, tz) for d in worked['drops']]
+    _formatted(guild, drops, tz)
+    channel = guild.get_channel(int(worked['channel'])) if worked['channel'] else None
 
     schedule = rules.schedule(data, plan, today, tz)
     # Layer each drop's state over the schedule, which only knows readiness.
@@ -423,7 +460,8 @@ async def mission_state(guild, mission: dict, tz: str) -> dict:
         'settings': {'drop_weekday': rules.WEEKDAYS[plan['drop_weekday']],
                      'drop_time': plan['drop_time'],
                      'orbat_opens': rules.DROP[plan['orbat_opens']].label,
-                     'channel_set': bool(worked['channel'])},
+                     'channel_set': bool(worked['channel']),
+                     'channel_name': channel.name if channel is not None else ''},
         'is_test': is_test,
         'operation_id': mission.get('operation_id'),
         'orbat_id': mission.get('orbat_id'),

@@ -133,11 +133,15 @@
         </div></div>
 
         <div class="card"><div class="cardbody">
-          <h3 class="nospace" id="cp-droptitle">Drop preview</h3>
+          <div class="cpprevhead">
+            <h3 class="nospace" id="cp-droptitle">Drop preview</h3>
+            <button type="button" class="button small" id="cp-dcopen" hidden>👁 Preview in Discord</button>
+          </div>
           <p class="muted nospace" id="cp-dropmeta"></p>
           <div id="cp-preview"></div>
           <p class="hint">Exactly what the bot will post, Discord markdown and all. Times
-            are Discord timestamps, so everyone sees their own time zone.</p>
+            are Discord timestamps, so everyone sees their own time zone.
+            <strong>Preview in Discord</strong> shows it formatted, the way readers will see it.</p>
         </div></div>
 
         {% with back = 'wizard' %}{% include '_cp_mission_tools.html' %}{% endwith %}
@@ -147,6 +151,17 @@
     <datalist id="cp-zones">
       {% for z in ('Europe/London', 'Europe/Berlin', 'Europe/Amsterdam', 'Europe/Paris', 'Europe/Warsaw', 'Europe/Helsinki', 'UTC', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Australia/Sydney') %}<option value="{{ z }}">{% endfor %}
     </datalist>
+
+    <dialog class="dcdialog" id="cp-dcview" aria-labelledby="cp-dctitle">
+      <div class="dcbar">
+        <span class="dcchannel" id="cp-dctitle"></span>
+        <button type="button" class="dcclose" data-dcclose aria-label="Close">✕</button>
+      </div>
+      <div class="dcscroll" id="cp-dcbody"
+           data-brand="{{ brand }}" data-logo="{{ logo_url or '' }}"></div>
+      <p class="dcfoot">A preview: times show in your own time zone, as Discord shows them.
+        Mentions show the names the bot can see; nobody is pinged by a drop.</p>
+    </dialog>
 
     <script type="application/json" id="cp-state">{{ state|tojson }}</script>
     <script type="application/json" id="cp-aos">{{ aos_json|tojson }}</script>
