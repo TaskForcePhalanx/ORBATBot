@@ -11,7 +11,8 @@ from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (
-    HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response,
+    FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -91,12 +92,28 @@ _STATIC_VERSIONS: dict[str, str] = {}
 
 
 def static_url(name: str) -> str:
-    """`/static/<name>?v=<hash>` — every stylesheet and script goes through
-    this, so a deploy that changes one is never served from a stale cache.
-    Hashed once per file per process; a deploy is a new process."""
+    """`/sv/<hash>/<name>` — every stylesheet and script goes through this, so
+    a deploy that changes one is never served from a stale cache. Hashed once
+    per file per process; a deploy is a new process.
+
+    The version is in the **path**, not a `?v=` query. A cache in front of the
+    site that keys on the path alone (a CDN set to ignore query strings) went on
+    serving the previous deploy's `tacmap.js` under the new `?v=`, while the
+    stylesheet beside it had already expired — so the editor drew labels the
+    old way on a page whose CSS was new. Nothing keys a path that way."""
     if name not in _STATIC_VERSIONS:
         _STATIC_VERSIONS[name] = _static_version(name)
-    return f'/static/{name}?v={_STATIC_VERSIONS[name]}'
+    return f'/sv/{_STATIC_VERSIONS[name]}/{name}'
+
+
+def static_file(name: str):
+    """The file `static_url()` names, or None — never anything outside
+    `web/static/`, whatever the path says."""
+    root = (_HERE / 'static').resolve()
+    path = (root / name).resolve()
+    if root not in path.parents or not path.is_file():
+        return None
+    return path
 
 
 def _help_for(page: str) -> str:
@@ -108,6 +125,20 @@ def _help_for(page: str) -> str:
 def create_app(bot, config: WebConfig) -> FastAPI:
     app = FastAPI(title='ORBAT', docs_url=None, redoc_url=None, openapi_url=None)
     app.mount('/static', StaticFiles(directory=_HERE / 'static'), name='static')
+
+    @app.get('/sv/{version}/{name:path}', include_in_schema=False)
+    async def versioned_static(version: str, name: str):
+        # The current file whatever the version says: a page from before a
+        # deploy asking for its old hash gets the new file rather than a 404,
+        # and that page reloads onto the new address soon enough. Immutable
+        # only when the hash is the one this process serves.
+        path = static_file(name)
+        if path is None:
+            return PlainTextResponse('Not found', status_code=404)
+        current = version == _STATIC_VERSIONS.get(name) or version == _static_version(name)
+        cache = ('public, max-age=31536000, immutable' if current
+                 else 'no-cache')
+        return FileResponse(path, headers={'Cache-Control': cache})
 
     templates = Jinja2Templates(directory=str(_HERE / 'templates'))
     templates.env.globals.update(

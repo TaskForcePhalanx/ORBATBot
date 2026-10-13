@@ -1980,13 +1980,22 @@ alone instead of a broken image. The URL carries the file's mtime so a replaced
 logo isn't served from a browser cache. Both are Jinja globals; they don't vary
 per request.
 
-**Every stylesheet and script is linked through `static_url()`**, which adds
-`?v=` and a short hash of the file's **contents**. The stylesheet was once
+**Every stylesheet and script is linked through `static_url()`**, which gives
+it the address `/sv/<hash>/<name>`, the hash being of the file's **contents**. The stylesheet was once
 linked bare while `campaign.js` carried a version, so a deploy shipped the new
 script with browsers still holding the old stylesheet — and the Discord preview
 arrived as an unstyled page. Contents rather than mtime, because a build may
 reset every file's mtime to one value. Anything added to `web/static/` and
 linked from a template goes through it too.
+
+**The hash is in the path, not a `?v=` query.** It was a query until a deploy
+went out with the site still serving the previous `tacmap.js` under the new
+`?v=` — a cache in front of the site keyed on the path alone — while the
+stylesheet beside it had already been refetched, so the editor drew labels the
+old way on a page with the new CSS. `/sv/{version}/{name}` serves the current
+file whatever the version says (an old page gets the new file, not a 404),
+`immutable` only when the hash matches, and `static_file()` refuses any path
+outside `web/static/`. `/static/` stays mounted for the logo and old links.
 
 ### The approval queue (`web/slots.py`)
 
