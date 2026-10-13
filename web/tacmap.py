@@ -576,7 +576,7 @@ async def upload_marker_icons(guild_id, upload) -> str:
     data = upload.read(tacmap.MAX_ICON_ARCHIVE + 1)
     icons, notes = tacmap.read_marker_icons(data)
     await database.set_tac_marker_icons(str(guild_id), icons)
-    return ' '.join(notes) + ' Markers with a picture are drawn from it on every map.'
+    return ' '.join(notes) + ' They are offered in the editor and drawn on every map.'
 
 
 async def marker_images(guild_id, base: str) -> dict:

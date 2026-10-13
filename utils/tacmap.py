@@ -71,6 +71,8 @@ DEFAULT_SIZE = MIN_SIZE
 # platoon plan puts twenty of these on one sheet, and a symbol that reads as
 # comfortable with three on screen is a wall of colour with twenty.
 UNIT_BOX = 40
+# How far under a unit's centre its name sits, as a share of the symbol box.
+UNIT_LABEL_DROP = 0.6
 POINT_BOX = 26
 
 # However small a symbol is dragged, its name has to stay readable — the label
@@ -97,403 +99,147 @@ KINDS = ('unit', 'point', 'line', 'area', 'shape', 'text')
 # whatever was added last; `sort_order` only breaks ties within a kind.
 KIND_ORDER = {'area': 0, 'shape': 0, 'line': 1, 'text': 2, 'point': 3, 'unit': 4}
 
-# APP-6, drawn the way the planning tools and the pocket cards this hobby
-# already uses draw it: a pale frame with the pictogram in dark line work on
-# it. The frame says whose a unit is before the colour does — a rectangle is
-# friendly, a diamond hostile, a square neutral, a quatrefoil unknown — which
-# is what keeps a plan readable when it is printed, projected or looked at by
-# somebody who is colour-blind.
-#
-# `fill` is the frame, `edge` its outline, `glyph` the pictogram and every
-# modifier drawn around it.
+# Whose a unit is. Every unit and every marker is drawn from Arma's own
+# pictures (`utils/arma_icons.py`), tinted the way the game tints them, so a
+# unit takes its side's marker colour — `ColorWEST`, `ColorEAST` and the rest,
+# the RGB the game itself uses — and the side's marker prefix picks the frame.
 AFFILIATIONS = {
-    'friend': {'label': 'Friendly', 'fill': '#8cbde2', 'edge': '#16344c',
-               'glyph': '#0d2438'},
-    'hostile': {'label': 'Hostile', 'fill': '#dd8b8b', 'edge': '#4a1616',
-                'glyph': '#3a1010'},
-    'neutral': {'label': 'Neutral', 'fill': '#8fd3a1', 'edge': '#14401f',
-                'glyph': '#0e3018'},
-    'civ': {'label': 'Civilian', 'fill': '#c9a6e0', 'edge': '#3a1c4d',
-            'glyph': '#2c1339'},
-    'unknown': {'label': 'Unknown', 'fill': '#f0dc8a', 'edge': '#4a3d0d',
-                'glyph': '#3a2f08'},
+    'friend': {'label': 'BLUFOR', 'fill': '#004d99'},
+    'hostile': {'label': 'OPFOR', 'fill': '#800000'},
+    'neutral': {'label': 'Independent', 'fill': '#008000'},
+    'civ': {'label': 'Civilian', 'fill': '#660080'},
+    'unknown': {'label': 'Unknown', 'fill': '#b29900'},
 }
 DEFAULT_SIDE = 'friend'
 
 # What a line, an area or a task marker is drawn in when nobody picked a
-# colour. It is the palette's own black, and deliberately **not** the side's
-# fill: the side says whose a *unit* is, while a phase line, a boundary or an
-# objective belongs to the plan rather than to anybody on it. Inheriting the
-# side made every control measure on a friendly plan the same pale blue, which
-# is a map with one colour and therefore no colour — the reference everybody
-# plans from draws these black.
+# colour: black, which is what Arma's own markers default to.
 DEFAULT_INK = '#1b1f24'
 
-# Line art sits on satellite imagery that is bright sand in one corner and
-# dark jungle in the other, so everything outside a unit frame is drawn twice:
-# the ink over a backing pass in whichever direction the ink is not.
+# Line art sits on terrain that is bright in one corner and dark in the other,
+# so an arrow head or an AO tab is drawn over a backing pass in whichever
+# direction the ink is not.
 _INK_LIGHT = '#f2f4f6'
 _INK_DARK = '#11161c'
 
-# What dimension an object is in. APP-6 says it with the frame itself: "A
-# closed frame is used to denote the Land and Sea Surface Dimensions, a frame
-# open at the bottom to denote the Air and Space Dimensions and a frame open at
-# the top to denote the Sea Subsurface Dimension." So an air symbol is not a
-# different icon, it is the same icon in a frame that is missing its floor.
-DIMENSIONS = {
-    'land': {'label': 'Land / sea surface'},
-    'air': {'label': 'Air'},
-    'sub': {'label': 'Subsurface'},
-}
-DEFAULT_DIMENSION = 'land'
+try:
+    from . import arma_icons as _icons
+except ImportError:                     # imported as a top-level module
+    import arma_icons as _icons
 
-# Present, or planned. The other thing APP-6 says with the frame rather than
-# with an icon: a solid line is what is there now, a dashed one what is
-# anticipated or planned. On a planning map that is the distinction the whole
-# sheet turns on, so it rides on the frame here exactly as it does on paper.
-STATUSES = {
-    'present': {'label': 'Present', 'dash': ''},
-    'planned': {'label': 'Planned / anticipated', 'dash': '13 9'},
-}
-DEFAULT_STATUS = 'present'
 
-# The frames, drawn in a 100 x 100 box centred on (50, 50). They carry no
-# paint of their own so the `<use>` that places one decides the colours.
-#
-# One record per side *and* dimension, because everything hung off a frame is
-# measured from the frame's own edges: `top` is where the echelon marks go,
-# `bottom` is where a mobility indicator hangs and how far the label drops, and
-# `staff` is where a headquarters staff comes off. A diamond reaches half the
-# box higher than a rectangle and an air frame has no floor at all, so none of
-# the three can be a constant.
-_FRAMES = {
-    'friend': {
-        'land': {'path': '<path d="M10,30 H90 V70 H10 Z"/>',
-                 'top': 30, 'bottom': 70, 'staff': (10, 70)},
-        # A dome: the sides run up and the top closes over them, with nothing
-        # along the bottom. The arc is r=40 about the centre, so at the top of
-        # the icon box (y 33) it is still wider than the icon.
-        'air': {'path': '<path d="M10,72 V50 A40,40 0 0 1 90,50 V72"/>',
-                'top': 10, 'bottom': 72, 'staff': (10, 72)},
-        'sub': {'path': '<path d="M10,28 V50 A40,40 0 0 0 90,50 V28"/>',
-                'top': 28, 'bottom': 90, 'staff': (10, 28)},
-    },
-    # Wider than the frame it circumscribes: a diamond is narrowest exactly
-    # where the pictogram is tallest, so a diamond sized like the rectangle
-    # clips the X off an infantry symbol.
-    'hostile': {
-        'land': {'path': '<path d="M50,0 L100,50 L50,100 L0,50 Z"/>',
-                 'top': 0, 'bottom': 100, 'staff': (25, 75)},
-        # Not half a diamond: the pictogram box runs y 33-67 and half a
-        # diamond stops at y 50, so the icon hung out of its own frame. A
-        # roof on short walls is what APP-6 draws and it encloses the box.
-        'air': {'path': '<path d="M2,72 V50 L50,8 L98,50 V72"/>',
-                'top': 8, 'bottom': 72, 'staff': (2, 72)},
-        'sub': {'path': '<path d="M2,28 V50 L50,92 L98,50 V28"/>',
-                'top': 28, 'bottom': 92, 'staff': (2, 28)},
-    },
-    'neutral': {
-        'land': {'path': '<path d="M14,14 H86 V86 H14 Z"/>',
-                 'top': 14, 'bottom': 86, 'staff': (14, 86)},
-        'air': {'path': '<path d="M14,86 V14 H86 V86"/>',
-                'top': 14, 'bottom': 86, 'staff': (14, 86)},
-        'sub': {'path': '<path d="M14,14 V86 H86 V14"/>',
-                'top': 14, 'bottom': 86, 'staff': (14, 14)},
-    },
-    'civ': {
-        'land': {'path': '<path d="M10,30 H90 V70 H10 Z"/>',
-                 'top': 30, 'bottom': 70, 'staff': (10, 70)},
-        'air': {'path': '<path d="M10,72 V50 A40,40 0 0 1 90,50 V72"/>',
-                'top': 10, 'bottom': 72, 'staff': (10, 72)},
-        'sub': {'path': '<path d="M10,28 V50 A40,40 0 0 0 90,50 V28"/>',
-                'top': 28, 'bottom': 90, 'staff': (10, 28)},
-    },
-    # A quatrefoil: four half-circles bulging out of a square. Its air and
-    # subsurface forms are the same lobes with one side of them left off.
-    'unknown': {
-        'land': {'path': ('<path d="M26,26 A22,22 0 0 1 74,26 A22,22 0 0 1 74,74 '
-                          'A22,22 0 0 1 26,74 A22,22 0 0 1 26,26 Z"/>'),
-                 'top': 15, 'bottom': 85, 'staff': (21, 79)},
-        'air': {'path': ('<path d="M26,74 A22,22 0 0 1 26,26 A22,22 0 0 1 74,26 '
-                         'A22,22 0 0 1 74,74"/>'),
-                'top': 15, 'bottom': 74, 'staff': (26, 74)},
-        'sub': {'path': ('<path d="M74,26 A22,22 0 0 1 74,74 A22,22 0 0 1 26,74 '
-                         'A22,22 0 0 1 26,26"/>'),
-                'top': 26, 'bottom': 85, 'staff': (26, 26)},
-    },
+def picture_key(arma_class: str) -> str:
+    """The key a picture is stored and referred to by: the Arma class, in
+    lower case, so `loc_Church` and an upload named `loc_church.png` meet."""
+    return (arma_class or '').lower()
+
+
+# Every marker Arma ships, keyed by its class in lower case. `arma` is the
+# class itself, which is what the export writes; `icon` is where the game keeps
+# the picture, which is what an upload is matched by. A flag is `paint`: a
+# picture in its own colours, drawn as it is rather than tinted.
+MARKERS = {
+    picture_key(cls): {'label': label, 'arma': cls, 'group': group, 'icon': path,
+                       'paint': group == 'Flags'}
+    for cls, label, group, path in _icons.MARKER_ICONS
+}
+MARKER_GROUPS = ('Military', 'Hand-drawn', 'Map locations', 'Unit sizes', 'Respawn',
+                 'Zeus', 'Flags')
+DEFAULT_MARKER = 'mil_dot'
+
+# A map drawn before the markers were keyed by Arma class named the military
+# ones without their prefix — `dot`, `objective`. Every other old key already
+# was the class in lower case.
+LEGACY_MARKERS = {
+    key: f'mil_{key}' for key in (
+        'dot', 'circle', 'box', 'triangle', 'objective', 'destroy', 'warning',
+        'unknown', 'flag', 'arrow', 'arrow2', 'ambush', 'start', 'end', 'pickup',
+        'join', 'marker')
 }
 
+# Arma's NATO unit markers, by class in lower case.
+UNIT_CLASSES = {picture_key(cls): {'arma': cls, 'label': label, 'icon': path}
+                for cls, label, path in _icons.UNIT_ICONS}
 
-def frame_of(side: str, dimension: str = DEFAULT_DIMENSION) -> dict:
-    """The frame record for one side in one dimension, never missing."""
-    shapes = _FRAMES.get(side) or _FRAMES[DEFAULT_SIDE]
-    return shapes.get(dimension) or shapes[DEFAULT_DIMENSION]
-
-
-def item_frame(item: dict) -> dict:
-    """The frame the item is drawn in."""
-    return frame_of(item.get('side', DEFAULT_SIDE),
-                    item.get('dimension', DEFAULT_DIMENSION))
-
-# The size marks that sit above the frame. A symbol without one is a unit of
-# unsaid size, which is what most things on a plan are — so this is opt-in and
-# empty by default.
-ECHELONS = {
-    'team': {'label': 'Team / crew', 'short': 'Tm',
-             'icon': '<circle cx="50" cy="50" r="9" fill="none"/>'
-                     '<path d="M42,58 L58,42"/>'},
-    'squad': {'label': 'Squad', 'short': 'Sqd',
-              'icon': '<circle cx="50" cy="50" r="7" fill="currentColor" '
-                      'stroke="none"/>'},
-    'section': {'label': 'Section', 'short': 'Sect',
-                'icon': '<circle cx="38" cy="50" r="7" fill="currentColor" '
-                        'stroke="none"/>'
-                        '<circle cx="62" cy="50" r="7" fill="currentColor" '
-                        'stroke="none"/>'},
-    'platoon': {'label': 'Platoon', 'short': 'Plt',
-                'icon': '<circle cx="28" cy="50" r="7" fill="currentColor" '
-                        'stroke="none"/>'
-                        '<circle cx="50" cy="50" r="7" fill="currentColor" '
-                        'stroke="none"/>'
-                        '<circle cx="72" cy="50" r="7" fill="currentColor" '
-                        'stroke="none"/>'},
-    'company': {'label': 'Company', 'short': 'Coy',
-                'icon': '<path d="M50,36 V64"/>'},
-    'battalion': {'label': 'Battalion', 'short': 'Bn',
-                  'icon': '<path d="M40,36 V64 M60,36 V64"/>'},
-    'regiment': {'label': 'Regiment', 'short': 'Regt',
-                 'icon': '<path d="M30,36 V64 M50,36 V64 M70,36 V64"/>'},
-    'brigade': {'label': 'Brigade', 'short': 'Bde',
-                'icon': '<path d="M38,36 L62,64 M62,36 L38,64"/>'},
-    'division': {'label': 'Division', 'short': 'Div',
-                 'icon': '<path d="M18,36 L42,64 M42,36 L18,64'
-                         ' M58,36 L82,64 M82,36 L58,64"/>'},
-}
-
-# Reinforced and reduced, written beside the echelon exactly as the cards do.
-STRENGTHS = {
-    'reinforced': {'label': 'Reinforced (+)', 'text': '(+)'},
-    'reduced': {'label': 'Reduced (-)', 'text': '(-)'},
-    'both': {'label': 'Reinforced and reduced (\u00b1)', 'text': '(\u00b1)'},
-}
-
-# APP-6 field R, the mobility indicator: what the thing moves on, drawn as a
-# short chassis hung under the frame. Arma tells a towed gun from a
-# self-propelled one by which vehicle is parked next to it and a plan cannot,
-# so this is the one amplifier that changes what a battery on the sheet means.
-#
-# Each icon is drawn in the 100-box on a baseline of y=0 and is moved under
-# whatever the frame's own bottom happens to be, so it hangs off a diamond's
-# tip and off a rectangle's edge alike.
-MOBILITY = {
-    'wheeled': {'label': 'Wheeled', 'short': 'whl',
-                'icon': '<path d="M30,0 H70"/>'
-                        '<circle cx="36" cy="8" r="7" fill="none"/>'
-                        '<circle cx="64" cy="8" r="7" fill="none"/>'},
-    'crosscountry': {'label': 'Wheeled, cross-country', 'short': 'x-c',
-                     'icon': '<path d="M28,0 H72"/>'
-                             '<circle cx="34" cy="8" r="7" fill="none"/>'
-                             '<circle cx="50" cy="8" r="7" fill="none"/>'
-                             '<circle cx="66" cy="8" r="7" fill="none"/>'},
-    'tracked': {'label': 'Tracked', 'short': 'trk',
-                'icon': '<rect x="28" y="0" width="44" height="16" rx="8" '
-                        'fill="none"/>'},
-    # A tow bar with a tongue on it, not two bars: two lines this close
-    # merge into a capsule once each is drawn twice for contrast.
-    'towed': {'label': 'Towed', 'short': 'twd',
-              'icon': '<path d="M12,15 L26,1 H74"/>'
-                      '<circle cx="36" cy="9" r="7" fill="none"/>'
-                      '<circle cx="66" cy="9" r="7" fill="none"/>'},
-    'amphib': {'label': 'Amphibious', 'short': 'amph',
-               'icon': '<path d="M26,3 Q37,-7 48,3 Q59,13 70,3" fill="none"/>'
-                       '<path d="M26,15 Q37,5 48,15 Q59,25 70,15" fill="none"/>'},
-}
-
-# How far under the frame's own bottom the mobility chassis hangs, and how
-# much room it then takes up. The drop clears the frame's own stroke, which
-# is 5 wide and drawn centred on the path.
-MOBILITY_DROP = 13
-MOBILITY_DEPTH = 26
-
-# The icon sits in x 25-75, y 33-67, which is the largest box that fits inside
-# every frame — the diamond is narrowest exactly where the icon is tallest.
-#
-# An icon inherits `stroke` and `fill="none"` from the `<use>` that places it;
-# a shape that is meant to be solid says `fill="currentColor"` itself, and the
-# `<use>` sets `color` to the same colour as the stroke.
-#
-# The unit symbols are the left-hand column of every pocket card (infantry,
-# recon, armour, mechanised, mortars, artillery, medical, engineers, supply);
-# the equipment ones are the right-hand column, drawn the same way so a
-# weapons det or a single vehicle can go on the plan as itself.
+# A unit is one of Arma's NATO markers: the side picks the prefix and the
+# symbol the rest. `arma` is the marker's type without its prefix. Civilians
+# have only five markers of their own (`civ`), so the car and the ship are
+# offered for them and stand in for the nearest military type elsewhere.
 SYMBOLS = {
-    'generic': {'label': 'Unspecified', 'group': 'Infantry', 'icon': ''},
-    'inf': {'label': 'Infantry', 'group': 'Infantry',
-            'icon': '<path d="M27,34 L73,66 M73,34 L27,66"/>'},
-    'mech': {'label': 'Mechanised infantry', 'group': 'Infantry',
-             'icon': '<ellipse cx="50" cy="50" rx="25" ry="16"/>'
-                     '<path d="M29,36 L71,64 M71,36 L29,64"/>'},
-    'motor': {'label': 'Motorised infantry', 'group': 'Infantry',
-              'icon': '<path d="M27,34 L73,66 M73,34 L27,66"/>'
-                      '<circle cx="50" cy="50" r="8" fill="currentColor"/>'},
-    'recon': {'label': 'Reconnaissance', 'group': 'Infantry',
-              'icon': '<path d="M27,66 L73,34"/>'},
-    'sniper': {'label': 'Sniper / marksman', 'group': 'Infantry',
-               'icon': '<circle cx="50" cy="50" r="12"/>'
-                       '<path d="M50,31 V69 M31,50 H69"/>'},
-    'armor': {'label': 'Armour', 'group': 'Vehicles',
-              'icon': '<ellipse cx="50" cy="50" rx="25" ry="16"/>'},
-    'veh': {'label': 'Wheeled vehicle', 'group': 'Vehicles',
-            'icon': '<path d="M30,39 H70 V58 H30 Z"/>'
-                    '<circle cx="39" cy="63" r="5" fill="currentColor"/>'
-                    '<circle cx="61" cy="63" r="5" fill="currentColor"/>'},
-    'truck': {'label': 'Truck', 'group': 'Equipment',
-              'icon': '<path d="M30,38 V52 A20,20 0 0 0 70,52 V38"/>'
-                      '<circle cx="34" cy="64" r="6"/><circle cx="66" cy="64" r="6"/>'},
-    'apc': {'label': 'APC', 'group': 'Equipment',
-            'icon': '<path d="M28,66 V44 L50,33 L72,44 V66"/>'},
-    'ifv': {'label': 'IFV', 'group': 'Equipment',
-            'icon': '<path d="M28,66 V44 L50,33 L72,44 V66"/>'
-                    '<path d="M36,42 L64,60 M64,42 L36,60"/>'},
-    'tank': {'label': 'Tank', 'group': 'Equipment',
-             'icon': '<path d="M30,33 V67 M70,33 V67 M30,50 H70"/>'},
-    'mg': {'label': 'Machine gun', 'group': 'Weapons',
-           'icon': '<path d="M50,67 V36 M40,45 L50,34 L60,45" fill="none"/>'
-                   '<path d="M40,58 H60"/>'},
-    'hmg': {'label': 'Heavy machine gun', 'group': 'Weapons',
-            'icon': '<path d="M50,67 V36 M40,45 L50,34 L60,45" fill="none"/>'
-                    '<path d="M40,58 H60 M40,50 H60"/>'},
-    'gl': {'label': 'Grenade launcher', 'group': 'Weapons',
-           'icon': '<path d="M50,67 V44"/><circle cx="50" cy="38" r="6"/>'
-                   '<path d="M40,55 H60"/>'},
-    'at': {'label': 'Anti-tank', 'group': 'Weapons',
-           'icon': '<path d="M30,52 L50,33 L70,52 M30,67 L50,48 L70,67"/>'},
-    'aa': {'label': 'Air defence', 'group': 'Weapons',
-           'icon': '<path d="M27,64 A26,26 0 0 1 73,64"/>'},
-    'arty': {'label': 'Artillery', 'group': 'Weapons',
-             'icon': '<circle cx="50" cy="50" r="11" fill="currentColor"/>'},
-    'mortar': {'label': 'Mortar', 'group': 'Weapons',
-               'icon': '<path d="M50,67 V44"/><circle cx="50" cy="38" r="6"/>'},
-    'air': {'label': 'Fixed wing', 'group': 'Air',
-            'icon': '<path d="M26,38 L50,50 L74,38 L74,62 L50,50 L26,62 Z"/>'},
-    'heli': {'label': 'Rotary wing', 'group': 'Air',
-             'icon': '<path d="M26,42 L50,52 L74,42 L74,64 L50,54 L26,64 Z"/>'
-                     '<path d="M26,34 H74"/>'},
-    'uav': {'label': 'UAV', 'group': 'Air',
-            'icon': '<path d="M26,42 L50,52 L74,42 L74,64 L50,54 L26,64 Z"/>'
-                    '<circle cx="50" cy="34" r="5" fill="currentColor"/>'},
-    'naval': {'label': 'Naval', 'group': 'Air',
-              'icon': '<circle cx="50" cy="35" r="6"/>'
-                      '<path d="M50,41 V67 M38,46 H62"/>'
-                      '<path d="M30,55 A20,20 0 0 0 70,55"/>'},
-    'med': {'label': 'Medical', 'group': 'Support',
-            'icon': '<path d="M50,34 V66 M31,50 H69"/>'},
-    'engr': {'label': 'Engineers', 'group': 'Support',
-             'icon': '<path d="M28,66 V44 H72 V66"/>'},
-    'maint': {'label': 'Maintenance', 'group': 'Support',
-              'icon': '<path d="M36,34 A12,12 0 1 0 50,52 L66,68"/>'
-                      '<path d="M28,42 L40,42"/>'},
-    'logi': {'label': 'Supply / service', 'group': 'Support',
-             'icon': '<path d="M30,37 H70 V63 H30 Z M30,63 L70,37"/>'},
-    'support': {'label': 'Combat support', 'group': 'Support',
-                'icon': '<path d="M42,33 A22,22 0 0 0 42,67"/>'
-                        '<path d="M58,33 A22,22 0 0 1 58,67"/>'
-                        '<circle cx="50" cy="50" r="4" fill="currentColor"/>'},
-    'installation': {'label': 'Installation', 'group': 'Support',
-                     'icon': '<path d="M34,33 V67"/>'
-                             '<path d="M34,35 H68 V51 H34 Z" fill="currentColor"/>'},
-    'eod': {'label': 'Explosive ordnance (EOD)', 'group': 'Support',
-            'icon': '<circle cx="47" cy="54" r="10"/>'
-                    '<path d="M54,47 L61,40 M61,34 V38 M65,40 H69 M64,36 L67,33"/>'},
-    'signal': {'label': 'Signals', 'group': 'Support',
-               'icon': '<path d="M30,66 L50,34 L70,66 M38,54 H62"/>'},
-    'unknown': {'label': 'Unknown', 'group': 'Support',
-                'icon': '<path d="M38,43 A12,12 0 0 1 62,43 C62,53 50,53 50,60"/>'
-                        '<circle cx="50" cy="67" r="4" fill="currentColor"/>'},
+    'inf': {'label': 'Infantry', 'arma': 'inf'},
+    'motor_inf': {'label': 'Motorized infantry', 'arma': 'motor_inf'},
+    'mech_inf': {'label': 'Mechanized infantry', 'arma': 'mech_inf'},
+    'armor': {'label': 'Armor', 'arma': 'armor'},
+    'recon': {'label': 'Recon', 'arma': 'recon'},
+    'heli': {'label': 'Helicopter', 'arma': 'air'},
+    'plane': {'label': 'Plane', 'arma': 'plane'},
+    'uav': {'label': 'UAV', 'arma': 'uav'},
+    'naval': {'label': 'Naval', 'arma': 'naval'},
+    'med': {'label': 'Medical', 'arma': 'med'},
+    'art': {'label': 'Artillery', 'arma': 'art'},
+    'mortar': {'label': 'Mortar', 'arma': 'mortar'},
+    'hq': {'label': 'HQ', 'arma': 'hq'},
+    'support': {'label': 'Support', 'arma': 'support'},
+    'maint': {'label': 'Maintenance', 'arma': 'maint'},
+    'service': {'label': 'Service', 'arma': 'service'},
+    'installation': {'label': 'Installation', 'arma': 'installation'},
+    'antiair': {'label': 'Anti-air', 'arma': 'antiair'},
+    'ordnance': {'label': 'Explosives', 'arma': 'Ordnance'},
+    'car': {'label': 'Car', 'arma': 'car', 'civ': True},
+    'ship': {'label': 'Ship', 'arma': 'ship', 'civ': True},
+    'unknown': {'label': 'Unknown', 'arma': 'unknown'},
 }
 DEFAULT_SYMBOL = 'inf'
 
-# The staff of a headquarters, hanging off the frame. It is a modifier rather
-# than its own symbol because any unit can be the one in charge — an HQ that
-# is also a medical company is a medical icon on a staff. Where it hangs from
-# differs per frame, which is what `staff` in `_FRAMES` says.
-def _hq_staff(side: str, dimension: str = DEFAULT_DIMENSION) -> str:
-    x, y = frame_of(side, dimension)['staff']
-    return f'<path d="M{x},{y} V{y + 46}" fill="none" stroke-linecap="square"/>'
+# What a civilian unit becomes when its symbol has no civilian marker, and
+# what the two civilian-only symbols become on any other side.
+_CIVILIAN = {'motor_inf': 'car', 'mech_inf': 'car', 'armor': 'car', 'naval': 'ship',
+             'uav': 'plane', 'heli': 'air', 'plane': 'plane', 'car': 'car',
+             'ship': 'ship', 'unknown': 'unknown'}
+_MILITARY = {'car': 'motor_inf', 'ship': 'naval'}
 
-
-# How far above the frame the echelon marks sit, and how much of the 100-box
-# the in-frame abbreviation may take.
-ECHELON_LIFT = 18
-MAX_MOD = 5
-
-# The markers Arma ships beside the NATO icons — `mil_dot`, `mil_objective`,
-# `mil_destroy` and the rest. They are drawn here the way the game draws them:
-# line art in the marker's colour rather than a filled block, which is what
-# tells a task marker from a unit at a glance. `arma` is the marker's name in
-# the game, so the export is a lookup rather than a guess about what somebody
-# meant by typing "TGT".
-#
-# `text` says whether the marker has room for the glyph inside it; where it
-# does not, the glyph is written in front of the label instead of being lost.
-MARKERS = {
-    'dot': {'label': 'Dot', 'arma': 'mil_dot', 'text': True,
-            'icon': '<circle cx="50" cy="50" r="16" fill="currentColor"/>'},
-    'circle': {'label': 'Circle', 'arma': 'mil_circle', 'text': True,
-               'icon': '<circle cx="50" cy="50" r="24"/>'},
-    'box': {'label': 'Box', 'arma': 'mil_box', 'text': True,
-            'icon': '<path d="M26,26 H74 V74 H26 Z"/>'},
-    'triangle': {'label': 'Triangle', 'arma': 'mil_triangle', 'text': True,
-                 'icon': '<path d="M50,24 L76,70 H24 Z"/>'},
-    'objective': {'label': 'Objective', 'arma': 'mil_objective', 'text': False,
-                  'icon': '<circle cx="50" cy="56" r="22"/>'
-                          '<path d="M50,34 V12"/>'},
-    'destroy': {'label': 'Destroy', 'arma': 'mil_destroy', 'text': False,
-                'icon': '<path d="M26,26 L74,74 M74,26 L26,74"/>'},
-    'warning': {'label': 'Warning', 'arma': 'mil_warning', 'text': False,
-                'icon': '<path d="M50,22 L78,72 H22 Z"/>'
-                        '<path d="M50,40 V56"/>'
-                        '<circle cx="50" cy="64" r="3.5" fill="currentColor"/>'},
-    'unknown': {'label': 'Question', 'arma': 'mil_unknown', 'text': False,
-                'icon': '<path d="M34,40 A16,16 0 0 1 66,40 C66,54 50,54 50,64"/>'
-                        '<circle cx="50" cy="75" r="4.5" fill="currentColor"/>'},
-    'flag': {'label': 'Flag', 'arma': 'mil_flag', 'text': False,
-             'icon': '<path d="M30,20 V80"/>'
-                     '<path d="M30,22 H72 L62,38 L72,54 H30 Z" fill="currentColor"/>'},
-    'arrow': {'label': 'Arrow', 'arma': 'mil_arrow', 'text': False,
-              'icon': '<path d="M50,20 L74,72 L50,60 L26,72 Z"/>'},
-    'arrow2': {'label': 'Arrow (filled)', 'arma': 'mil_arrow2', 'text': False,
-               'icon': '<path d="M50,20 L74,72 L50,60 L26,72 Z" fill="currentColor"/>'},
-    'ambush': {'label': 'Ambush', 'arma': 'mil_ambush', 'text': False,
-               'icon': '<path d="M30,24 Q72,50 30,76"/>'
-                       '<path d="M43,34 L53,28 M48,50 H60 M43,66 L53,72"/>'},
-    'start': {'label': 'Start', 'arma': 'mil_start', 'text': False,
-              'icon': '<path d="M28,24 L76,50 L28,76 Z" fill="currentColor"/>'},
-    'end': {'label': 'End', 'arma': 'mil_end', 'text': False,
-            'icon': '<path d="M28,28 H72 V72 H28 Z" fill="currentColor"/>'},
-    'pickup': {'label': 'Pick-up / LZ', 'arma': 'mil_pickup', 'text': False,
-               'icon': '<circle cx="50" cy="50" r="24"/>'
-                       '<path d="M34,54 L50,36 L66,54 M50,36 V68"/>'},
-    'join': {'label': 'Join', 'arma': 'mil_join', 'text': False,
-             'icon': '<path d="M26,24 L50,50 L74,24 M50,50 V76"/>'},
-    'marker': {'label': 'Cross', 'arma': 'mil_marker', 'text': False,
-               'icon': '<path d="M50,24 V76 M24,50 H76"/>'},
+# A map drawn when units were APP-6 symbols names them in that set. Each goes
+# to the Arma marker it always exported as.
+LEGACY_SYMBOLS = {
+    'generic': 'unknown', 'mech': 'mech_inf', 'motor': 'motor_inf',
+    'sniper': 'recon', 'mg': 'inf', 'at': 'support', 'aa': 'antiair',
+    'arty': 'art', 'veh': 'motor_inf', 'air': 'plane', 'engr': 'maint',
+    'logi': 'service', 'signal': 'support', 'truck': 'motor_inf',
+    'apc': 'mech_inf', 'ifv': 'mech_inf', 'tank': 'armor', 'hmg': 'inf',
+    'gl': 'inf', 'eod': 'ordnance',
 }
-DEFAULT_MARKER = 'dot'
-for _marker in MARKERS.values():
-    _marker.setdefault('group', 'Military')
 
-# Every other marker vanilla Arma ships — hand-drawn, map locations, unit
-# sizes, respawn points, Zeus and flags — drawn by `utils/arma_markers.py`.
-# A flag is `paint`: full colour, drawn once, never tinted.
-try:
-    from . import arma_markers as _more
-except ImportError:                     # imported as a top-level module
-    import arma_markers as _more
-MARKERS.update(_more.LINE_MARKERS)
-MARKERS.update(_more.FLAG_MARKERS)
-MARKER_GROUPS = ('Military', 'Hand-drawn', 'Map locations', 'Unit sizes', 'Respawn',
-                 'Zeus', 'Flags')
+
+def unit_class(side: str, symbol: str) -> str:
+    """The Arma marker a unit is: `b_inf`, `o_armor`, `c_car`."""
+    symbol = symbol if symbol in SYMBOLS else DEFAULT_SYMBOL
+    if symbol == 'installation' and side in ('civ', 'unknown'):
+        return 'u_installation'
+    if side == 'civ':
+        return f"c_{_CIVILIAN.get(symbol, 'unknown')}"
+    prefix = {'friend': 'b', 'hostile': 'o'}.get(side, 'n')
+    arma = SYMBOLS[_MILITARY.get(symbol, symbol)]['arma']
+    name = f'{prefix}_{arma}'
+    # Explosives exist for BLUFOR and OPFOR only.
+    return name if picture_key(name) in UNIT_CLASSES else f'{prefix}_unknown'
+
+
+# Unit size, drawn as Arma's own size marker (`group_0` … `group_11`) over the
+# unit — the same pair a mission maker stacks in the editor.
+ECHELONS = {
+    'team': {'label': 'Fire team', 'arma': 'group_0'},
+    'squad': {'label': 'Squad', 'arma': 'group_1'},
+    'section': {'label': 'Section', 'arma': 'group_2'},
+    'platoon': {'label': 'Platoon', 'arma': 'group_3'},
+    'company': {'label': 'Company', 'arma': 'group_4'},
+    'battalion': {'label': 'Battalion', 'arma': 'group_5'},
+    'regiment': {'label': 'Regiment', 'arma': 'group_6'},
+    'brigade': {'label': 'Brigade', 'arma': 'group_7'},
+    'division': {'label': 'Division', 'arma': 'group_8'},
+    'corps': {'label': 'Corps', 'arma': 'group_9'},
+    'army': {'label': 'Army', 'arma': 'group_10'},
+    'armygroup': {'label': 'Army group', 'arma': 'group_11'},
+}
 
 LINE_STYLES = ('solid', 'dashed', 'dotted')
 LINE_STYLE_LABELS = {'solid': 'Solid', 'dashed': 'Dashed', 'dotted': 'Dotted'}
@@ -716,10 +462,7 @@ MASK_COLOUR = '#565c63'
 MIN_MASK_OPACITY = 0.15
 MAX_MASK_OPACITY = 0.9
 
-# Which side a frame is, in Arma's terms: the marker-type prefix and the colour
-# used for everything that is not an icon.
-# Arma has four NATO marker prefixes and five marker colours we use, so the
-# civilian side shares the `u_` icons and keeps its own colour.
+# Which side a unit is, in Arma's terms: the marker-type prefix and the colour.
 ARMA_SIDES = {
     'friend': ('b', 'ColorWEST'),
     'hostile': ('o', 'ColorEAST'),
@@ -787,39 +530,13 @@ def arma_colour(item: dict) -> str:
             (a - b) ** 2 for a, b in zip(ARMA_COLOURS[name], wanted)),
     )
 
-# Our symbols against the NATO markers vanilla Arma 3 ships. Every icon the
-# game has is in the palette now, so this is a straight mapping; only the four
-# symbols Arma has no marker for (sniper, machine gun, anti-tank, signals)
-# land on the nearest thing that is in the game rather than on nothing.
-ARMA_TYPES = {
-    'generic': 'unknown', 'inf': 'inf', 'mech': 'mech_inf', 'motor': 'motor_inf',
-    'armor': 'armor', 'recon': 'recon', 'sniper': 'recon', 'mg': 'inf',
-    'at': 'support', 'aa': 'antiair', 'arty': 'art', 'mortar': 'mortar',
-    'veh': 'motor_inf', 'air': 'plane', 'heli': 'air', 'uav': 'uav',
-    'naval': 'naval', 'med': 'med', 'engr': 'maint', 'maint': 'maint',
-    'logi': 'service', 'support': 'support', 'installation': 'installation',
-    'signal': 'support', 'unknown': 'unknown',
-    # The equipment symbols, onto the unit marker that says the same.
-    'truck': 'motor_inf', 'apc': 'mech_inf', 'ifv': 'mech_inf', 'tank': 'armor',
-    'hmg': 'inf', 'gl': 'inf', 'eod': 'Ordnance',
-}
-
-# Civilians have only five markers in Arma (`c_`), and an unknown side has
-# none but `u_installation` — so those two map onto what exists rather than
-# onto names the game does not have, which draw nothing.
-ARMA_CIVILIAN = {
-    'motor': 'car', 'mech': 'car', 'armor': 'car', 'veh': 'car', 'truck': 'car',
-    'apc': 'car', 'ifv': 'car', 'tank': 'car', 'naval': 'ship', 'heli': 'air',
-    'air': 'plane', 'uav': 'plane',
-}
-
 # What a glyph means when the point was drawn before the marker shapes
 # existed and so carries none: the same guesses as before, so an older map
 # exports as it always did.
 ARMA_POINTS = {
-    'OBJ': 'objective', 'TGT': 'destroy', 'SP': 'start',
-    'RP': 'end', 'IED': 'warning', 'CP': 'triangle',
-    'LZ': 'pickup', 'PZ': 'pickup',
+    'OBJ': 'mil_objective', 'TGT': 'mil_destroy', 'SP': 'mil_start',
+    'RP': 'mil_end', 'IED': 'mil_warning', 'CP': 'mil_triangle',
+    'LZ': 'mil_pickup', 'PZ': 'mil_pickup',
 }
 
 # Text drawn over a satellite image needs a halo or it disappears into the
@@ -1081,44 +798,13 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         item['x'], item['y'] = point
 
     if kind == 'unit':
-        symbol = raw.get('symbol')
-        if symbol not in SYMBOLS:
-            if symbol:
-                result.warnings.append(
-                    f'Item {index} uses the unknown symbol "{symbol}" — drawn as '
-                    'an empty frame instead.'
-                )
-            symbol = 'generic' if symbol else DEFAULT_SYMBOL
-        item['symbol'] = symbol
-        item['hq'] = bool(raw.get('hq'))
+        item['symbol'] = _unit_symbol(raw, side, result, index)
         item['rotation'] = round(_clamp(_number(raw.get('rotation'), 0.0), -360, 360), 1)
         echelon = raw.get('echelon')
         item['echelon'] = echelon if echelon in ECHELONS else ''
-        strength = raw.get('strength')
-        item['strength'] = strength if strength in STRENGTHS else ''
-        mobility = raw.get('mobility')
-        item['mobility'] = mobility if mobility in MOBILITY else ''
-        dimension = raw.get('dimension')
-        item['dimension'] = dimension if dimension in DIMENSIONS else DEFAULT_DIMENSION
-        item['text'] = _text(raw.get('text'), MAX_MOD)
-        item['higher'] = _text(raw.get('higher'), MAX_MOD)
     elif kind == 'point':
         item['glyph'] = _text(raw.get('glyph'), MAX_GLYPH).upper()
-        # A map drawn before the marker shapes existed carries none. Its
-        # glyph is the only thing that says what the point was, so it is read
-        # the same way the export used to read it — a point typed `OBJ`
-        # becomes the objective marker rather than a nameless dot.
-        marker = raw.get('marker')
-        if marker not in MARKERS:
-            marker = ARMA_POINTS.get(item['glyph'], DEFAULT_MARKER)
-        item['marker'] = marker
-
-    if kind in ('unit', 'point'):
-        # Present or planned rides on the frame of a unit and on the shape of
-        # a task alike; a line or an area already says it with `style`, so
-        # giving those a status too would be two switches for one fact.
-        status = raw.get('status')
-        item['status'] = status if status in STATUSES else DEFAULT_STATUS
+        item['marker'] = _marker(raw.get('marker'), item['glyph'])
 
     if kind in ('line', 'area', 'text', 'point', 'shape'):
         # The side says whose a symbol is and must keep saying it, but a line
@@ -1162,6 +848,43 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
                                  doc['height'] * 1.5), 2)
         item['rotation'] = round(_clamp(_number(raw.get('rotation'), 0.0), -360, 360), 1)
     return item
+
+
+def _marker(raw, glyph: str = '') -> str:
+    """Which marker a point is, by Arma class in lower case.
+
+    An old map named the military ones without their `mil_` prefix, and one
+    older still carried no marker at all — its glyph is then the only thing
+    that says what the point was (`OBJ` is the objective)."""
+    key = raw.lower() if isinstance(raw, str) else ''
+    key = LEGACY_MARKERS.get(key, key)
+    if key in MARKERS:
+        return key
+    return ARMA_POINTS.get(glyph, DEFAULT_MARKER)
+
+
+def _unit_symbol(raw: dict, side: str, result=None, index: int = 0) -> str:
+    """A unit's symbol in Arma's set, reading the APP-6 symbols an older map
+    was drawn with as the marker each of them always exported as."""
+    symbol = raw.get('symbol')
+    if symbol in SYMBOLS and 'dimension' not in raw and not raw.get('hq'):
+        return symbol
+    if raw.get('hq'):
+        return 'hq'
+    old = symbol
+    symbol = LEGACY_SYMBOLS.get(symbol, symbol)
+    if raw.get('dimension') == 'air' and old not in ('air', 'heli', 'uav'):
+        symbol = 'heli'
+    if symbol not in SYMBOLS:
+        if old and result is not None:
+            result.warnings.append(
+                f'Item {index} uses the unknown symbol "{old}" — drawn as unknown.')
+        return 'unknown' if old else DEFAULT_SYMBOL
+    if side == 'civ' and symbol != 'installation':
+        # A civilian has only its own five markers; name the one it is.
+        symbol = {'car': 'car', 'ship': 'ship', 'air': 'heli',
+                  'plane': 'plane'}.get(_CIVILIAN.get(symbol, 'unknown'), 'unknown')
+    return symbol
 
 
 def _arrow(raw) -> str:
@@ -1299,38 +1022,23 @@ def catalog() -> dict:
     """
     return {
         'sides': [
-            {'key': key, 'label': value['label'], 'fill': value['fill'],
-             'edge': value['edge'], 'glyph': value['glyph']}
+            {'key': key, 'label': value['label'], 'fill': value['fill']}
             for key, value in AFFILIATIONS.items()
         ],
+        # Each symbol with the marker it is on every side, so the editor can
+        # offer only those this server has a picture for.
         'symbols': [
-            {'key': key, 'label': value['label'], 'group': value['group'],
-             'hasIcon': bool(value['icon'])}
+            {'key': key, 'label': value['label'], 'civ': bool(value.get('civ')),
+             'classes': {side: picture_key(unit_class(side, key)) for side in AFFILIATIONS}}
             for key, value in SYMBOLS.items()
         ],
         'echelons': [
-            {'key': key, 'label': value['label']}
+            {'key': key, 'label': value['label'], 'picture': picture_key(value['arma'])}
             for key, value in ECHELONS.items()
         ],
-        'strengths': [
-            {'key': key, 'label': value['label'], 'text': value['text']}
-            for key, value in STRENGTHS.items()
-        ],
-        'mobility': [
-            {'key': key, 'label': value['label']}
-            for key, value in MOBILITY.items()
-        ],
-        'dimensions': [
-            {'key': key, 'label': value['label']}
-            for key, value in DIMENSIONS.items()
-        ],
-        'statuses': [
-            {'key': key, 'label': value['label'], 'dash': value['dash']}
-            for key, value in STATUSES.items()
-        ],
         'markers': [
-            {'key': key, 'label': value['label'], 'text': value['text'],
-             'group': value.get('group', 'Military'), 'paint': bool(value.get('paint'))}
+            {'key': key, 'label': value['label'], 'group': value['group'],
+             'paint': value['paint']}
             for key, value in MARKERS.items()
         ],
         'points': [{'glyph': glyph, 'label': label} for glyph, label in POINT_PRESETS],
@@ -1361,7 +1069,7 @@ def catalog() -> dict:
         'maxTileZoom': MAX_TILE_ZOOM,
         'limits': {
             'items': MAX_ITEMS, 'points': MAX_POINTS, 'label': MAX_LABEL,
-            'note': MAX_NOTE, 'glyph': MAX_GLYPH, 'mod': MAX_MOD,
+            'note': MAX_NOTE, 'glyph': MAX_GLYPH,
             'minSize': MIN_SIZE, 'maxSize': MAX_SIZE,
             'layers': MAX_LAYERS, 'layerName': MAX_LAYER_NAME,
         },
@@ -1378,30 +1086,9 @@ def catalog() -> dict:
         'minHit': MIN_HIT,
         'defaultSize': DEFAULT_SIZE,
         'defaultMarker': DEFAULT_MARKER,
-        'echelonLift': ECHELON_LIFT,
-        'mobilityDrop': MOBILITY_DROP,
-        'mobilityDepth': MOBILITY_DEPTH,
-        'defaultDimension': DEFAULT_DIMENSION,
-        'defaultStatus': DEFAULT_STATUS,
-        # Keyed side → dimension, the same two steps the renderer takes, so
-        # the browser reads a frame's geometry rather than assuming any of it.
-        'frames': {
-            side: {
-                dimension: {'top': frame['top'], 'bottom': frame['bottom'],
-                            'staff': list(frame['staff'])}
-                for dimension, frame in shapes.items()
-            }
-            for side, shapes in _FRAMES.items()
-        },
+        'unitLabelDrop': UNIT_LABEL_DROP,
+        'missingPicture': MISSING_PICTURE,
     }
-
-
-def symbol_groups() -> list:
-    """The catalogue for the editor's palette, grouped as it is displayed."""
-    groups = {}
-    for key, symbol in SYMBOLS.items():
-        groups.setdefault(symbol['group'], []).append({'key': key, **symbol})
-    return [{'name': name, 'symbols': symbols} for name, symbols in groups.items()]
 
 
 # ---------------------------------------------------------------------------
@@ -1420,57 +1107,69 @@ def icon_mask_id(key: str) -> str:
     return f'tmk-{key}'
 
 
-def icon_masks(images: dict | None) -> str:
-    """A mask per marker the guild uploaded the game's own picture for.
+def _paints(key: str) -> bool:
+    return bool(MARKERS.get(key, {}).get('paint'))
 
-    The pictures are white on transparent, so as a mask they let a fill in
-    the marker's colour through exactly where the icon is — the same tinting
-    Arma does. `images` is key → href: a URL on a page, a data URI in an ops
-    trace, which resvg draws without fetching anything."""
+
+def icon_masks(images: dict | None) -> str:
+    """The game's own pictures this guild uploaded, once each, for a `<use>`.
+
+    `images` is key → href: a URL on a page, a data URI in an ops trace,
+    which resvg draws without fetching anything."""
     parts = []
     for key, href in sorted((images or {}).items()):
-        if key not in MARKERS or MARKERS[key].get('paint'):
+        if not re.fullmatch(r'[a-z0-9_]+', key):
             continue
-        parts.append(f'<mask id="{icon_mask_id(key)}" maskUnits="userSpaceOnUse" '
-                     f'x="0" y="0" width="100" height="100">'
-                     f'<image href={quoteattr(href)} x="0" y="0" width="100" height="100" '
-                     'preserveAspectRatio="xMidYMid meet"/></mask>')
+        parts.append(f'<image id="{icon_mask_id(key)}" href={quoteattr(href)} x="0" y="0" '
+                     'width="100" height="100" preserveAspectRatio="xMidYMid meet"/>')
     return ''.join(parts)
 
 
-def defs(images: dict | None = None) -> str:
-    """Every frame, icon and arrowhead, once.
+def tint_id(colour: str) -> str:
+    return 'tmt-' + (colour or '').lstrip('#').lower()
 
-    Emitted into the editor page and into any standalone render, so a `<use>`
-    is all either renderer needs. Adding a symbol here adds it to both.
-    `images` adds the masks for the game's own marker pictures, when a guild
-    uploaded them (`icon_masks()`).
-    """
-    parts = ['<defs>', icon_masks(images)]
-    for side, shapes in _FRAMES.items():
-        for dimension, frame in shapes.items():
-            parts.append(f'<g id="tmf-{side}-{dimension}">{frame["path"]}</g>')
-            parts.append(
-                f'<g id="tmh-{side}-{dimension}">{_hq_staff(side, dimension)}</g>'
-            )
-    for key, echelon in ECHELONS.items():
-        parts.append(f'<g id="tmx-{key}">{echelon["icon"]}</g>')
-    for key, mobility in MOBILITY.items():
-        parts.append(f'<g id="tmv-{key}">{mobility["icon"]}</g>')
-    for key, symbol in SYMBOLS.items():
-        parts.append(f'<g id="tmi-{key}">{symbol["icon"]}</g>')
-    # The hand-drawn set is the military set with a wobble, as Arma's are: a
-    # small displacement of the line work, the same in the browser and in
-    # resvg, so the two sets look like the two the game has.
-    parts.append('<filter id="tm-rough" x="-30%" y="-30%" width="160%" height="160%">'
-                 '<feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="1" '
-                 'seed="7"/><feDisplacementMap in="SourceGraphic" scale="6" '
-                 'xChannelSelector="R" yChannelSelector="G"/></filter>')
-    for key, marker in MARKERS.items():
-        rough = ' filter="url(#tm-rough)"' if marker.get('group') == 'Hand-drawn' else ''
-        parts.append(f'<g id="tmm-{key}"{rough}>{marker["icon"]}</g>')
-    parts.append('</defs>')
-    return ''.join(parts)
+
+def tint_filter(colour: str) -> str:
+    """Arma tints a marker picture by multiplying it with the marker colour:
+    white becomes the colour, black stays black, the transparency is the
+    picture's. A colour matrix is exactly that multiplication."""
+    rgb = _rgb(colour) or (255, 255, 255)
+    r, g, b = (round(v / 255, 4) for v in rgb)
+    return (f'<filter id="{tint_id(colour)}" color-interpolation-filters="sRGB">'
+            f'<feColorMatrix type="matrix" values="{r} 0 0 0 0 0 {g} 0 0 0 '
+            f'0 0 {b} 0 0 0 0 0 1 0"/></filter>')
+
+
+def defs(images: dict | None = None, tints=()) -> str:
+    """The pictures and the colours they are tinted in, once each, for both
+    renderers to place."""
+    filters = ''.join(tint_filter(colour) for colour in sorted(set(tints))
+                      if _rgb(colour))
+    return f'<defs>{icon_masks(images)}{filters}</defs>'
+
+
+def _picture_svg(key: str, colour: str, icons) -> str:
+    """One of the game's pictures in the item's 100 × 100 box — tinted, or as
+    it is for a flag — or a placeholder when this server has none for it."""
+    if key in icons:
+        if _paints(key):
+            return f'<use href="#{icon_mask_id(key)}"/>'
+        return f'<use href="#{icon_mask_id(key)}" filter="url(#{tint_id(colour)})"/>'
+    return MISSING_PICTURE
+
+
+def _tints(items) -> set:
+    """The colours the pictured items on a map are tinted in."""
+    return {item_colour(item) for item in items if item['kind'] in ('unit', 'point')}
+
+
+# What stands in for a marker or unit this server has no picture for — a map
+# drawn before the pictures were uploaded, or one copied from another server.
+MISSING_PICTURE = ('<circle cx="50" cy="50" r="22" fill="#11161c" fill-opacity="0.35" '
+                   'stroke="#9aa4ad" stroke-width="5" stroke-dasharray="8 6"/>'
+                   '<text x="50" y="61" text-anchor="middle" font-size="32" '
+                   'font-weight="700" fill="#e6e9ec" '
+                   'font-family="system-ui, sans-serif">?</text>')
 
 
 def line_size(size: float) -> float:
@@ -1543,7 +1242,7 @@ def item_svg(item: dict, px: float = 1.0, icons=frozenset()) -> str:
     ops trace."""
     kind = item['kind']
     if kind == 'unit':
-        return _unit_svg(item)
+        return _unit_svg(item, icons)
     if kind == 'point':
         return _point_svg(item, icons)
     if kind == 'text':
@@ -1654,184 +1353,50 @@ def mask_svg(doc: dict) -> str:
             f'mask="url(#{key})" pointer-events="none"/>')
 
 
-def _unit_svg(item: dict) -> str:
-    """One unit symbol: the frame, what is in it, and what is written round it."""
-    colours = AFFILIATIONS[item['side']]
-    side = item['side']
-    dimension = item.get('dimension', DEFAULT_DIMENSION)
-    frame = item_frame(item)
+def _unit_svg(item: dict, icons=frozenset()) -> str:
+    """One unit: Arma's NATO marker in its side's colour, Arma's size marker
+    over it when it has one, and its name underneath."""
+    colour = item_colour(item)
     scale = UNIT_BOX * item['size'] / 100
-    # The symbol is drawn in its own 100 × 100 box and then moved onto the map,
-    # so a rotation turns the symbol about its own centre rather than the sheet.
+    # Drawn in its own 100 × 100 box and moved onto the map, so a rotation
+    # turns the symbol about its own centre rather than the sheet's.
     transform = (f"translate({round(item['x'], 2)},{round(item['y'], 2)}) "
                  f"rotate({item.get('rotation', 0)}) scale({round(scale, 4)}) "
                  f"translate(-50,-50)")
-    # An air or subsurface frame has no floor, so the fill would leak out of
-    # the open side; those paths carry `fill="none"` of their own and the
-    # attribute here is what the closed ones use.
-    dash = STATUSES[item.get('status') or DEFAULT_STATUS]['dash']
-    parts = [
-        f'<use href="#tmf-{side}-{dimension}" fill="{colours["fill"]}" '
-        f'stroke="{colours["edge"]}" stroke-width="5"'
-        f'{_attrs(stroke_dasharray=dash)}/>'
-    ]
-    if item.get('hq'):
-        parts.append(f'<use href="#tmh-{side}-{dimension}" '
-                     f'stroke="{colours["edge"]}" stroke-width="5"/>')
-    if SYMBOLS[item['symbol']]['icon']:
-        parts.append(
-            f'<use href="#tmi-{item["symbol"]}" fill="none" '
-            f'stroke="{colours["glyph"]}" color="{colours["glyph"]}" '
-            f'stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>'
-        )
-    parts.extend(_modifier_svg(item, colours))
-    # The label sits under everything the symbol hangs downwards: the frame
-    # itself, the mobility chassis below it, and the staff of a headquarters.
-    # The old fixed drop is kept as a floor so a symbol that grew none of
-    # those sits exactly where it always did.
-    depth = frame['bottom']
-    if item.get('mobility') in MOBILITY:
-        depth += MOBILITY_DROP + MOBILITY_DEPTH
-    depth = max(depth, 135 if item.get('hq') else 112)
-    drop = UNIT_BOX * item['size'] * (depth - 50) / 100 + 6
+    parts = [_picture_svg(unit_picture(item), colour, icons)]
+    echelon = ECHELONS.get(item.get('echelon'))
+    if echelon:
+        size_key = picture_key(echelon['arma'])
+        if size_key in icons:
+            # Arma's size pictures are drawn to sit over the unit marker in
+            # the same box, which is how a mission maker stacks the two.
+            parts.append(_picture_svg(size_key, colour, icons))
+    drop = UNIT_BOX * item['size'] * UNIT_LABEL_DROP + 6
     label = _label_svg(item['label'], item['x'], item['y'] + drop, item['size'])
     return f'<g transform="{transform}">{"".join(parts)}</g>{label}'
 
 
-def _modifier_svg(item: dict, colours: dict) -> list:
-    """The echelon above the frame, the strength beside it, the text alongside.
-
-    All three are drawn in the symbol's own 100 × 100 box, so they scale and
-    rotate with it. Two things they must survive that a pocket card never has
-    to: the echelon is lifted clear of whatever the frame's top edge happens
-    to be — a diamond reaches much higher than a rectangle — and everything
-    outside the frame is drawn twice, dark over a pale outline, because it
-    sits on terrain rather than on paper and has to read over both.
-    """
-    parts = []
-    frame = item_frame(item)
-    top = frame['top']
-    line = top - ECHELON_LIFT
-    echelon = item.get('echelon')
-    strength = item.get('strength')
-    if echelon in ECHELONS:
-        shift = f'translate(0,{round(line - 50, 2)})'
-        for colour, width in ((colours['fill'], 15), (colours['glyph'], 7)):
-            parts.append(
-                f'<use href="#tmx-{echelon}" fill="none" stroke="{colour}" '
-                f'color="{colour}" stroke-width="{width}" stroke-linecap="round" '
-                f'transform="{shift}"/>'
-            )
-    if strength in STRENGTHS:
-        # Beside the echelon when there is one, and where it would have been
-        # when there is not — the two are read as one line either way.
-        x = 103 if echelon in ECHELONS else 50
-        parts.append(_chrome_text(STRENGTHS[strength]['text'], x, line + 7, 20,
-                                  colours))
-    higher = item.get('higher', '')
-    if higher:
-        # APP-6 field M, on the same line as the size marks and on the other
-        # side of them: read together they say which unit this is and whose
-        # it is, which is the pair the designation is useless without.
-        parts.append(_chrome_text(higher, -3, line + 7, 20, colours, anchor='end'))
-    mobility = item.get('mobility')
-    if mobility in MOBILITY:
-        shift = f'translate(0,{round(frame["bottom"] + MOBILITY_DROP, 2)})'
-        for colour, width in ((colours['fill'], 11), (colours['glyph'], 4.5)):
-            parts.append(
-                f'<use href="#tmv-{mobility}" fill="none" stroke="{colour}" '
-                f'color="{colour}" stroke-width="{width}" stroke-linecap="round" '
-                f'stroke-linejoin="round" transform="{shift}"/>'
-            )
-    text = item.get('text', '')
-    if text:
-        # An empty frame has room for it; a frame with a pictogram in it does
-        # not, so it goes beside the symbol the way APP-6 puts free text in a
-        # field of its own rather than over the icon.
-        if SYMBOLS[item['symbol']]['icon']:
-            parts.append(_chrome_text(text, 102, 57, 22, colours, anchor='start'))
-        else:
-            parts.append(
-                f'<text x="50" y="61" text-anchor="middle" font-size="30" '
-                f'font-weight="700" font-family="{_FONT}" '
-                f'fill="{colours["glyph"]}">{escape(text)}</text>'
-            )
-    return parts
-
-
-def _chrome_text(text: str, x: float, y: float, size: float, colours: dict,
-                 anchor: str = 'middle') -> str:
-    """One piece of writing outside the frame: dark, over a pale outline."""
-    return (
-        f'<text x="{round(x, 2)}" y="{round(y, 2)}" text-anchor="{anchor}" '
-        f'font-size="{size}" font-weight="700" font-family="{_FONT}" '
-        f'fill="{colours["glyph"]}" stroke="{colours["fill"]}" '
-        f'stroke-width="{round(size * 0.3, 2)}" paint-order="stroke" '
-        f'stroke-linejoin="round">{escape(text)}</text>'
-    )
+def unit_picture(item: dict) -> str:
+    """The picture key of the Arma marker a unit is drawn as."""
+    return picture_key(unit_class(item.get('side', DEFAULT_SIDE), item.get('symbol')))
 
 
 def _point_svg(item: dict, icons=frozenset()) -> str:
-    """One task marker — Arma's `mil_*` shape, in its own colour.
-
-    Unlike a unit symbol this is line art rather than a filled block, which is
-    how the game tells a task from a unit, and it is drawn twice: once thick
-    in a backing colour and once on top in the ink, so the shape holds its own
-    over a satellite image without an SVG filter. The ink is the marker's own
-    rather than its side's — an objective belongs to the plan, not to one side
-    of it.
-    """
+    """One marker: the game's picture, in the marker's colour."""
     ink = item_colour(item)
-    backing = ink_backing(ink)
-    marker = MARKERS.get(item.get('marker'), MARKERS[DEFAULT_MARKER])
     scale = POINT_BOX * item['size'] / 100 * 1.55
     transform = (f"translate({round(item['x'], 2)},{round(item['y'], 2)}) "
                  f"scale({round(scale, 4)}) translate(-50,-50)")
-    # A planned task is dashed exactly as a planned unit's frame is, and both
-    # passes carry the same pattern or the solid one shows through the gaps.
-    dash = _attrs(stroke_dasharray=STATUSES[item.get('status')
-                                            or DEFAULT_STATUS]['dash'])
-    if marker.get('paint'):
-        # A flag: its own colours, drawn once and never tinted.
-        shape = (f'<g transform="{transform}">'
-                 f'<use href="#tmm-{marker_key(item)}"/></g>')
-    elif marker_key(item) in icons:
-        # The game's own picture, uploaded by the guild: the marker's colour
-        # let through the icon's shape. Drawn a little larger than the line
-        # art, because Arma's pictures carry a margin of their own.
-        shape = (f'<g transform="{transform}">'
-                 f'<rect x="-10" y="-10" width="120" height="120" fill="{ink}" '
-                 f'mask="url(#{icon_mask_id(marker_key(item))})"/></g>')
-    else:
-        shape = None
-    shape = shape or (
-        f'<g transform="{transform}">'
-        f'<use href="#tmm-{marker_key(item)}" fill="none" '
-        f'stroke="{backing}" color="{backing}" stroke-width="15" '
-        f'stroke-linecap="round" stroke-linejoin="round"{dash}/>'
-        f'<use href="#tmm-{marker_key(item)}" fill="none" '
-        f'stroke="{ink}" color="{ink}" stroke-width="7" '
-        f'stroke-linecap="round" stroke-linejoin="round"{dash}/>'
-        f'</g>'
-    )
+    shape = f'<g transform="{transform}">{_picture_svg(marker_key(item), ink, icons)}</g>'
     reach = POINT_BOX * item['size'] * 0.8
-    glyph = item.get('glyph', '')
-    parts = [shape]
-    if glyph and marker['text']:
-        parts.append(_label_svg(glyph, item['x'],
-                                item['y'] + label_size(item['size']) * 0.36,
-                                item['size'] * 0.9))
-    label = item['label']
-    if glyph and not marker['text']:
-        # Nowhere to write it on the shape, so it goes in front of the name
-        # rather than being dropped.
-        label = f'{glyph} {label}'.strip()
-    parts.append(_label_svg(label, item['x'], item['y'] + reach + 8, item['size']))
-    return ''.join(parts)
+    # Arma writes a marker's text beside it, not inside; here the short text
+    # goes in front of the name.
+    label = f"{item.get('glyph', '')} {item['label']}".strip()
+    return shape + _label_svg(label, item['x'], item['y'] + reach + 8, item['size'])
 
 
 def marker_key(item: dict) -> str:
-    """Which `mil_*` shape a point is drawn as — the dot when it says nothing."""
+    """Which marker a point is drawn as — the dot when it says nothing."""
     marker = item.get('marker')
     return marker if marker in MARKERS else DEFAULT_MARKER
 
@@ -2149,9 +1714,8 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     `tile_href` where each tile comes from (see `_tiles_svg()`), and `size`
     gives the picture's width and height in pixels.
 
-    `marker_images` (key → href) draws those markers from the game's own
-    pictures, which a guild uploads; without it every marker is drawn from
-    this module's own line art.
+    `marker_images` (picture key → href) are the game's own pictures, which a
+    guild uploads; a marker or unit with none is drawn as a placeholder.
     """
     classes = ('tacmap ' + extra_class).strip()
     namespace = ' xmlns="http://www.w3.org/2000/svg"' if standalone else ''
@@ -2160,9 +1724,9 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     # itself; a picture of a known size is drawn by resvg, which does not, so
     # the widths are given in sheet units per pixel of the picture instead.
     px = box[2] / size[0] if size and size[0] else 1.0
-    icons = frozenset(key for key in (marker_images or {})
-                      if key in MARKERS and not MARKERS[key].get('paint'))
-    body = ''.join(item_svg(item, px, icons) for item in ordered_items(doc))
+    icons = frozenset(marker_images or ())
+    shown = ordered_items(doc)
+    body = ''.join(item_svg(item, px, icons) for item in shown)
     names = places_svg(doc, places or [])
     box_text = ' '.join(f'{round(v, 2):g}' for v in box)
     dims = f' width="{int(size[0])}" height="{int(size[1])}"' if size else ''
@@ -2171,7 +1735,7 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     return (
         f'<svg{namespace} viewBox="{box_text}"{dims} '
         f'class={quoteattr(classes)} preserveAspectRatio="xMidYMid meet">'
-        f'{defs(marker_images)}<g id="tm-back">'
+        f'{defs(marker_images, _tints(shown))}<g id="tm-back">'
         f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
         f'{_grid_svg(doc)}{names}</g>'
         f'<g id="tm-mask">{mask_svg(doc)}</g>'
@@ -2394,71 +1958,17 @@ def _sqf_string(value: str) -> str:
 
 
 def _arma_type(item: dict) -> str:
-    side = ARMA_SIDES.get(item['side'], ARMA_SIDES['unknown'])[0]
     if item['kind'] == 'point':
         return MARKERS[marker_key(item)]['arma']
     if item['kind'] == 'text':
         return 'Empty'
-    symbol = item.get('symbol')
-    if item['side'] == 'civ':
-        if symbol == 'installation':
-            return 'u_installation'
-        if item.get('dimension') == 'air' and symbol not in ARMA_CIVILIAN:
-            return 'c_air'
-        return f"c_{ARMA_CIVILIAN.get(symbol, 'unknown')}"
-    if item['side'] == 'unknown':
-        # The only unknown-side marker Arma has; anything else is drawn in
-        # the neutral frame, in the unknown colour.
-        if symbol == 'installation':
-            return 'u_installation'
-        side = 'n'
-    # A headquarters is the one modifier Arma has a marker of its own for, and
-    # it says more about the unit than its branch does.
-    if item.get('hq'):
-        return f'{side}_hq'
-    # Arma says the air dimension with a marker of its own, and it says more
-    # about a symbol drawn in an open-bottomed frame than its branch does.
-    if item.get('dimension') == 'air' and item.get('symbol') not in ('air', 'heli',
-                                                                     'uav'):
-        return f'{side}_air'
-    return f"{side}_{ARMA_TYPES.get(item.get('symbol'), 'unknown')}"
+    return UNIT_CLASSES[unit_picture(item)]['arma']
 
 
 def _marker_text(item: dict) -> str:
     if item['kind'] == 'point' and item.get('glyph'):
-        parts = [item['glyph']]
-        if item['label']:
-            parts.append(item['label'])
-        return ' '.join(parts)
-    if item['kind'] != 'unit':
-        return item['label']
-    # Arma's markers carry no echelon and no strength, so what the symbol says
-    # around its frame is written into the marker's text instead of being lost
-    # on the way into the mission.
-    extra = []
-    if item.get('status') == 'planned':
-        # Arma has no dashed marker, so the one thing a dashed frame says has
-        # to be said in words or it is lost on the way into the mission.
-        extra.append('planned')
-    if item.get('text'):
-        extra.append(item['text'])
-    if item.get('echelon') in ECHELONS:
-        extra.append(ECHELONS[item['echelon']]['short'])
-    if item.get('strength') in STRENGTHS:
-        # Without its brackets: the whole tail is already in brackets, and
-        # "Alpha (Plt (+))" reads as a typo.
-        extra.append(STRENGTHS[item['strength']]['text'].strip('()'))
-    if item.get('mobility') in MOBILITY:
-        extra.append(MOBILITY[item['mobility']]['short'])
-    name = item['label']
-    if item.get('higher'):
-        # "1-1 Alpha / A Coy" — the pair APP-6 draws as two fields, written
-        # the way a unit writes it when it only has one line to write on.
-        name = f'{name} / {item["higher"]}' if name else item['higher']
-    if not extra:
-        return name
-    tail = ' '.join(extra)
-    return f'{name} ({tail})' if name else tail
+        return f"{item['glyph']} {item['label']}".strip()
+    return item['label']
 
 
 def _bearing(start: tuple, end: tuple) -> float:
@@ -2760,6 +2270,16 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
             lines.append(f"_m setMarkerDir {round(item['rotation'] % 360, 1)};")
         if editable:
             lines.append('_n pushBack _m;')
+        if item['kind'] == 'unit' and item.get('echelon') in ECHELONS:
+            # The size is a marker of its own in Arma, stacked on the unit.
+            lines.append(f'_m = createMarker [{marker_name(index, "s")}, '
+                         f'[{world[0]}, {world[1]}]];')
+            lines.append(f'_m setMarkerType "{ECHELONS[item["echelon"]]["arma"]}";')
+            lines.append(f'_m setMarkerColor "{colour}";')
+            if item['size'] != 1:
+                lines.append(f'_m setMarkerSize [{size}, {size}];')
+            if editable:
+                lines.append('_n pushBack _m;')
 
     if editable:
         # What was drawn, so the next run can take exactly it away again —
@@ -3373,20 +2893,23 @@ def parse_sqf_value(text: str):
 
 # Arma's side prefixes, and unit marker suffixes, back onto our symbols.
 _ARMA_SIDE_FROM = {'b': 'friend', 'o': 'hostile', 'n': 'neutral', 'c': 'civ', 'u': 'unknown'}
-_ARMA_SYMBOL_FROM = {
-    'unknown': 'unknown', 'inf': 'inf', 'motor_inf': 'motor', 'mech_inf': 'mech',
-    'armor': 'armor', 'recon': 'recon', 'air': 'heli', 'plane': 'air', 'uav': 'uav',
-    'naval': 'naval', 'med': 'med', 'art': 'arty', 'mortar': 'mortar',
-    'support': 'support', 'maint': 'maint', 'service': 'logi',
-    'installation': 'installation', 'antiair': 'aa', 'ordnance': 'eod',
-    'car': 'motor', 'ship': 'naval',
-}
+
+
+def _unit_from_class(mtype: str):
+    """(side, symbol) of an Arma NATO marker, or None when it is not one."""
+    wanted = picture_key(mtype)
+    for side in AFFILIATIONS:
+        for symbol in SYMBOLS:
+            if picture_key(unit_class(side, symbol)) == wanted:
+                return side, symbol
+    return None
+
+
 _SIDE_COLOURS = {
     'ColorWEST': '#3d8ee8', 'ColorBLUFOR': '#3d8ee8', 'ColorEAST': '#e03b3b',
     'ColorOPFOR': '#e03b3b', 'ColorGUER': '#3fb950', 'ColorIndependent': '#3fb950',
     'ColorCIV': '#a06ee8', 'ColorCivilian': '#a06ee8', 'ColorUNKNOWN': '#f2c832',
 }
-_NEAREST_ONLY = ('sniper', 'mg', 'at', 'signal', 'veh', 'engr')
 _BRUSH_FILL = {'border': 'none', 'solid': 'light', 'solidfull': 'light',
                'solidborder': 'light'}
 
@@ -3476,21 +2999,16 @@ def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> 
         mtype = str(mtype or '')
         # An Arma marker at size 1 is the size this editor draws a new one.
         scale = round(_clamp(float(half[0] or 1) * DEFAULT_SIZE, MIN_SIZE, MAX_SIZE), 2)
-        prefix, _, rest = mtype.partition('_')
         key = points_by_marker.get(mtype) or by_lower.get(mtype.lower())
         if key:
             items.append({'kind': 'point', 'marker': key, 'x': x, 'y': y, 'label': label,
                           'color': '' if MARKERS[key].get('paint') else tint, 'size': scale})
             continue
-        if prefix in _ARMA_SIDE_FROM and rest.lower() in _ARMA_SYMBOL_FROM | {'hq': ''}:
-            unit = {'kind': 'unit', 'side': _ARMA_SIDE_FROM[prefix], 'x': x, 'y': y,
-                    'label': label, 'size': scale,
-                    'rotation': round(float(direction or 0) % 360, 1)}
-            if rest.lower() == 'hq':
-                unit.update(symbol='generic', hq=True)
-            else:
-                unit['symbol'] = _ARMA_SYMBOL_FROM[rest.lower()]
-            items.append(unit)
+        found = _unit_from_class(mtype)
+        if found:
+            items.append({'kind': 'unit', 'side': found[0], 'symbol': found[1],
+                          'x': x, 'y': y, 'label': label, 'size': scale,
+                          'rotation': round(float(direction or 0) % 360, 1)})
             continue
         if mtype in ('Empty', 'EmptyIcon', '') and label:
             items.append({'kind': 'text', 'x': x, 'y': y, 'label': label, 'color': tint,
@@ -3504,6 +3022,7 @@ def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> 
         unknown[mtype] = unknown.get(mtype, 0) + 1
         items.append({'kind': 'point', 'marker': DEFAULT_MARKER, 'x': x, 'y': y,
                       'label': (label or mtype)[:MAX_LABEL], 'color': tint, 'size': scale})
+    items = _stack_sizes(items)
     notes = [f'{len(items)} marker{"s" if len(items) != 1 else ""} brought in.']
     if outside:
         notes.append(f'{outside} lay outside this map and were left out — check the map\'s '
@@ -3515,6 +3034,25 @@ def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> 
     if skipped:
         notes.append(f'{skipped} had nothing to draw and were left out.')
     return items, notes
+
+
+def _stack_sizes(items: list) -> list:
+    """A size marker (`group_3`) sitting on a unit is that unit's size, the
+    way the export writes it; one on its own stays a marker."""
+    sizes = {value['arma']: key for key, value in ECHELONS.items()}
+    sizes = {picture_key(arma): key for arma, key in sizes.items()}
+    units = [item for item in items if item['kind'] == 'unit']
+    kept = []
+    for item in items:
+        echelon = sizes.get(item.get('marker')) if item['kind'] == 'point' else None
+        home = next((unit for unit in units if echelon and not unit.get('echelon')
+                     and math.dist((unit['x'], unit['y']), (item['x'], item['y'])) < 1),
+                    None)
+        if home is not None:
+            home['echelon'] = echelon
+            continue
+        kept.append(item)
+    return kept
 
 
 def export_report(doc: dict, sqf: str) -> dict:
@@ -3540,14 +3078,6 @@ def export_report(doc: dict, sqf: str) -> dict:
     if any(item['kind'] == 'shape' and item.get('label') and not item.get('ao') for item in shown):
         notes.append('Rectangle and ellipse labels stay on this map: Arma shows no text on '
                      'an area marker.')
-    # The symbols ARMA_TYPES can only send to something near: Arma has no
-    # sniper, machine-gun, anti-tank or signals marker.
-    near = sorted({SYMBOLS[item['symbol']]['label'] for item in shown
-                   if item['kind'] == 'unit' and item.get('symbol') in _NEAREST_ONLY
-                   and item['symbol'] in SYMBOLS})
-    if near:
-        notes.append('No Arma marker of their own, so the nearest is used: ' +
-                     ', '.join(near) + '.')
     if (doc.get('mask') or {}).get('on'):
         notes.append('The grey mask stays on this map; the AO borders go across.')
     return {'markers': sqf.count('createMarker'), 'notes': notes}
@@ -3557,26 +3087,66 @@ def export_report(doc: dict, sqf: str) -> dict:
 # The game's own marker pictures
 # ---------------------------------------------------------------------------
 #
-# A guild may upload Arma's marker icons (white on transparent PNGs exported
-# from the game) to draw its markers with instead of this module's line art.
-# They are Bohemia's artwork, so they never go into this repository: they are
+# Every marker and unit is drawn from Arma's own pictures (white on
+# transparent PNGs exported from the game), which a guild uploads. They are
+# Bohemia's artwork, so they never go into this repository: they are
 # uploaded per guild, kept in the database and served only to the guild's
 # members and to holders of a map's share link.
 
 MAX_ICON_BYTES = 256 * 1024
 MAX_ICON_ARCHIVE = 20 * 1024 * 1024
-_ICON_FOLDERS = {'military': 'mil_', 'mil': 'mil_', 'handdrawn': 'hd_', 'hand-drawn': 'hd_',
-                 'hd': 'hd_', 'draw': 'hd_'}
+
+
+def _icon_stem(path: str) -> tuple:
+    """(folder, name) of a picture's path, lower case, without the extension
+    or the `_ca` / `_co` the game's texture names end in — what an upload's
+    file and the game's own path have in common."""
+    parts = [p for p in path.replace('\\', '/').lower().split('/') if p]
+    name = parts[-1].rsplit('.', 1)[0] if parts else ''
+    for tail in ('_ca', '_co'):
+        if name.endswith(tail):
+            name = name[:-len(tail)]
+    return (parts[-2] if len(parts) > 1 else '', name)
+
+
+def _picture_index() -> tuple:
+    """Every picture this map can use, by (folder, name) and by name alone."""
+    by_path, by_name = {}, {}
+    entries = [(key, value['icon']) for key, value in MARKERS.items()]
+    entries += [(key, value['icon']) for key, value in UNIT_CLASSES.items()]
+    for key, path in entries:
+        folder, name = _icon_stem(path)
+        by_path.setdefault((folder, name), []).append(key)
+        by_name.setdefault(name, []).append(key)
+    return by_path, by_name
+
+
+def picture_coverage(have) -> list:
+    """Per group, how many of the game's pictures this server has and where
+    the game keeps the ones it lacks — what the Terrains page lists, so
+    whoever exports them from the game knows which files to fetch."""
+    have = set(have or ())
+    groups = [('NATO units', list(UNIT_CLASSES.items()))]
+    for group in MARKER_GROUPS:
+        groups.append((group, [(key, value) for key, value in MARKERS.items()
+                               if value['group'] == group]))
+    rows = []
+    for name, entries in groups:
+        missing = [value['icon'].lstrip('\\') for key, value in entries if key not in have]
+        rows.append({'group': name, 'total': len(entries),
+                     'have': len(entries) - len(missing), 'missing': missing})
+    return rows
 
 
 def read_marker_icons(data: bytes) -> tuple:
     """The marker pictures in an uploaded zip, as {marker key: PNG bytes},
     and what to tell the person.
 
-    A picture is matched by its Arma class: `military/dot_ca.png` is
-    `mil_dot`, `handdrawn/dot_ca.png` is `hd_dot`, and a file named after
-    its class (`loc_Church.png`) is that class. Anything that is not a PNG,
-    is too big, or names no marker this map knows is left out and counted.
+    A picture is matched by where the game keeps it: `military/dot_ca.png`
+    is `mil_dot`, `handdrawn/dot_ca.png` is `hd_dot`, `nato/b_inf.png` is
+    `b_inf`. A file named after its class (`loc_Church.png`) is that class.
+    Anything that is not a PNG, is too big, or is no picture the game uses is
+    left out and counted.
     """
     import io
     import zipfile
@@ -3586,23 +3156,22 @@ def read_marker_icons(data: bytes) -> tuple:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
         raise ValueError('That is not a zip file.')
-    by_class = {marker['arma'].lower(): key for key, marker in MARKERS.items()
-                if not marker.get('paint')}
+    by_path, by_name = _picture_index()
+    known = set(MARKERS) | set(UNIT_CLASSES)
     icons, unknown, refused = {}, [], 0
     for info in archive.infolist():
         if info.is_dir():
             continue
-        parts = [p for p in info.filename.replace('\\', '/').split('/') if p]
-        name = parts[-1]
+        name = info.filename.replace('\\', '/').rsplit('/', 1)[-1]
         if not name.lower().endswith('.png') or name.startswith('.'):
             continue
-        stem = name[:-4]
-        if stem.lower().endswith('_ca'):
-            stem = stem[:-3]
-        folder = parts[-2].lower() if len(parts) > 1 else ''
-        arma = (_ICON_FOLDERS.get(folder, '') + stem).lower()
-        key = by_class.get(arma)
-        if key is None:
+        folder, stem = _icon_stem(info.filename)
+        # The game's own folder and file name first; then a file named after
+        # its class (`loc_Church.png`); then a file name only one picture has.
+        keys = (by_path.get((folder, stem))
+                or ([stem] if stem in known else None)
+                or (by_name.get(stem) if len(by_name.get(stem, ())) == 1 else None))
+        if not keys:
             unknown.append(name)
             continue
         if info.file_size > MAX_ICON_BYTES:
@@ -3612,10 +3181,11 @@ def read_marker_icons(data: bytes) -> tuple:
         if not body.startswith(b'\x89PNG\r\n\x1a\n'):
             refused += 1
             continue
-        icons[key] = body
+        for key in keys:
+            icons[key] = body
     if not icons:
         raise ValueError('No marker pictures in that zip — expected PNGs such as '
-                         'military/dot_ca.png or handdrawn/flag_ca.png.')
+                         'military/dot_ca.png, nato/b_inf.png or handdrawn/flag_ca.png.')
     notes = [f'{len(icons)} marker picture{"s" if len(icons) != 1 else ""} stored.']
     if unknown:
         notes.append(f'{len(unknown)} named no marker this map knows and were left out '

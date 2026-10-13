@@ -44,8 +44,6 @@
     glyph: '',
     marker: catalog.defaultMarker,
     echelon: '',
-    dimension: catalog.defaultDimension,
-    status: catalog.defaultStatus,
     layer: '',
     // What a line, an area or a marker is painted when it is drawn.
     // '' means the default ink — it used to mean the side's colour, which
@@ -58,7 +56,6 @@
     fill: catalog.defaultFill,
     // What the AO tool draws: freehand, a rectangle or an ellipse.
     aoForm: 'rect',
-    hq: false,
     // A rectangle or ellipse being dragged out, and a selected one being
     // resized or turned by its handles.
     box: null,
@@ -71,8 +68,9 @@
     dirty: false
   };
   var editable = app.dataset.editable === '1';
-  // Markers drawn from the game's own pictures on this server (see
-  // icon_masks() in utils/tacmap.py).
+  // The game's own pictures this server has uploaded, by picture key (see
+  // icon_masks() in utils/tacmap.py). Only these markers and units are
+  // offered; anything else on a map is drawn as a placeholder.
   var iconKeys = {};
   try {
     JSON.parse(app.dataset.icons || '[]').forEach(function (key) { iconKeys[key] = true; });
@@ -86,31 +84,11 @@
   catalog.markers.forEach(function (marker) { markers[marker.key] = marker; });
   var echelons = {};
   catalog.echelons.forEach(function (entry) { echelons[entry.key] = entry; });
-  var strengths = {};
-  catalog.strengths.forEach(function (entry) { strengths[entry.key] = entry; });
-  var mobility = {};
-  catalog.mobility.forEach(function (entry) { mobility[entry.key] = entry; });
-  var statuses = {};
-  catalog.statuses.forEach(function (entry) { statuses[entry.key] = entry; });
 
-  function dimensionOf(item) {
-    // Which frame a symbol is actually drawn in. A document written by a
-    // newer version can name a dimension this one has not got, and the `use`
-    // and the geometry have to agree on the fallback or the label would be
-    // measured off a frame that is not on the page.
-    var shapes = catalog.frames[item.side] || catalog.frames.friend;
-    return shapes[item.dimension] ? item.dimension : catalog.defaultDimension;
-  }
-
-  function frameOf(item) {
-    // Mirrors frame_of() in utils/tacmap.py: side first, then dimension.
-    var shapes = catalog.frames[item.side] || catalog.frames.friend;
-    return shapes[dimensionOf(item)];
-  }
-
-  function dashOf(item) {
-    var status = statuses[item.status] || statuses[catalog.defaultStatus];
-    return status && status.dash ? ' stroke-dasharray="' + status.dash + '"' : '';
+  function unitPicture(item) {
+    // Mirrors unit_picture() in utils/tacmap.py.
+    var symbol = symbols[item.symbol] || symbols.inf;
+    return symbol.classes[item.side] || symbol.classes.friend;
   }
 
   var layer = svg.querySelector('.tm-items');
@@ -257,83 +235,48 @@
       esc(item.label) + '</text></g>';
   }
 
-  function chromeText(text, x, y, size, paint, anchor) {
-    // Mirrors _chrome_text() in utils/tacmap.py: dark over a pale outline, so
-    // what sits outside the frame reads on terrain of any colour.
-    return '<text x="' + round(x) + '" y="' + round(y) + '" text-anchor="' +
-      (anchor || 'middle') + '" font-size="' + size + '" font-weight="700"' +
-      ' font-family="' + FONT + '" fill="' + paint.glyph + '" stroke="' +
-      paint.fill + '" stroke-width="' + round(size * 0.3) +
-      '" paint-order="stroke" stroke-linejoin="round">' + esc(text) + '</text>';
+  // Mirrors tint_filter() in utils/tacmap.py: Arma multiplies a marker's
+  // picture by its colour. The server put a filter in the defs for every
+  // colour on the map when it was drawn; a new colour gets one here.
+  var svgDefs = svg.querySelector('defs') ||
+    svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg', 'defs'), svg.firstChild);
+
+  function tintId(colour) {
+    var hex = String(colour || '').replace('#', '').toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(hex)) hex = 'ffffff';
+    if (!document.getElementById('tmt-' + hex)) {
+      var parts = [0, 2, 4].map(function (at) {
+        return Math.round(parseInt(hex.slice(at, at + 2), 16) / 255 * 10000) / 10000;
+      });
+      var filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+      filter.setAttribute('id', 'tmt-' + hex);
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      filter.innerHTML = '<feColorMatrix type="matrix" values="' + parts[0] + ' 0 0 0 0 0 ' +
+        parts[1] + ' 0 0 0 0 0 ' + parts[2] + ' 0 0 0 0 0 1 0"/>';
+      svgDefs.appendChild(filter);
+    }
+    return 'tmt-' + hex;
   }
 
-  function modifierSVG(item, paint) {
-    // Mirrors _modifier_svg() in utils/tacmap.py.
-    var parts = [];
-    var frame = frameOf(item);
-    var line = frame.top - catalog.echelonLift;
-    var hasEchelon = !!echelons[item.echelon];
-    if (hasEchelon) {
-      var shift = 'translate(0,' + round(line - 50) + ')';
-      [[paint.fill, 15], [paint.glyph, 7]].forEach(function (pass) {
-        parts.push('<use href="#tmx-' + item.echelon + '" fill="none" stroke="' +
-          pass[0] + '" color="' + pass[0] + '" stroke-width="' + pass[1] +
-          '" stroke-linecap="round" transform="' + shift + '"/>');
-      });
-    }
-    if (strengths[item.strength]) {
-      parts.push(chromeText(strengths[item.strength].text,
-        hasEchelon ? 103 : 50, line + 7, 20, paint));
-    }
-    if (item.higher) {
-      parts.push(chromeText(item.higher, -3, line + 7, 20, paint, 'end'));
-    }
-    if (mobility[item.mobility]) {
-      var under = 'translate(0,' + round(frame.bottom + catalog.mobilityDrop) + ')';
-      [[paint.fill, 14], [paint.glyph, 6]].forEach(function (pass) {
-        parts.push('<use href="#tmv-' + item.mobility + '" fill="none" stroke="' +
-          pass[0] + '" color="' + pass[0] + '" stroke-width="' + pass[1] +
-          '" stroke-linecap="round" stroke-linejoin="round" transform="' +
-          under + '"/>');
-      });
-    }
-    if (item.text) {
-      if ((symbols[item.symbol] || {}).hasIcon) {
-        parts.push(chromeText(item.text, 102, 57, 22, paint, 'start'));
-      } else {
-        parts.push('<text x="50" y="61" text-anchor="middle" font-size="30"' +
-          ' font-weight="700" font-family="' + FONT + '" fill="' + paint.glyph +
-          '">' + esc(item.text) + '</text>');
-      }
-    }
-    return parts.join('');
+  function pictureSVG(key, colour) {
+    // Mirrors _picture_svg() in utils/tacmap.py: the game's picture tinted
+    // with the item's colour, a flag as it is, a placeholder when this
+    // server has none.
+    if (!iconKeys[key]) return catalog.missingPicture;
+    if (markers[key] && markers[key].paint) return '<use href="#tmk-' + key + '"/>';
+    return '<use href="#tmk-' + key + '" filter="url(#' + tintId(colour) + ')"/>';
   }
 
   function unitSVG(item) {
-    var paint = colours[item.side];
+    // Mirrors _unit_svg() in utils/tacmap.py.
+    var colour = itemColour(item);
     var scale = catalog.unitBox * item.size / 100;
     var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') rotate(' +
       (item.rotation || 0) + ') scale(' + scale + ') translate(-50,-50)';
-    var dimension = dimensionOf(item);
-    var parts = ['<use href="#tmf-' + item.side + '-' + dimension + '" fill="' +
-      paint.fill + '" stroke="' + paint.edge + '" stroke-width="5"' +
-      dashOf(item) + '/>'];
-    if (item.hq) {
-      parts.push('<use href="#tmh-' + item.side + '-' + dimension +
-        '" stroke="' + paint.edge + '" stroke-width="5"/>');
-    }
-    if ((symbols[item.symbol] || {}).hasIcon) {
-      parts.push('<use href="#tmi-' + item.symbol + '" fill="none" stroke="' +
-        paint.glyph + '" color="' + paint.glyph + '" stroke-width="7"' +
-        ' stroke-linecap="round" stroke-linejoin="round"/>');
-    }
-    parts.push(modifierSVG(item, paint));
-    var depth = frameOf(item).bottom;
-    if (mobility[item.mobility]) {
-      depth += catalog.mobilityDrop + catalog.mobilityDepth;
-    }
-    depth = Math.max(depth, item.hq ? 135 : 112);
-    var drop = catalog.unitBox * item.size * (depth - 50) / 100 + 6;
+    var parts = [pictureSVG(unitPicture(item), colour)];
+    var echelon = echelons[item.echelon];
+    if (echelon && iconKeys[echelon.picture]) parts.push(pictureSVG(echelon.picture, colour));
+    var drop = catalog.unitBox * item.size * catalog.unitLabelDrop + 6;
     return '<g transform="' + transform + '">' + parts.join('') + '</g>' +
       label(item.label, item.x, item.y + drop, item.size);
   }
@@ -343,42 +286,13 @@
   }
 
   function pointSVG(item) {
-    // Mirrors _point_svg() in utils/tacmap.py: line art in the marker's own
-    // colour, drawn twice so the shape holds up over terrain.
-    var ink = itemColour(item);
-    var backing = inkBacking(ink);
-    var key = markerKey(item);
+    // Mirrors _point_svg() in utils/tacmap.py.
     var scale = catalog.pointBox * item.size / 100 * 1.55;
     var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') scale(' +
       scale + ') translate(-50,-50)';
-    var dash = dashOf(item);
-    // A flag: its own colours, drawn once and never tinted. A marker the
-    // guild uploaded the game's own picture for: its colour let through the
-    // picture, which the server put in the page's defs as a mask.
-    var shape = markers[key] && markers[key].paint
-      ? '<g transform="' + transform + '"><use href="#tmm-' + key + '"/></g>'
-      : iconKeys[key]
-      ? '<g transform="' + transform + '"><rect x="-10" y="-10" width="120" height="120" fill="' +
-        ink + '" mask="url(#tmk-' + key + ')"/></g>'
-      : '<g transform="' + transform + '">' +
-      '<use href="#tmm-' + key + '" fill="none" stroke="' + backing +
-      '" color="' + backing + '" stroke-width="15"' +
-      ' stroke-linecap="round" stroke-linejoin="round"' + dash + '/>' +
-      '<use href="#tmm-' + key + '" fill="none" stroke="' + ink +
-      '" color="' + ink + '" stroke-width="7"' +
-      ' stroke-linecap="round" stroke-linejoin="round"' + dash + '/></g>';
-    var parts = [shape];
-    var glyph = item.glyph || '';
-    var name = item.label;
-    if (glyph && markers[key].text) {
-      parts.push(label(glyph, item.x, item.y + labelSize(item.size) * 0.36,
-        item.size * 0.9));
-    } else if (glyph) {
-      name = (glyph + ' ' + name).trim();
-    }
-    parts.push(label(name, item.x, item.y + catalog.pointBox * item.size * 0.8 + 8,
-      item.size));
-    return parts.join('');
+    var name = ((item.glyph || '') + ' ' + item.label).trim();
+    return '<g transform="' + transform + '">' + pictureSVG(markerKey(item), itemColour(item)) +
+      '</g>' + label(name, item.x, item.y + catalog.pointBox * item.size * 0.8 + 8, item.size);
   }
 
   // Mirrors arrow_head() in utils/tacmap.py — a polygon rather than a marker,
@@ -1490,21 +1404,13 @@
       item.x = round(point.x);
       item.y = round(point.y);
       item.symbol = state.symbol;
-      item.hq = state.hq;
       item.rotation = 0;
       item.echelon = state.echelon;
-      item.strength = '';
-      item.text = '';
-      item.higher = '';
-      item.mobility = '';
-      item.dimension = state.dimension;
-      item.status = state.status;
     } else if (kind === 'point') {
       item.x = round(point.x);
       item.y = round(point.y);
       item.glyph = state.glyph;
       item.marker = state.marker;
-      item.status = state.status;
       // The toolbar swatch reaches markers too now, for the same reason it
       // reaches lines: an objective is the plan's, not one side's.
       item.color = state.color;
@@ -1964,7 +1870,7 @@
     select: 'Click to select, Shift+click for several, drag to move. Ctrl+click ' +
       'or Ctrl+drag draws a line from here too.',
     unit: 'Click to place the symbol.',
-    point: 'Click to place the marker — every Arma map marker is in the list.',
+    point: 'Click to place the marker. The list holds every marker this server has uploaded a picture for.',
     line: 'Click each corner, double-click or Enter to finish — or drag freehand.',
     phase: 'Click each corner; the line is named at both ends.',
     area: 'Click each corner, Enter to close it — or drag freehand.',
@@ -2023,12 +1929,16 @@
     });
   }
 
-  // The markers are a hundred and more, so they are grouped the way Arma's
-  // own marker list groups them.
-  function fillMarkerOptions(select, value) {
+  // Only what this server has the game's picture for is offered, grouped the
+  // way Arma's own marker list groups it. A value already on the map without
+  // a picture stays in the list, so the inspector can show what it is.
+  var NO_PICTURES = '<option value="" disabled>No pictures uploaded — see the Terrains page</option>';
+
+  function fillMarkerOptions(select, value, keep) {
     var groups = {};
     var order = [];
     catalog.markers.forEach(function (marker) {
+      if (!iconKeys[marker.key] && !(keep && marker.key === value)) return;
       var group = marker.group || 'Military';
       if (!groups[group]) {
         groups[group] = [];
@@ -2036,15 +1946,50 @@
       }
       groups[group].push(marker);
     });
-    // Military first, then the hand-drawn set, then the rest — each its own
-    // group, with a rule between them so the two styles never run together.
-    select.innerHTML = order.map(function (group, index) {
+    select.innerHTML = order.length ? order.map(function (group, index) {
       return (index ? '<option disabled>──────────</option>' : '') +
         '<optgroup label="' + attr(group) + '">' + groups[group].map(function (marker) {
-          return '<option value="' + attr(marker.key) + '">' + esc(marker.label) + '</option>';
+          return '<option value="' + attr(marker.key) + '">' + esc(marker.label) +
+            (iconKeys[marker.key] ? '' : ' (no picture)') + '</option>';
         }).join('') + '</optgroup>';
-    }).join('');
+    }).join('') : NO_PICTURES;
     select.value = value;
+  }
+
+  // Civilians have their own five markers; everybody else has the rest.
+  var CIV_SYMBOLS = { car: 1, ship: 1, heli: 1, plane: 1, installation: 1, unknown: 1 };
+
+  function symbolOffered(symbol, side) {
+    return side === 'civ' ? !!CIV_SYMBOLS[symbol.key] : !symbol.civ;
+  }
+
+  function fillSymbolOptions(select, side, value, keep) {
+    var seen = {};
+    var options = catalog.symbols.filter(function (symbol) {
+      var key = symbol.classes[side];
+      if (keep && symbol.key === value) return true;
+      if (!symbolOffered(symbol, side) || !iconKeys[key] || seen[key]) return false;
+      seen[key] = true;
+      return true;
+    }).map(function (symbol) {
+      return '<option value="' + attr(symbol.key) + '">' + esc(symbol.label) +
+        (iconKeys[symbol.classes[side]] ? '' : ' (no picture)') + '</option>';
+    });
+    select.innerHTML = options.length ? options.join('') : NO_PICTURES;
+    select.value = value;
+  }
+
+  function firstOffered(select, value) {
+    // The value if it is offered, otherwise the first that is.
+    var option = Array.prototype.find.call(select.options, function (entry) {
+      return !entry.disabled && entry.value;
+    });
+    if (!Array.prototype.some.call(select.options, function (entry) {
+      return entry.value === value && !entry.disabled && !/\(no picture\)$/.test(entry.text);
+    })) {
+      return option ? option.value : value;
+    }
+    return value;
   }
 
   function fillOptions(select, options, value) {
@@ -2057,48 +2002,34 @@
   var sideOptions = catalog.sides.map(function (side) {
     return { value: side.key, label: side.label };
   });
-  var symbolOptions = catalog.symbols.map(function (symbol) {
-    return { value: symbol.key, label: symbol.group + ' · ' + symbol.label };
-  });
   var glyphOptions = [{ value: '', label: 'No text' }].concat(
     catalog.points.map(function (preset) {
       return { value: preset.glyph, label: preset.glyph + ' · ' + preset.label };
     }));
-  var echelonOptions = [{ value: '', label: 'No size' }].concat(
-    catalog.echelons.map(function (entry) {
-      return { value: entry.key, label: entry.label };
-    }));
-  var strengthOptions = [{ value: '', label: 'As it stands' }].concat(
-    catalog.strengths.map(function (entry) {
-      return { value: entry.key, label: entry.label };
-    }));
-  var mobilityOptions = [{ value: '', label: 'Not stated' }].concat(
-    catalog.mobility.map(function (entry) {
-      return { value: entry.key, label: entry.label };
-    }));
-  var dimensionOptions = catalog.dimensions.map(function (entry) {
-    return { value: entry.key, label: entry.label };
-  });
-  var statusOptions = catalog.statuses.map(function (entry) {
-    return { value: entry.key, label: entry.label };
-  });
+  function echelonOptions(value) {
+    return [{ value: '', label: 'No size' }].concat(
+      catalog.echelons.filter(function (entry) {
+        return iconKeys[entry.picture] || entry.key === value;
+      }).map(function (entry) {
+        return { value: entry.key, label: entry.label };
+      }));
+  }
 
   var sidePick = document.getElementById('tmside');
   var symbolPick = document.getElementById('tmsymbol');
   var glyphPick = document.getElementById('tmglyph');
   var markerPick = document.getElementById('tmmarker');
   var echelonPick = document.getElementById('tmechelon');
-  var hqPick = document.getElementById('tmhq');
-  var dimensionPick = document.getElementById('tmdimension');
-  var statusPick = document.getElementById('tmstatuspick');
 
   fillOptions(sidePick, sideOptions, state.side);
-  fillOptions(symbolPick, symbolOptions, state.symbol);
+  fillSymbolOptions(symbolPick, state.side, state.symbol);
+  state.symbol = firstOffered(symbolPick, state.symbol);
+  symbolPick.value = state.symbol;
   fillOptions(glyphPick, glyphOptions, state.glyph);
   fillMarkerOptions(markerPick, state.marker);
-  fillOptions(echelonPick, echelonOptions, state.echelon);
-  fillOptions(dimensionPick, dimensionOptions, state.dimension);
-  fillOptions(statusPick, statusOptions, state.status);
+  state.marker = firstOffered(markerPick, state.marker);
+  markerPick.value = state.marker;
+  fillOptions(echelonPick, echelonOptions(''), state.echelon);
 
   var layerPick = document.getElementById('tmlayerpick');
   var layerAdd = document.getElementById('tmlayeradd');
@@ -2149,16 +2080,17 @@
   }
   layerPick.addEventListener('change', function () { state.layer = layerPick.value; });
 
-  sidePick.addEventListener('change', function () { state.side = sidePick.value; });
+  sidePick.addEventListener('change', function () {
+    state.side = sidePick.value;
+    // A side has its own set of markers, so the symbols follow it.
+    fillSymbolOptions(symbolPick, state.side, state.symbol);
+    state.symbol = firstOffered(symbolPick, state.symbol);
+    symbolPick.value = state.symbol;
+  });
   symbolPick.addEventListener('change', function () { state.symbol = symbolPick.value; });
   glyphPick.addEventListener('change', function () { state.glyph = glyphPick.value; });
   markerPick.addEventListener('change', function () { state.marker = markerPick.value; });
   echelonPick.addEventListener('change', function () { state.echelon = echelonPick.value; });
-  hqPick.addEventListener('change', function () { state.hq = hqPick.checked; });
-  dimensionPick.addEventListener('change', function () {
-    state.dimension = dimensionPick.value;
-  });
-  statusPick.addEventListener('change', function () { state.status = statusPick.value; });
 
   var colourRow = document.getElementById('tmcolours');
   if (colourRow) {
@@ -2204,16 +2136,9 @@
     note: document.getElementById('tmf-note'),
     side: document.getElementById('tmf-side'),
     symbol: document.getElementById('tmf-symbol'),
-    hq: document.getElementById('tmf-hq'),
     glyph: document.getElementById('tmf-glyph'),
     marker: document.getElementById('tmf-marker'),
     echelon: document.getElementById('tmf-echelon'),
-    strength: document.getElementById('tmf-strength'),
-    mobility: document.getElementById('tmf-mobility'),
-    dimension: document.getElementById('tmf-dimension'),
-    status: document.getElementById('tmf-status'),
-    higher: document.getElementById('tmf-higher'),
-    text: document.getElementById('tmf-text'),
     rotation: document.getElementById('tmf-rotation'),
     size: document.getElementById('tmf-size'),
     style: document.getElementById('tmf-style'),
@@ -2233,13 +2158,6 @@
     return { value: entry.key, label: entry.label };
   }), catalog.defaultFill);
   fillOptions(fields.side, sideOptions, state.side);
-  fillOptions(fields.symbol, symbolOptions, state.symbol);
-  fillMarkerOptions(fields.marker, state.marker);
-  fillOptions(fields.echelon, echelonOptions, state.echelon);
-  fillOptions(fields.strength, strengthOptions, '');
-  fillOptions(fields.mobility, mobilityOptions, '');
-  fillOptions(fields.dimension, dimensionOptions, catalog.defaultDimension);
-  fillOptions(fields.status, statusOptions, catalog.defaultStatus);
   fillOptions(fields.style, styleOptions, 'solid');
   fillOptions(fields.weight, weightOptions, String(catalog.defaultWeight));
   fillOptions(fields.arrow, catalog.arrows.map(function (entry) {
@@ -2265,17 +2183,12 @@
     fields.label.value = item.label || '';
     fields.note.value = item.note || '';
     fields.side.value = item.side;
-    fields.symbol.value = item.symbol || 'inf';
-    fields.hq.checked = !!item.hq;
+    // Each list offers what this server has pictures for, plus whatever the
+    // selected item already is.
+    fillSymbolOptions(fields.symbol, item.side, item.symbol || 'inf', true);
     fields.glyph.value = item.glyph || '';
-    fields.marker.value = markerKey(item);
-    fields.echelon.value = item.echelon || '';
-    fields.strength.value = item.strength || '';
-    fields.mobility.value = item.mobility || '';
-    fields.dimension.value = dimensionOf(item);
-    fields.status.value = statuses[item.status] ? item.status : catalog.defaultStatus;
-    fields.higher.value = item.higher || '';
-    fields.text.value = item.text || '';
+    fillMarkerOptions(fields.marker, markerKey(item), true);
+    fillOptions(fields.echelon, echelonOptions(item.echelon || ''), item.echelon || '');
     fields.rotation.value = item.rotation || 0;
     fields.size.value = item.size;
     fields.style.value = item.style || 'solid';
@@ -2342,27 +2255,21 @@
 
   editField(fields.label, function (item) { item.label = fields.label.value; });
   editField(fields.note, function (item) { item.note = fields.note.value; });
-  editField(fields.side, function (item) { item.side = fields.side.value; });
-  editField(fields.symbol, function (item) { item.symbol = fields.symbol.value; });
-  editField(fields.hq, function (item) { item.hq = fields.hq.checked; });
-  [['echelon', fields.echelon], ['strength', fields.strength],
-   ['mobility', fields.mobility], ['dimension', fields.dimension],
-   ['status', fields.status]].forEach(
-    function (pair) {
-      pair[1].addEventListener('change', function () {
-        var item = selected();
-        if (!item) return;
-        item[pair[0]] = pair[1].value;
-        touched();
-        render();
-      });
-    });
-
-  editField(fields.text, function (item) {
-    item.text = fields.text.value.slice(0, catalog.limits.mod);
+  editField(fields.side, function (item) {
+    item.side = fields.side.value;
+    if (item.kind === 'unit') {
+      fillSymbolOptions(fields.symbol, item.side, item.symbol, true);
+      item.symbol = firstOffered(fields.symbol, item.symbol);
+      fields.symbol.value = item.symbol;
+    }
   });
-  editField(fields.higher, function (item) {
-    item.higher = fields.higher.value.slice(0, catalog.limits.mod);
+  editField(fields.symbol, function (item) { item.symbol = fields.symbol.value; });
+  fields.echelon.addEventListener('change', function () {
+    var item = selected();
+    if (!item) return;
+    item.echelon = fields.echelon.value;
+    touched();
+    render();
   });
 
   fields.marker.addEventListener('change', function () {

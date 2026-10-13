@@ -1150,7 +1150,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             # mission — the general way in, since OCAP archives carry none.
             'places_sqf': tacmap_lib.places_sqf(),
             'place_groups': tacmap_lib.PLACE_GROUPS,
-            'icon_count': len(await database.tac_marker_icon_keys(str(context['guild'].id))),
+            'icon_coverage': tacmap_lib.picture_coverage(
+                await database.tac_marker_icon_keys(str(context['guild'].id))),
             'error': error,
         }, status=status)
 
@@ -1476,8 +1477,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         if form.get('action') == 'delete':
             count = await database.delete_tac_marker_icons(str(context['guild'].id))
             return redirect(request, f"/g/{guild_id}/terrains", 'ok',
-                            f'Removed {count} marker pictures — markers are drawn from '
-                            'the built-in line art again.')
+                            f'Removed {count} marker pictures. Upload them again to draw '
+                            'markers and units on the maps.')
         upload = form.get('icons')
         if upload is None or not getattr(upload, 'filename', ''):
             return await terrain_page(request, context, status=400,

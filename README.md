@@ -639,8 +639,8 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 
 1. Go to **Maps**, name the new map, and press **Create**.
 2. The editor: tools down the left, the map in the middle, and on the right what the tool in hand will draw — or, with something selected, its details. Terrain, OCAP, sharing, posting, Arma and the map’s name are menus in the bar above. **⤢ Whole window** gives the map the screen (**Esc** to come back); **+ − ⤢** on the map zoom and fit it.
-3. Pick a symbol from the palette and click the sheet to place it.
-4. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
+3. With the **Unit** tool, pick a side, a symbol and a size, and click the sheet to place it. With the **Marker** tool, pick a marker the same way.
+4. Select a unit or marker to change it in the inspector: side, symbol or marker, size, colour and label.
 5. Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for freehand. The Line and Area tools do the same without Ctrl; double-click or press **Enter** to finish. **Shift** keeps a segment straight and snaps it to 15°.
 6. Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 pixels — it stays that thin at every zoom) and its arrow heads (end, start or both) in the toolbar or the inspector.
 7. The **Phase line** tool draws a line named at both ends — type the name after the *PL* it starts with. Any line can be named in the middle, at the end or at both ends from the inspector.
@@ -651,15 +651,13 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 12. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
 13. It saves by itself a moment after each change (**Autosave** in the bar; untick it to save only when you press **Save**). Everyone looking at the map sees the saved version.
 
-> The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
+> Units and markers are drawn with Arma’s own pictures, as the game draws them: a unit is the game’s NATO marker for its side (BLUFOR, OPFOR, Independent, civilian) with Arma’s size marker stacked on it, and every marker is the game’s, grouped as in the game. Each exports as exactly that marker.
 >
-> The **Marker** tool has every marker vanilla Arma ships — military, hand-drawn, map locations, unit sizes, respawn points, Zeus and flags — grouped as in the game, and each exports as exactly that marker.
->
-> An admin can upload the game’s own marker icons (a zip of PNGs) at the bottom of the **Terrains** page; every map on the server then draws those markers from them, in the marker’s colour. They stay private to the server’s members and share-link holders.
+> The pictures are Bohemia’s, so an admin uploads them once, as a zip of PNGs, at the bottom of the **Terrains** page, which also lists which files are still missing. The editor only offers the units and markers with a picture; anything else on a map shows as a **?** placeholder. The pictures stay private to the server’s members and share-link holders.
 >
 > Lines get an arrow head only when you ask for one — most lines on a plan are boundaries and phase lines, which point nowhere.
 >
-> Lines, areas, shapes and markers are black until you colour them, and take whatever you pick from the swatches. Symbols do not: their colour is what says which side they are.
+> Lines, areas, shapes and markers are black until you colour them, and take whatever you pick from the swatches. Units do not: they take their side’s colour, as in Arma.
 >
 > Whatever colour you pick is the colour it comes out in Arma, on the nearest marker colour the game ships. Cyan and purple are the two Arma has no match for.
 >
@@ -769,7 +767,7 @@ Paste the plan into a running mission as markers, with no mod on either side.
 >
 > Running it again **replaces** the markers from the last run rather than laying a second set over them. Two maps can never delete each other’s.
 >
-> Symbol sizes and mobility have no counterpart in Arma, so they are written into the marker text: `1-1 Alpha / A Coy (planned Plt twd)`.
+> A unit’s size arrives as Arma’s own size marker, stacked on the unit as a mission maker would place it.
 >
 > Rectangles and ellipses arrive as Arma’s own area markers, filled and turned the way they are drawn. Arma shows no text on an area marker, so their labels stay on the website’s map.
 >
