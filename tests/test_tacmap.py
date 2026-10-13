@@ -1483,13 +1483,21 @@ def test_an_uncoloured_line_exports_black_rather_than_its_side():
     assert tacmap.arma_colour(item) == 'ColorBlack'
 
 
-def test_a_free_label_stays_white_in_both_places():
-    # It is chrome rather than a control measure, and white over the dark
-    # halo is what holds up on any terrain. What matters is that the page and
-    # the export agree — the whole point of the colour rework.
+def test_a_free_label_is_black_like_arma_marker_text():
+    # Arma writes marker text in the marker's colour, black by default — not
+    # big white lettering over a halo. The page and the export must agree.
     item = {'kind': 'text', 'side': 'friend', 'color': ''}
-    assert tacmap.item_colour(item) == tacmap._LABEL_FILL
-    assert tacmap.arma_colour(item) == 'ColorWhite'
+    assert tacmap.item_colour(item) == tacmap.DEFAULT_INK
+    assert tacmap.arma_colour(item) == 'ColorBlack'
+
+
+def test_a_free_label_is_drawn_at_marker_text_size():
+    doc = tacmap.parse(_doc(items=[{'kind': 'text', 'x': 10, 'y': 10, 'label': 'Jedi',
+                                    'size': tacmap.DEFAULT_SIZE}])).doc
+    svg = tacmap.render(doc)
+    size = float(re.search(r'class="tm-label" font-size="([\d.]+)"', svg).group(1))
+    assert size == tacmap.label_size(tacmap.DEFAULT_SIZE)
+    assert 'fill="#ffffff"' not in svg.split('class="tm-label"')[1].split('>')[0]
 
 
 def test_a_line_has_no_outline():

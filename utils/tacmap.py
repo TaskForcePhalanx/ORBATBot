@@ -1229,7 +1229,7 @@ def _label_svg(text: str, x: float, y: float, size: float, anchor: str = 'middle
         f'<text{_attrs(x=round(x, 2), y=round(y, 2), text_anchor=anchor)} '
         f'class="tm-label" font-size="{font}" font-family="{ARMA_FONT}" '
         f'font-weight="600" fill="{colour}" stroke="{ink_backing(colour)}" '
-        f'stroke-opacity="0.75" stroke-width="{round(font * 0.14, 2)}" '
+        f'stroke-opacity="0.6" stroke-width="{round(font * 0.1, 2)}" '
         f'paint-order="stroke" stroke-linejoin="round">{escape(text)}</text>'
     )
 
@@ -1244,11 +1244,9 @@ def item_colour(item: dict) -> str:
     """
     if item['kind'] == 'unit':
         return AFFILIATIONS[item['side']]['fill']
-    if item['kind'] == 'text':
-        # A free label is chrome rather than a control measure: white over a
-        # dark halo, which is what `_label_svg` has always drawn and what
-        # holds up over both ends of a terrain without picking a side.
-        return item.get('color') or _LABEL_FILL
+    # A free label included: it used to default to white at 1.6 times the
+    # size, which is exactly the big white lettering Arma never draws. Arma's
+    # marker text is the marker's colour, and black when nobody chose one.
     return item.get('color') or DEFAULT_INK
 
 
@@ -1432,8 +1430,8 @@ def marker_key(item: dict) -> str:
 
 
 def _text_svg(item: dict, ts: float = 1.0) -> str:
-    return _label_svg(item['label'] or ' ', item['x'], item['y'], item['size'] * 1.6,
-                      fill=item.get('color') or _LABEL_FILL, ts=ts)
+    return _label_svg(item['label'] or ' ', item['x'], item['y'], item['size'],
+                      fill=item_colour(item), ts=ts)
 
 
 def _centroid(points: list) -> tuple:
