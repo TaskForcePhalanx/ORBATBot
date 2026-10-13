@@ -1543,7 +1543,9 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'Drop times are read in the server\'s time zone, and posts show '
             'every time as a Discord timestamp, so readers see their own time.',
             'Make the drop channel an Announcement channel and partner servers '
-            'can **Follow** it to get each drop in their own server.',
+            'can **Follow** it to get each drop in their own server: I publish '
+            'every drop, which is what sends it on to them, and edits follow by '
+            'themselves. Give me **Attach Files** there too, for drops with images.',
             'The survey link may contain `{op}`, which becomes the mission name '
             'with spaces as `%20`.',
             '**Who can edit mission ORBATs** decides who may open the ORBATs campaign '
@@ -1593,6 +1595,11 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'Its Kill Tracker campaign goes too if the planner created it and no '
             'recordings have been added; one holding stats, or set up in the Kill '
             'Tracker by hand, is kept. Its missions\' ORBATs and its posted drops stay.',
+            'A campaign closes itself: once every planned mission has been played, its '
+            'AAR day has passed and its OCAP recording is linked (or a week has gone by), '
+            'it is marked **Complete** and the mission team channel is told. Set it back '
+            'to **Active** to keep it open; it stays open until another mission is added. '
+            'Switch this off in **Campaigns → Settings**.',
         ),
         page='campaigns',
         related=('mission-wizard', 'campaign-maps', 'campaign-settings'),

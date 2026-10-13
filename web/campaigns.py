@@ -47,6 +47,16 @@ async def settings_page(guild) -> dict:
                       ('team_channel_id', 'mission team channel')):
         if current[key] and current[key] not in channel_ids:
             problems.append(f"I can't post in the {what} any more — pick it again.")
+    # Drops carry images; without Attach Files a drop with any fails at post
+    # time, which is the worst moment to find out.
+    by_id = {str(c.id): c for c in channels}
+    me = guild.me
+    for key, what in (('drop_channel_id', 'drop channel'),
+                      ('team_channel_id', 'mission team channel')):
+        channel = by_id.get(current[key] or '')
+        if channel is not None and me is not None and not channel.permissions_for(me).attach_files:
+            problems.append(f"I can't attach files in the {what} (#{channel.name}), so a drop "
+                            'with images would fail there. Give me Attach Files in it.')
     if current['unit_role_id'] and current['unit_role_id'] not in role_ids:
         problems.append('The unit role no longer exists — pick it again.')
     return {
@@ -271,6 +281,7 @@ async def campaign_page(guild, campaign: dict, tz: str) -> dict:
         'aos': await database.list_cp_aos(campaign['id']),
         'campaign_map_svg': await campaign_map_svg(guild, campaign),
         'statuses': rules.CAMPAIGN_STATUSES,
+        'auto_complete': plan['auto_complete'],
         'suggested_date': suggested.isoformat() if suggested else '',
         'carries_from': last['name'] if last else None,
     }

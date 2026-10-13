@@ -138,7 +138,10 @@ def test_clean_settings():
     assert clean == {'unit_role_id': '5', 'drop_channel_id': '10', 'team_channel_id': '11',
                      'drop_weekday': 3, 'drop_time': '18:30', 'orbat_opens': 'intsum',
                      'survey_url': 'https://tally.so/r/x?op={op}',
-                     'orbat_access': 'planners', 'orbat_role_ids': '6'}
+                     'orbat_access': 'planners', 'orbat_role_ids': '6',
+                     'auto_complete': False}
+    assert cp.clean_settings({**form, 'auto_complete': '1'}, role_ids=[5, 6],
+                             channel_ids=[10, 11])['auto_complete'] is True
     with pytest.raises(ValueError):
         cp.clean_settings(form, role_ids=[5], channel_ids=[10, 11], orbat_role_ids=['99'])
     with pytest.raises(ValueError):
@@ -779,3 +782,48 @@ def test_recording_summary_and_stats_line():
                                 'most kills Andy (9)')
     empty = cp.recording_summary([], killtracker.HEADER)
     assert cp.stats_line(empty) == '0 players · 0 enemy killed · 0 friendly deaths'
+
+
+# ---------------------------------------------------------------------------
+# A campaign closing itself
+# ---------------------------------------------------------------------------
+
+def test_auto_complete_is_on_unless_switched_off():
+    assert cp.settings_with_defaults(None)['auto_complete'] is True
+    assert cp.settings_with_defaults({'auto_complete': None})['auto_complete'] is True
+    assert cp.settings_with_defaults({'auto_complete': False})['auto_complete'] is False
+
+
+def test_a_mission_is_over_after_its_aar_day_and_its_recording():
+    from datetime import date
+    played = {'op_date': date(2026, 9, 26)}
+    # The op night and the AAR day are not "over".
+    assert not cp.mission_over(played, date(2026, 9, 26))
+    assert not cp.mission_over(played, date(2026, 9, 27))
+    # After the AAR day: over once the recording is settled…
+    assert not cp.mission_over(played, date(2026, 9, 28))
+    assert cp.mission_over({**played, 'ocap_id': 41}, date(2026, 9, 28))
+    assert cp.mission_over({**played, 'ocap_manual': True}, date(2026, 9, 28))
+    # …or once the bot has stopped looking for it.
+    assert not cp.mission_over(played, date(2026, 10, 3))
+    assert cp.mission_over(played, date(2026, 10, 4))
+    assert not cp.mission_over({'op_date': None, 'ocap_id': 41}, date(2027, 1, 1))
+
+
+def test_a_campaign_is_finished_when_every_planned_mission_is_over():
+    from datetime import date
+    today = date(2026, 12, 1)
+    done = {'op_date': date(2026, 10, 1), 'ocap_id': 1}
+    campaign = {'status': 'active', 'planned_missions': 2, 'auto_completed_at': None}
+    assert cp.campaign_finished(campaign, [done, done], today)
+    # Fewer missions than planned: the rest are still to be planned.
+    assert not cp.campaign_finished(campaign, [done], today)
+    assert not cp.campaign_finished(campaign, [], today)
+    # One still to be played, or undated.
+    assert not cp.campaign_finished(campaign, [done, {'op_date': date(2026, 12, 5)}], today)
+    assert not cp.campaign_finished(campaign, [done, {'op_date': None}], today)
+    # Already closed once (or reopened by a person), or not active.
+    assert not cp.campaign_finished({**campaign, 'auto_completed_at': '2026-11-01'},
+                                    [done, done], today)
+    assert not cp.campaign_finished({**campaign, 'status': 'archived'}, [done, done], today)
+    assert not cp.campaign_finished({**campaign, 'status': 'complete'}, [done, done], today)

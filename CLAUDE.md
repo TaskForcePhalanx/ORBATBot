@@ -101,7 +101,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(560 cases), and every one of them covers a module that imports nothing beyond
+(563 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -115,7 +115,7 @@ all:
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO map starts from, which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO map starts from, which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -379,8 +379,8 @@ Created by `_init_campaign_planner()` at the end of `init_db()`, after the table
 
 | Table | What it holds |
 |---|---|
-| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again. `orbat_access` (`admins` / `planners`, NULL = planners) and `orbat_role_ids` (comma-separated extra roles) — who may edit mission ORBATs, read through `campaign.may_edit_orbats()` |
-| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it, and the only kind a rename carries over to), `map_id` → `tac_maps` (the campaign map, made by the planner and deleted with the campaign) |
+| `cp_settings` | One row per guild: `unit_role_id`, `drop_channel_id`, `team_channel_id`, `drop_weekday` (0 = Monday), `drop_time` (`HH:MM`, guild time zone), `orbat_opens` (a drop key), `survey_url`. NULL = default; read it through `campaign.settings_with_defaults()`. `library_seeded` — the objectives library has been seeded once and never will be again. `orbat_access` (`admins` / `planners`, NULL = planners) and `orbat_role_ids` (comma-separated extra roles) — who may edit mission ORBATs, read through `campaign.may_edit_orbats()`. `auto_complete` — a finished campaign marks itself Complete (NULL = yes) |
+| `cp_campaigns` | `guild_id`, `name` (unique per guild, case-insensitive), `era`, `theatre`, `summary`, `planned_missions` (the empty slots on the campaign page), `status` (`active` / `complete` / `archived`), `is_test` (see *Test campaigns*), `kt_campaign_id` → `kt_campaigns` (found or created by name when a real campaign is created), `kt_created` (the planner made that Kill Tracker campaign rather than linking one that existed — the only kind a delete may take with it, and the only kind a rename carries over to), `map_id` → `tac_maps` (the campaign map, made by the planner and deleted with the campaign), `auto_completed_at` (the bot closed it, or a person reopened it after it was closed — either way the bot leaves it open until a mission is added) |
 | `cp_aos` | An area of operations: `campaign_id`, `name`, `position`, `area` (the campaign-map **layer** its outline is on, `cpao<id>`), `map_id` → its detailed `tac_maps` (made by the planner; deleted with the AO) |
 | `cp_missions` | `campaign_id`, `position`, `name`, `op_date`, `fields` (JSON of the wizard's fields, keys as in `campaign.STEPS` — everything but the phases), `orbat_id` → `orbats`, `orbat_created` (the card's New or Copy made it, rather than Link — the only kind deleting a *test* mission may take along), `ocap_id` → `kt_missions` (the recording that is this mission), `ocap_manual` (a person chose it, or chose none — the loop stops guessing), `ocap_kt_added` (the planner put it in the Kill Tracker campaign — the only case unlinking takes it out), `operation_id` → the `operations` row sign-ups started. `name` and `op_date` mirror the fields of the same names. A save merges in SQL (`fields::jsonb || patch`), so two people saving different fields both keep theirs |
 | `cp_mission_aos` | Which AOs a mission is fought in (many-to-many) |
@@ -1262,6 +1262,16 @@ calls the same function, so there is no second copy of that either.
 - **Don't post** (`skipped`) is for a drop posted by hand or not wanted at all.
 - `allowed_mentions` is none: a drop quotes the mission team's text, which is
   not a licence to ping.
+- **A drop in an Announcement channel is published** (`publish_later()`), or
+  the servers that Follow it never receive it — Discord does not publish a
+  bot's message by itself. Edits reach followers on their own; a part sent new
+  during an edit is published too. Publishing runs as a background task,
+  **never inside the mission lock**: Discord allows few publishes per channel
+  per hour and discord.py waits out that limit rather than failing, which in
+  the loop would stall every drop behind it. A failed publish tells the team
+  channel. Test campaigns never publish. The settings page warns when the bot
+  lacks **Attach Files** in the drop or team channel, since a drop with images
+  would otherwise fail only when it falls due.
 
 **Sign-ups at the opening drop.** When the drop named by `orbat_opens` posts
 for the first time, `start_signups()` calls `start_operation()` on the
@@ -1366,6 +1376,21 @@ campaign's Kill Tracker campaign and the AAR can quote it.
   longest kill with its weapon, the top killer — into the Stats field.
   `recording_summary()` takes `killtracker.HEADER` as an argument so
   `utils/campaign.py` stays standalone.
+
+### A campaign closes itself
+
+`campaign.campaign_finished()` decides, and the drops loop asks it every
+minute (`cogs/campaigns.complete_campaigns()`): an **active** campaign with
+every planned mission created and every one **over** — its AAR day gone by and
+its recording settled (`mission_over()`: linked, ruled out by a person, or
+past `RECORDING_WAIT`, when the bot stops looking) — is marked Complete and the
+mission team channel told. Off per server with `cp_settings.auto_complete`.
+
+**A person's decision wins.** `auto_completed_at` is set when the bot closes a
+campaign *and* when somebody sets a closed one back to Active
+(`update_cp_campaign()`), and the bot only ever looks at campaigns where it is
+NULL — so a reopened campaign stays open. Adding a mission clears it: there is
+more to play, and the campaign closes again once that is over too.
 
 ### The mission's ORBAT
 
