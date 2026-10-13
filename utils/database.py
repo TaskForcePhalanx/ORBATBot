@@ -419,6 +419,18 @@ async def init_db():
         # putting the older plan back over theirs.
         await db.execute(
             'ALTER TABLE tac_maps ADD COLUMN IF NOT EXISTS doc_rev INTEGER NOT NULL DEFAULT 0')
+        # The game's own marker pictures, uploaded per guild. Bohemia's
+        # artwork, so kept here rather than in the (public) repository, and
+        # served only to the guild's members and share-link holders.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS tac_marker_icons (
+                guild_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                image BYTEA NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (guild_id, key)
+            )
+        ''')
         # A terrain uploaded as a tile archive, and served back by this bot —
         # see utils/tiles.py. The tiles live here rather than on disk because
         # the container's filesystem does not survive a redeploy, and a map
@@ -4168,3 +4180,52 @@ async def kt_set_unit_overrides(changes: dict) -> None:
                         """INSERT INTO kt_unit_overrides (player, unit) VALUES ($1, $2)
                            ON CONFLICT (player) DO UPDATE SET unit = EXCLUDED.unit""",
                         player, unit)
+
+
+# -- the game's own marker pictures -----------------------------------------
+
+async def set_tac_marker_icons(guild_id: str, icons: dict):
+    """Store a guild's marker pictures, replacing any of the same marker."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            for key, image in icons.items():
+                await db.execute(
+                    '''INSERT INTO tac_marker_icons (guild_id, key, image)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (guild_id, key)
+                       DO UPDATE SET image = EXCLUDED.image, updated_at = CURRENT_TIMESTAMP''',
+                    guild_id, key, image)
+
+
+async def tac_marker_icon_keys(guild_id: str) -> dict:
+    """{marker key: a version string} for the guild's uploaded pictures."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            '''SELECT key, EXTRACT(EPOCH FROM updated_at)::BIGINT AS v
+                 FROM tac_marker_icons WHERE guild_id = $1''', guild_id)
+    return {row['key']: str(row['v']) for row in rows}
+
+
+async def get_tac_marker_icon(guild_id: str, key: str):
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetchval(
+            'SELECT image FROM tac_marker_icons WHERE guild_id = $1 AND key = $2',
+            guild_id, key)
+
+
+async def get_tac_marker_icons(guild_id: str) -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch(
+            'SELECT key, image FROM tac_marker_icons WHERE guild_id = $1', guild_id)
+    return {row['key']: bytes(row['image']) for row in rows}
+
+
+async def delete_tac_marker_icons(guild_id: str) -> int:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        result = await db.execute('DELETE FROM tac_marker_icons WHERE guild_id = $1', guild_id)
+    return int(result.split()[-1])

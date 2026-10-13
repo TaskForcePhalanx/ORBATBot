@@ -566,3 +566,29 @@ async def import_from_arma(record, text: str, players_only: bool, member_name: s
         raise ValueError(' '.join(checked.errors))
     await database.save_tac_map_doc(record['id'], tacmap.dumps(checked.doc), member_name)
     return notes
+
+
+
+# -- the game's own marker pictures ----------------------------------------
+
+async def upload_marker_icons(guild_id, upload) -> str:
+    """Store the marker pictures in an uploaded zip for this guild."""
+    data = upload.read(tacmap.MAX_ICON_ARCHIVE + 1)
+    icons, notes = tacmap.read_marker_icons(data)
+    await database.set_tac_marker_icons(str(guild_id), icons)
+    return ' '.join(notes) + ' Markers with a picture are drawn from it on every map.'
+
+
+async def marker_images(guild_id, base: str) -> dict:
+    """key → URL of each picture this guild uploaded, under `base` (the
+    guild's own route, or a share link's), versioned so a re-upload is seen."""
+    versions = await database.tac_marker_icon_keys(str(guild_id))
+    return {key: f'{base}/{key}.png?v={version}' for key, version in versions.items()}
+
+
+async def marker_images_inline(guild_id) -> dict:
+    """key → data URI of each picture, for resvg, which fetches nothing."""
+    import base64
+    icons = await database.get_tac_marker_icons(str(guild_id))
+    return {key: 'data:image/png;base64,' + base64.b64encode(body).decode()
+            for key, body in icons.items()}

@@ -1416,13 +1416,37 @@ def _attrs(**values) -> str:
     )
 
 
-def defs() -> str:
+def icon_mask_id(key: str) -> str:
+    return f'tmk-{key}'
+
+
+def icon_masks(images: dict | None) -> str:
+    """A mask per marker the guild uploaded the game's own picture for.
+
+    The pictures are white on transparent, so as a mask they let a fill in
+    the marker's colour through exactly where the icon is — the same tinting
+    Arma does. `images` is key → href: a URL on a page, a data URI in an ops
+    trace, which resvg draws without fetching anything."""
+    parts = []
+    for key, href in sorted((images or {}).items()):
+        if key not in MARKERS or MARKERS[key].get('paint'):
+            continue
+        parts.append(f'<mask id="{icon_mask_id(key)}" maskUnits="userSpaceOnUse" '
+                     f'x="0" y="0" width="100" height="100">'
+                     f'<image href={quoteattr(href)} x="0" y="0" width="100" height="100" '
+                     'preserveAspectRatio="xMidYMid meet"/></mask>')
+    return ''.join(parts)
+
+
+def defs(images: dict | None = None) -> str:
     """Every frame, icon and arrowhead, once.
 
     Emitted into the editor page and into any standalone render, so a `<use>`
     is all either renderer needs. Adding a symbol here adds it to both.
+    `images` adds the masks for the game's own marker pictures, when a guild
+    uploaded them (`icon_masks()`).
     """
-    parts = ['<defs>']
+    parts = ['<defs>', icon_masks(images)]
     for side, shapes in _FRAMES.items():
         for dimension, frame in shapes.items():
             parts.append(f'<g id="tmf-{side}-{dimension}">{frame["path"]}</g>')
@@ -1512,7 +1536,7 @@ def ink_backing(colour: str) -> str:
     return _INK_DARK if luma > 0.5 else _INK_LIGHT
 
 
-def item_svg(item: dict, px: float = 1.0) -> str:
+def item_svg(item: dict, px: float = 1.0, icons=frozenset()) -> str:
     """One item, drawn. The browser composes the same three or four elements.
     `px` is sheet units per pixel of the picture: 1 on a page, where line
     widths are screen pixels, and the crop over the picture's width for an
@@ -1521,7 +1545,7 @@ def item_svg(item: dict, px: float = 1.0) -> str:
     if kind == 'unit':
         return _unit_svg(item)
     if kind == 'point':
-        return _point_svg(item)
+        return _point_svg(item, icons)
     if kind == 'text':
         return _text_svg(item)
     if kind == 'shape':
@@ -1747,7 +1771,7 @@ def _chrome_text(text: str, x: float, y: float, size: float, colours: dict,
     )
 
 
-def _point_svg(item: dict) -> str:
+def _point_svg(item: dict, icons=frozenset()) -> str:
     """One task marker — Arma's `mil_*` shape, in its own colour.
 
     Unlike a unit symbol this is line art rather than a filled block, which is
@@ -1771,6 +1795,13 @@ def _point_svg(item: dict) -> str:
         # A flag: its own colours, drawn once and never tinted.
         shape = (f'<g transform="{transform}">'
                  f'<use href="#tmm-{marker_key(item)}"/></g>')
+    elif marker_key(item) in icons:
+        # The game's own picture, uploaded by the guild: the marker's colour
+        # let through the icon's shape. Drawn a little larger than the line
+        # art, because Arma's pictures carry a margin of their own.
+        shape = (f'<g transform="{transform}">'
+                 f'<rect x="-10" y="-10" width="120" height="120" fill="{ink}" '
+                 f'mask="url(#{icon_mask_id(marker_key(item))})"/></g>')
     else:
         shape = None
     shape = shape or (
@@ -2106,7 +2137,7 @@ def _grid_svg(doc: dict) -> str:
 
 def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
            places: list = None, view: tuple = None, tile_zoom: int = None,
-           tile_href=None, size: tuple = None) -> str:
+           tile_href=None, size: tuple = None, marker_images: dict = None) -> str:
     """The whole map as one `<svg>` element.
 
     This is what the read-only page, the share link and the no-JavaScript
@@ -2117,6 +2148,10 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     (x, y, w, h) of the sheet, `tile_zoom` picks the terrain's level and
     `tile_href` where each tile comes from (see `_tiles_svg()`), and `size`
     gives the picture's width and height in pixels.
+
+    `marker_images` (key → href) draws those markers from the game's own
+    pictures, which a guild uploads; without it every marker is drawn from
+    this module's own line art.
     """
     classes = ('tacmap ' + extra_class).strip()
     namespace = ' xmlns="http://www.w3.org/2000/svg"' if standalone else ''
@@ -2125,7 +2160,9 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     # itself; a picture of a known size is drawn by resvg, which does not, so
     # the widths are given in sheet units per pixel of the picture instead.
     px = box[2] / size[0] if size and size[0] else 1.0
-    body = ''.join(item_svg(item, px) for item in ordered_items(doc))
+    icons = frozenset(key for key in (marker_images or {})
+                      if key in MARKERS and not MARKERS[key].get('paint'))
+    body = ''.join(item_svg(item, px, icons) for item in ordered_items(doc))
     names = places_svg(doc, places or [])
     box_text = ' '.join(f'{round(v, 2):g}' for v in box)
     dims = f' width="{int(size[0])}" height="{int(size[1])}"' if size else ''
@@ -2134,7 +2171,7 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
     return (
         f'<svg{namespace} viewBox="{box_text}"{dims} '
         f'class={quoteattr(classes)} preserveAspectRatio="xMidYMid meet">'
-        f'{defs()}<g id="tm-back">'
+        f'{defs(marker_images)}<g id="tm-back">'
         f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
         f'{_grid_svg(doc)}{names}</g>'
         f'<g id="tm-mask">{mask_svg(doc)}</g>'
@@ -3514,3 +3551,75 @@ def export_report(doc: dict, sqf: str) -> dict:
     if (doc.get('mask') or {}).get('on'):
         notes.append('The grey mask stays on this map; the AO borders go across.')
     return {'markers': sqf.count('createMarker'), 'notes': notes}
+
+
+# ---------------------------------------------------------------------------
+# The game's own marker pictures
+# ---------------------------------------------------------------------------
+#
+# A guild may upload Arma's marker icons (white on transparent PNGs exported
+# from the game) to draw its markers with instead of this module's line art.
+# They are Bohemia's artwork, so they never go into this repository: they are
+# uploaded per guild, kept in the database and served only to the guild's
+# members and to holders of a map's share link.
+
+MAX_ICON_BYTES = 256 * 1024
+MAX_ICON_ARCHIVE = 20 * 1024 * 1024
+_ICON_FOLDERS = {'military': 'mil_', 'mil': 'mil_', 'handdrawn': 'hd_', 'hand-drawn': 'hd_',
+                 'hd': 'hd_', 'draw': 'hd_'}
+
+
+def read_marker_icons(data: bytes) -> tuple:
+    """The marker pictures in an uploaded zip, as {marker key: PNG bytes},
+    and what to tell the person.
+
+    A picture is matched by its Arma class: `military/dot_ca.png` is
+    `mil_dot`, `handdrawn/dot_ca.png` is `hd_dot`, and a file named after
+    its class (`loc_Church.png`) is that class. Anything that is not a PNG,
+    is too big, or names no marker this map knows is left out and counted.
+    """
+    import io
+    import zipfile
+    if len(data) > MAX_ICON_ARCHIVE:
+        raise ValueError('That archive is far bigger than a set of marker icons.')
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise ValueError('That is not a zip file.')
+    by_class = {marker['arma'].lower(): key for key, marker in MARKERS.items()
+                if not marker.get('paint')}
+    icons, unknown, refused = {}, [], 0
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        parts = [p for p in info.filename.replace('\\', '/').split('/') if p]
+        name = parts[-1]
+        if not name.lower().endswith('.png') or name.startswith('.'):
+            continue
+        stem = name[:-4]
+        if stem.lower().endswith('_ca'):
+            stem = stem[:-3]
+        folder = parts[-2].lower() if len(parts) > 1 else ''
+        arma = (_ICON_FOLDERS.get(folder, '') + stem).lower()
+        key = by_class.get(arma)
+        if key is None:
+            unknown.append(name)
+            continue
+        if info.file_size > MAX_ICON_BYTES:
+            refused += 1
+            continue
+        body = archive.read(info)
+        if not body.startswith(b'\x89PNG\r\n\x1a\n'):
+            refused += 1
+            continue
+        icons[key] = body
+    if not icons:
+        raise ValueError('No marker pictures in that zip — expected PNGs such as '
+                         'military/dot_ca.png or handdrawn/flag_ca.png.')
+    notes = [f'{len(icons)} marker picture{"s" if len(icons) != 1 else ""} stored.']
+    if unknown:
+        notes.append(f'{len(unknown)} named no marker this map knows and were left out '
+                     f'({", ".join(sorted(unknown)[:5])}{"…" if len(unknown) > 5 else ""}).')
+    if refused:
+        notes.append(f'{refused} were not PNGs, or too big, and were left out.')
+    return icons, notes

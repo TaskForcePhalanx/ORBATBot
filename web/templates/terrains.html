@@ -150,6 +150,33 @@
       <button class="button primary" type="submit">Upload</button>
     </div>
   </form>
+
+  <h2 style="margin-top:28px" id="marker-icons">Arma's own marker pictures</h2>
+  <p class="hint">
+    Markers are drawn from built-in line art. Upload a zip of the game's own
+    marker icons — white-on-transparent PNGs such as
+    <code>military/dot_ca.png</code> and <code>handdrawn/flag_ca.png</code>, or
+    files named after a marker class like <code>loc_Church.png</code> — and every
+    map on this server draws those markers from them instead, in the marker's
+    colour. They are kept in this bot's database, not in its public code, and
+    only this server's members and the holders of a map's share link can load
+    them.
+  </p>
+  <p>{% if icon_count %}<strong>{{ icon_count }}</strong> marker pictures in use.{% else %}None uploaded — the line art is used.{% endif %}</p>
+  <form class="form" method="post" enctype="multipart/form-data"
+        action="/g/{{ guild.id }}/terrains/marker-icons">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="field"><span>Zip of PNGs</span>
+      <input type="file" name="icons" accept=".zip,application/zip"></label>
+    <div class="actions">
+      <button class="button primary" type="submit">Upload pictures</button>
+      {% if icon_count %}
+        <button class="button danger" type="submit" name="action" value="delete"
+                onclick="return confirm('Remove the marker pictures and go back to the line art?')">
+          Remove them</button>
+      {% endif %}
+    </div>
+  </form>
 {% else %}
   <p class="hint">Uploading a terrain needs Manage Server.</p>
 {% endif %}
