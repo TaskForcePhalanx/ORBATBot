@@ -212,6 +212,9 @@
     state.drops.forEach(function (d) { if (d.step === activeStep) drop = d; });
     var box = document.getElementById('cp-preview');
     box.textContent = '';
+    previewDrop = drop;
+    dcOpen.hidden = !drop;
+    if (dcView.open) drawDiscord();
     if (!drop) return;
     var when = null;
     state.schedule.forEach(function (item) { if (item.kind === 'drop' && item.key === drop.key) when = item; });
@@ -238,6 +241,112 @@
       });
       box.appendChild(thumbs);
     }
+  }
+
+  /* -- the drop as Discord will show it ------------------------------------ */
+
+  /* The formatting is the server's (`drop.html`, utils/discordmd.py), so the
+     pop-up and the schedule page show the same thing. What happens here is
+     only what Discord itself does in the reader's browser: timestamps redrawn
+     in their own time zone, and spoilers revealed on a click. */
+  var previewDrop = null;
+  var dcOpen = document.getElementById('cp-dcopen');
+  var dcView = document.getElementById('cp-dcview');
+  var dcBody = document.getElementById('cp-dcbody');
+  var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                'August', 'September', 'October', 'November', 'December'];
+
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+
+  function tsText(ts, style) {
+    var d = new Date(ts * 1000);
+    if (isNaN(d.getTime())) return '';
+    var hm = two(d.getHours()) + ':' + two(d.getMinutes());
+    var day = d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    if (style === 't') return hm;
+    if (style === 'T') return hm + ':' + two(d.getSeconds());
+    if (style === 'd') return two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear();
+    if (style === 'D') return day;
+    if (style === 'F') return DAYS[d.getDay()] + ', ' + day + ' ' + hm;
+    if (style === 'R') {
+      var secs = (d.getTime() - Date.now()) / 1000;
+      var ahead = secs >= 0;
+      secs = Math.abs(secs);
+      var units = [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60]];
+      for (var i = 0; i < units.length; i++) {
+        if (secs >= units[i][1]) {
+          var unit = units[i][0];
+          var count = Math.floor(secs / units[i][1]);
+          if (unit === 'day' && count >= 7 && count < 30) { unit = 'week'; count = Math.floor(count / 7); }
+          var words = count + ' ' + unit + (count === 1 ? '' : 's');
+          return ahead ? 'in ' + words : words + ' ago';
+        }
+      }
+      return ahead ? 'in a few seconds' : 'a few seconds ago';
+    }
+    return day + ' ' + hm;
+  }
+
+  function localTimes(root) {
+    root.querySelectorAll('.dc-ts').forEach(function (node) {
+      var text = tsText(parseInt(node.dataset.ts, 10), node.dataset.style);
+      if (text) node.textContent = text;
+      node.title = tsText(parseInt(node.dataset.ts, 10), 'F');
+    });
+  }
+
+  function drawDiscord() {
+    var drop = previewDrop;
+    dcBody.textContent = '';
+    if (!drop) return;
+    var name = state.settings.channel_name;
+    document.getElementById('cp-dctitle').textContent =
+      (name ? '# ' + name : 'No drop channel set') + ' · ' + drop.label;
+    var when = drop.due ? new Date(drop.due.ts * 1000) : null;
+    var stamp = when
+      ? DAYS[when.getDay()] + ' ' + when.getDate() + ' ' + MONTHS[when.getMonth()].slice(0, 3) +
+        ' ' + two(when.getHours()) + ':' + two(when.getMinutes())
+      : 'when it is due';
+    var brand = dcBody.dataset.brand || 'Bot';
+    var logo = dcBody.dataset.logo;
+    drop.html.forEach(function (html, i) {
+      var msg = el('div', { class: 'dcmsg' + (i ? ' dcfollow' : '') });
+      if (!i) {
+        msg.appendChild(logo
+          ? el('img', { class: 'dcavatar', src: logo, alt: '' })
+          : el('div', { class: 'dcavatar dcinitial', text: brand.charAt(0) }));
+        msg.appendChild(el('div', { class: 'dchead' }, [
+          el('span', { class: 'dcname', text: brand }),
+          el('span', { class: 'dctag', text: 'APP' }),
+          el('span', { class: 'dcwhen', text: stamp })
+        ]));
+      }
+      var body = el('div', { class: 'dcbody' });
+      body.innerHTML = html;          // escaped and marked up by the server
+      msg.appendChild(body);
+      if (i === drop.html.length - 1 && drop.images.length) {
+        var grid = el('div', { class: 'dcimages' + (drop.images.length === 1 ? ' one' : '') });
+        drop.images.forEach(function (id) {
+          grid.appendChild(el('img', { src: imageUrl(id), alt: 'Attached image', loading: 'lazy' }));
+        });
+        msg.appendChild(grid);
+      }
+      dcBody.appendChild(msg);
+    });
+    localTimes(dcBody);
+  }
+
+  if (dcOpen && dcView) {
+    dcOpen.addEventListener('click', function () {
+      drawDiscord();
+      if (dcView.showModal) dcView.showModal(); else dcView.setAttribute('open', '');
+    });
+    dcView.addEventListener('click', function (event) {
+      if (event.target === dcView || event.target.closest('[data-dcclose]')) dcView.close();
+      var spoiler = event.target.closest('.dc-spoiler');
+      if (spoiler) spoiler.classList.add('shown');
+    });
   }
 
   /* The drop's state and its buttons. Approving sends the version on screen

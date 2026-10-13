@@ -1630,7 +1630,9 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'Fill in the step. Fields marked * are needed to lock it; the step\'s '
             'chip turns into 🔒 when they are all filled.',
             'Watch the panel on the right: the **drop preview** is exactly what the '
-            'bot will post, and **Checks** flags mistakes as you go.',
+            'bot will post, and **Checks** flags mistakes as you go. Press **Preview in '
+            'Discord** to see the drop formatted the way readers will see it — headings, '
+            'bold, quotes, times in your own time zone and images.',
             'In **Orders**, add the phases in order. Give each its AO and press '
             '**+ Add objective** to pick from the objectives library.',
             'When a drop reads right, press **Approve** under its preview. It posts '

@@ -110,6 +110,27 @@
           {% endif %}
         {% endfor %}
       </div>
+      <details class="dcinline">
+        <summary>👁 Preview in Discord</summary>
+        <div class="dcscroll">
+          {% for html in drop.html %}
+            <div class="dcmsg{{ ' dcfollow' if not loop.first }}">
+              {% if loop.first %}
+                {% if logo_url %}<img class="dcavatar" src="{{ logo_url }}" alt="">{% else %}<div class="dcavatar dcinitial">{{ brand[:1] }}</div>{% endif %}
+                <div class="dchead"><span class="dcname">{{ brand }}</span><span class="dctag">APP</span>
+                  <span class="dcwhen">{{ drop.due_label or 'when it is due' }}</span></div>
+              {% endif %}
+              <div class="dcbody">{{ html|safe }}</div>
+              {% if loop.last and drop.images %}
+                <div class="dcimages{{ ' one' if drop.images|length == 1 }}">
+                  {% for image_id in drop.images %}<img src="/g/{{ guild.id }}/cp/images/{{ image_id }}" alt="Attached image" loading="lazy">{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+        <p class="hint">Times are shown in {{ state.tz }}; in Discord everyone sees their own.</p>
+      </details>
       {% for part in drop.parts %}
         {% if drop.parts|length > 1 %}<p class="muted nospace">Message {{ loop.index }} of {{ loop.length }}</p>{% endif %}
         <textarea class="cppost" readonly rows="{{ [part.count('\n') + 2, 24]|min }}">{{ part }}</textarea>

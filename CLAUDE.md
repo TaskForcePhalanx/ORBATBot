@@ -49,6 +49,7 @@ utils/
   reddit.py             # One Reddit feed, read and rendered — no Discord, no database
   killtracker.py        # One OCAP recording → the Kill Tracker's per-player rows. Stdlib only
   campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks, cleaning. Stdlib only
+  discordmd.py          # Discord message markdown → HTML, for previewing a drop as Discord shows it. Stdlib only
   objectives_seed.py    # The Objectives Library as first written — what a guild's library is seeded from
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
@@ -101,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(602 cases), and every one of them covers a module that imports nothing beyond
+(612 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -116,6 +117,7 @@ all:
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
 | `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO drawn, relabelled or deleted on the campaign map does to the planner's AOs, what an AO map starts from (masked outside its AO), which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
+| `tests/test_discordmd.py` | that nothing typed becomes HTML, links stay http(s), and headings, quotes, lists, emphasis, code, timestamps and mentions render the way Discord shows them |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -1171,6 +1173,17 @@ without a reload. Vanilla, no build step, no CDN. It decides nothing:
   when nothing was edited in the meantime.
 - **Nested drag.** Objectives sit inside phases; a drop only counts in the list
   the drag started from, and none of the drag events bubble.
+- **Preview in Discord** opens the step's drop in a pop-up (`<dialog>`) drawn
+  the way Discord shows it. The formatting is the server's:
+  `utils/discordmd.render()` turns each part into HTML in `mission_state()`
+  (`drop.html`, with mention names from the bot's view of the guild and the
+  drop channel's name in `settings.channel_name`), so the schedule page shows
+  the same thing in a fold-out with no JavaScript. The renderer escapes first
+  and marks up second — the text is what somebody typed — and only http(s)
+  links survive. The browser does only what Discord does in a reader's
+  client: timestamps (`data-ts`, `data-style`) redrawn in the viewer's zone,
+  spoilers revealed on a click. The raw text pane stays, because it is
+  exactly what is sent and what **Copy** copies.
 - **Images** are sniffed from their bytes (`campaign.check_image()` — PNG,
   JPEG, GIF, WebP, 8 MB, what Discord takes) and served behind planner access
   with `nosniff`. An upload error is shown beside the field: the status line is
