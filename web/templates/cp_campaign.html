@@ -106,13 +106,24 @@
 
 <h2 style="margin-top:28px">Maps and areas of operations</h2>
 <p class="hint">
-  The campaign map holds one outline per AO, each on its own layer. Each AO has a
-  detailed map of its own with a layer per phase fought there — draw a phase on its
-  layer and it goes into the leaders' pack as that phase's ops trace.
+  Draw the AOs on the campaign map with its <strong>AO</strong> tool: the map is greyed
+  out and each AO you draw is clear ground, and becomes one of this campaign's AOs when
+  you save. You can also add one here and move its box into place there. Each AO has a
+  detailed map of its own, greyed out around it, with a layer per phase fought there —
+  draw a phase on its layer and it goes into the leaders' pack as that phase's ops trace.
 </p>
 <div class="cpmapbox">
   {% if campaign_map_svg %}
-    <div class="cpmapframe">{{ campaign_map_svg|safe }}</div>
+    <div class="cpmaprow">
+      <div class="cpmapframe">{{ campaign_map_svg|safe }}</div>
+      {% if ao_legend %}
+        <ul class="cpmapkey" aria-label="Key to the AOs on the campaign map">
+          {% for entry in ao_legend %}
+            <li><span class="cpmapswatch" style="background: {{ entry.colour }}"></span>{{ entry.name }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
   {% endif %}
   <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/map">
     <input type="hidden" name="csrf" value="{{ csrf }}">

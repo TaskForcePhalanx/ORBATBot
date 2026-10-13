@@ -642,7 +642,8 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 3. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
 4. **Drag** with the Line or Area tool to draw — or hold **Ctrl** and drag from any tool, which is the gesture Arma’s own map uses.
 5. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
-6. Press **Save**. Everyone looking at the map sees the saved version.
+6. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
+7. Press **Save**. Everyone looking at the map sees the saved version.
 
 > The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
 >
@@ -757,6 +758,8 @@ Paste the plan into a running mission as markers, with no mod on either side.
 > Symbol sizes and mobility have no counterpart in Arma, so they are written into the marker text: `1-1 Alpha / A Coy (planned Plt twd)`.
 >
 > Rectangles and ellipses arrive as Arma’s own area markers, filled and turned the way they are drawn. Arma shows no text on an area marker, so their labels stay on the website’s map.
+>
+> AOs come across as their borders. The grey mask around them does not: Arma cannot draw a cover with holes in it from a pasted script.
 >
 > Dashed is lost — Arma has no dashed marker. The debug console has to be enabled in the mission’s `description.ext`.
 
@@ -907,14 +910,19 @@ See also: [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Write a miss
 
 **Who:** Admin, or Unit Leader with the unit role · **Where:** Web — a campaign page → **Maps and areas of operations**, or a mission's **Maps** card
 
-One campaign map with an outline per AO, a detailed map per AO with a layer per phase, and each phase's layer drawn into the leaders' pack.
+Draw the AOs on a greyed-out campaign map, then plan each one on a detailed map of its own with a layer per phase, drawn into the leaders' pack.
 
-1. On the campaign page press **Make the campaign map**. It opens in the map editor with one dashed outline per AO, each on its own layer.
-2. Put the map on its terrain (**Map settings**), then drag and reshape each outline over the ground that AO covers, and save.
-3. Back on the campaign page press **Make its map** beside an AO. Its map starts on the same terrain, with the AO's outline, and one layer for every phase you gave that AO in a mission's Orders step.
-4. Draw each phase on its own layer — the layer picker above the map — and save.
-5. Download the **Leaders' pack**: each phase drawn on its layer is in it as an ops trace, cropped to the phase and the AO.
+1. On the campaign page press **Make the campaign map**. It opens in the map editor, greyed out like a covered Arma map.
+2. Put the map on its terrain (**Map settings**). Pick the **AO** tool, choose Rectangle, Ellipse or Freehand, and draw each area of operations: it turns clear, with a border in a colour no other AO is using. Type its name straight away — it shows in a tab of that colour at the AO's top-left corner.
+3. Press **Save**. Every AO you drew is now one of the campaign's AOs, listed on the campaign page.
+4. Back on the campaign page press **Make its map** beside an AO. Its map starts on the same terrain, greyed out everywhere but that AO, and one layer for every phase you gave that AO in a mission's Orders step.
+5. Draw each phase on its own layer — the layer picker above the map — and save.
+6. Download the **Leaders' pack**: each phase drawn on its layer is in it as an ops trace, cropped to the phase and the AO.
 
+> The map and the planner keep each other up to date. Rename an AO on the map and it is renamed in the planner; delete its outline and the AO goes, unless phases are fought in it or its own map has drawings, when it is kept and its outline put back. An AO added on the campaign page appears on the map as a clear box to move into place.
+>
+> Overlapping AOs merge into one clear area, and stay easy to tell apart: each has its own border colour and its name in its own corner. The campaign page shows a key of every AO and its colour beside the map. Change an AO's colour with the swatches when it is selected. Its Arma marker uses that colour too, and its own map takes it when the map is made. **Map settings** switches the grey off or changes its strength.
+>
 > The layers keep up with the planner: a new AO gets an outline, a renamed phase or mission renames its layer, and a phase moved to another AO or deleted loses its layer — unless something is drawn on it, which is kept.
 >
 > A trace shows its own phase plus every layer that belongs to no phase, such as Plan or an enemy layer you add, so draw shared things there.

@@ -1797,27 +1797,46 @@ def phase_layer_name(mission_name: str, index: int, title: str) -> str:
 
 
 def _ao_outline(doc: dict, index: int, name: str) -> dict:
-    """A placeholder outline for a new AO: a dashed box in a three-wide grid
-    across the sheet, to be dragged and reshaped onto the real ground."""
+    """A placeholder for an AO added on the campaign page: a clear box in a
+    three-wide grid across the sheet, to be dragged and reshaped onto its
+    ground. It is an AO item (`ao`), so it is cut out of the grey mask."""
     col, row = index % 3, (index // 3) % 3
     w, h = doc['width'] / 4.5, doc['height'] / 4.5
-    x = doc['width'] * (0.08 + col * 0.31)
-    y = doc['height'] * (0.08 + row * 0.31)
-    colour = tacmap.LINE_COLOURS[index % 8][0]
-    return {'kind': 'area', 'side': tacmap.DEFAULT_SIDE, 'layer': None, 'label': name[:tacmap.MAX_LABEL],
-            'note': '', 'size': 1.0, 'color': colour, 'style': 'dashed',
-            'points': [[round(x, 1), round(y, 1)], [round(x + w, 1), round(y, 1)],
-                       [round(x + w, 1), round(y + h, 1)], [round(x, 1), round(y + h, 1)]]}
+    x = doc['width'] * (0.08 + col * 0.31) + w / 2
+    y = doc['height'] * (0.08 + row * 0.31) + h / 2
+    return {'kind': 'shape', 'shape': 'rect', 'side': tacmap.DEFAULT_SIDE, 'layer': None,
+            'label': name[:tacmap.MAX_LABEL], 'note': '', 'size': 1.0, 'color': '',
+            'style': 'solid', 'fill': 'none', 'ao': True,
+            'x': round(x, 1), 'y': round(y, 1), 'w': round(w, 1), 'h': round(h, 1),
+            'rotation': 0}
+
+
+def is_planner_outline(item: dict) -> bool:
+    """Whether a map item is the planner's (an AO outline, or on an AO's
+    layer) rather than something somebody drew — what decides whether
+    deleting an AO would lose anybody's work."""
+    return _is_ao_layer(item['layer']) or tacmap.is_ao(item)
+
+
+def _ao_items(doc: dict, layer_id: str) -> list:
+    return [i for i in doc['items'] if i['layer'] == layer_id and tacmap.is_ao(i)]
 
 
 def sync_campaign_map(doc: dict, aos: list) -> tuple[dict, list]:
-    """The campaign map with one layer per AO (`aos`: [{id, name}] in order).
+    """The campaign map with one layer per AO (`aos`: [{id, name}] in order),
+    each holding the AO's outline — an area or shape flagged `ao`, which is a
+    clear hole in the map's grey mask.
 
-    A new AO gets a layer and a placeholder outline; a renamed one has its
-    layer renamed, and its outline's label too when that still read the old
-    name; a deleted one loses its layer and what was drawn on it, since the
-    outline was the planner's. Layers the planner did not make are left
-    alone. Returns the document and notes for whoever asked.
+    A new AO gets a layer and a placeholder box; an AO whose layer has lost its
+    outline gets one back; a renamed one has its layer renamed, and its
+    outline's label when that still read the old name; a deleted one loses its
+    layer and what was drawn on it, since the outline was the planner's. Layers
+    the planner did not make are left alone.
+
+    A map from before AOs were masked has plain outlines on its AO layers: the
+    first area or shape on each becomes the AO, and the mask is switched on
+    once, so it looks the way a new campaign map does. Returns the document and
+    notes for whoever asked.
     """
     doc = json.loads(json.dumps(doc))
     notes = []
@@ -1826,6 +1845,8 @@ def sync_campaign_map(doc: dict, aos: list) -> tuple[dict, list]:
     if gone:
         doc['layers'] = [l for l in doc['layers'] if l['id'] not in gone]
         doc['items'] = [i for i in doc['items'] if i['layer'] not in gone]
+    if wanted and not any(tacmap.is_ao(i) for i in doc['items']):
+        doc['mask'] = {**doc.get('mask', tacmap.DEFAULT_MASK), 'on': True}
     by_id = {l['id']: l for l in doc['layers']}
     for index, ao in enumerate(aos):
         key, name = ao_layer_id(ao['id']), wanted[ao_layer_id(ao['id'])]
@@ -1838,22 +1859,145 @@ def sync_campaign_map(doc: dict, aos: list) -> tuple[dict, list]:
             layer = {'id': key, 'name': name, 'visible': True}
             doc['layers'].append(layer)
             by_id[key] = layer
-            outline = _ao_outline(doc, index, name)
-            outline['layer'] = key
-            doc['items'].append(outline)
-            continue
+        if not _ao_items(doc, key):
+            outline = next((i for i in doc['items'] if i['layer'] == key
+                            and i['kind'] in ('area', 'shape')), None)
+            if outline is not None:
+                outline['ao'] = True
+            else:
+                outline = _ao_outline(doc, index, name)
+                outline['layer'] = key
+                doc['items'].append(outline)
         if layer['name'] != name:
             for item in doc['items']:
                 if item['layer'] == key and item.get('label') == layer['name']:
                     item['label'] = name[:tacmap.MAX_LABEL]
             layer['name'] = name
+    # Every AO in a colour of its own — a placeholder just added, and the
+    # outlines of a map from before AOs were coloured. A colour somebody
+    # picked is kept.
+    tacmap.colour_aos(doc['items'])
+    return doc, notes
+
+
+def match_ao_colour(ao_doc: dict, campaign_doc: dict | None, ao_id) -> tuple[dict, bool]:
+    """An AO map's copy of its outline in the colour the campaign map gives
+    that AO, when the copy has none of its own — an AO map made before AOs
+    were coloured. A colour somebody picked on the AO map is left alone.
+    Returns the document and whether it changed."""
+    if not campaign_doc:
+        return ao_doc, False
+    key = ao_layer_id(ao_id)
+    source = next((i for i in campaign_doc['items']
+                   if i['layer'] == key and tacmap.is_ao(i) and i.get('color')), None)
+    if source is None:
+        return ao_doc, False
+    doc = json.loads(json.dumps(ao_doc))
+    changed = False
+    for item in doc['items']:
+        if item['layer'] == key and tacmap.is_ao(item) and not item.get('color'):
+            item['color'] = source['color']
+            changed = True
+    return doc, changed
+
+
+def ao_legend(doc: dict | None) -> list:
+    """The key beside the campaign map: each AO drawn on a visible layer, as
+    {name, colour}, in the order the map's layers run — so a reader matches a
+    name to a border without tracing it."""
+    if not doc:
+        return []
+    order = {l['id']: n for n, l in enumerate(doc['layers'])}
+    visible = {l['id'] for l in doc['layers'] if l['visible']}
+    entries = [(order.get(i['layer'], 0), n, i) for n, i in enumerate(doc['items'])
+               if tacmap.is_ao(i) and i['layer'] in visible]
+    return [{'name': i.get('label') or 'AO', 'colour': tacmap.item_colour(i)}
+            for _, _, i in sorted(entries, key=lambda e: (e[0], e[1]))]
+
+
+def campaign_map_changes(doc: dict, aos: list) -> dict:
+    """What somebody did to the AOs by drawing on the campaign map, worked out
+    from the saved document (`aos`: [{id, name}]):
+
+        new        [(item index, name)]  AOs drawn off any AO's layer — each
+                   becomes an AO in the planner, named by its label
+        reattach   {item index: ao id}   an AO outline that landed on another
+                   layer (its layer was deleted in the editor, which moves its
+                   items to the first one) whose label names an AO that has
+                   lost its outline: it goes back, rather than becoming a twin
+        renamed    {ao id: name}         an outline relabelled on the map
+        missing    [ao id]               AOs whose outline was deleted — only
+                   an AO whose layer is on the map, so an AO that never had
+                   room there is not mistaken for a deleted one
+
+    Nothing here is applied; `place_ao_items()` and the web layer do that.
+    """
+    known = {ao_layer_id(a['id']): a for a in aos}
+    layers = {l['id'] for l in doc['layers']}
+    by_name = {}
+    missing = []
+    renamed = {}
+    for ao in aos:
+        key = ao_layer_id(ao['id'])
+        if key not in layers:
+            # Never on this map — it had no room, or was never synced. That is
+            # not somebody deleting it, and must not delete it.
+            continue
+        # A map from before AOs were flagged has a plain outline on the
+        # layer: that is still the AO's outline, not a deletion.
+        items = _ao_items(doc, key) or [i for i in doc['items'] if i['layer'] == key
+                                        and i['kind'] in ('area', 'shape')][:1]
+        if not items:
+            missing.append(ao['id'])
+            by_name.setdefault((ao['name'] or '').strip().lower(), ao['id'])
+            continue
+        label = (items[0].get('label') or '').strip()
+        if label and label != (ao['name'] or ''):
+            renamed[ao['id']] = label[:80]
+    new, reattach = [], {}
+    count = len(aos)
+    for index, item in enumerate(doc['items']):
+        if not tacmap.is_ao(item) or item['layer'] in known:
+            continue
+        label = (item.get('label') or '').strip()
+        home = by_name.pop(label.lower(), None) if label else None
+        if home is not None:
+            reattach[index] = home
+            missing.remove(home)
+            continue
+        count += 1
+        new.append((index, label[:80] or f'AO {count}'))
+    return {'new': new, 'reattach': reattach, 'renamed': renamed, 'missing': missing}
+
+
+def place_ao_items(doc: dict, moves: dict) -> tuple[dict, list]:
+    """Put AO outlines on their AOs' layers (`moves`: {item index: (ao id,
+    name)}), adding a layer for an AO that has none. An outline that does not
+    fit — a map holds `tacmap.MAX_LAYERS` layers — stays where it was, and the
+    note says so."""
+    doc = json.loads(json.dumps(doc))
+    notes = []
+    by_id = {l['id']: l for l in doc['layers']}
+    for index, (ao_id, name) in sorted(moves.items()):
+        key = ao_layer_id(ao_id)
+        if key not in by_id:
+            if len(doc['layers']) >= tacmap.MAX_LAYERS:
+                notes.append(f'No room on the campaign map for the {name} AO: a map holds '
+                             f'{tacmap.MAX_LAYERS} layers.')
+                continue
+            by_id[key] = {'id': key, 'name': name[:tacmap.MAX_LAYER_NAME], 'visible': True}
+            doc['layers'].append(by_id[key])
+        item = doc['items'][index]
+        item['layer'] = key
+        item['label'] = item.get('label') or name[:tacmap.MAX_LABEL]
     return doc, notes
 
 
 def ao_map_doc(campaign_doc: dict | None, ao_id, ao_name: str) -> dict:
     """A new detailed map for an AO: the campaign map's terrain, corners and
     place-name settings, its base layer, and the AO's outline copied in on a
-    layer of its own as a reference to plan inside."""
+    layer of its own — with the grey mask on, so everything outside the AO is
+    covered and the planning stays on its ground."""
     doc = tacmap.blank_doc()
     if campaign_doc:
         for key in ('width', 'height', 'background', 'arma', 'places', 'grid'):
@@ -1863,7 +2007,12 @@ def ao_map_doc(campaign_doc: dict | None, ao_id, ao_name: str) -> dict:
         if outline:
             doc['layers'].append({'id': key, 'name': (ao_name or 'AO')[:tacmap.MAX_LAYER_NAME],
                                   'visible': True})
+            if not any(tacmap.is_ao(i) for i in outline):
+                first = next((i for i in outline if i['kind'] in ('area', 'shape')), None)
+                if first is not None:
+                    first['ao'] = True
             doc['items'].extend(outline)
+            doc['mask'] = {**tacmap.DEFAULT_MASK, 'on': any(tacmap.is_ao(i) for i in outline)}
     return tacmap.parse(doc).doc
 
 

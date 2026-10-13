@@ -820,6 +820,9 @@ _MAPS: tuple[Topic, ...] = (
             '**Ellipse** — hold **Shift** for a square or a circle. Select it to '
             'resize it by a corner, turn it by the round handle, and choose an '
             'outline, a light fill or hatching.',
+            'The **AO** tool greys out the whole map and clears each area you draw '
+            'with it, the way a covered Arma map does. Each AO gets a border colour no '
+            'other AO uses and its name in a tab of that colour at its top-left corner.',
             'Press **Save**. Everyone looking at the map sees the saved '
             'version.',
         ),
@@ -1014,6 +1017,8 @@ _MAPS: tuple[Topic, ...] = (
             'Rectangles and ellipses arrive as Arma’s own area markers, filled '
             'and turned the way they are drawn. Arma shows no text on an area '
             'marker, so their labels stay on the website’s map.',
+            'AOs come across as their borders. The grey mask around them does not: '
+            'Arma cannot draw a cover with holes in it from a pasted script.',
             'Dashed is lost — Arma has no dashed marker. The debug console has '
             'to be enabled in the mission’s `description.ext`.',
         ),
@@ -1746,15 +1751,19 @@ _CAMPAIGNS: tuple[Topic, ...] = (
         group='campaigns',
         audience='Admin, or Unit Leader with the unit role',
         where='Web — a campaign page → **Maps and areas of operations**, or a mission\'s **Maps** card',
-        summary="One campaign map with an outline per AO, a detailed map per AO with a "
-                "layer per phase, and each phase's layer drawn into the leaders' pack.",
+        summary="Draw the AOs on a greyed-out campaign map, then plan each one on a "
+                "detailed map of its own with a layer per phase, drawn into the leaders' pack.",
         steps=(
             'On the campaign page press **Make the campaign map**. It opens in the map '
-            'editor with one dashed outline per AO, each on its own layer.',
-            'Put the map on its terrain (**Map settings**), then drag and reshape each '
-            'outline over the ground that AO covers, and save.',
+            'editor, greyed out like a covered Arma map.',
+            'Put the map on its terrain (**Map settings**). Pick the **AO** tool, choose '
+            'Rectangle, Ellipse or Freehand, and draw each area of operations: it turns '
+            'clear, with a border in a colour no other AO is using. Type its name '
+            'straight away — it shows in a tab of that colour at the AO\'s top-left corner.',
+            'Press **Save**. Every AO you drew is now one of the campaign\'s AOs, listed '
+            'on the campaign page.',
             'Back on the campaign page press **Make its map** beside an AO. Its map '
-            'starts on the same terrain, with the AO\'s outline, and one layer for '
+            'starts on the same terrain, greyed out everywhere but that AO, and one layer for '
             'every phase you gave that AO in a mission\'s Orders step.',
             'Draw each phase on its own layer — the layer picker above the map — '
             'and save.',
@@ -1762,6 +1771,17 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'an ops trace, cropped to the phase and the AO.',
         ),
         notes=(
+            'The map and the planner keep each other up to date. Rename an AO on the '
+            'map and it is renamed in the planner; delete its outline and the AO goes, '
+            'unless phases are fought in it or its own map has drawings, when it is kept '
+            'and its outline put back. An AO added on the campaign page appears on the '
+            'map as a clear box to move into place.',
+            'Overlapping AOs merge into one clear area, and stay easy to tell apart: '
+            'each has its own border colour and its name in its own corner. The campaign '
+            'page shows a key of every AO and its colour beside the map. Change an AO\'s '
+            'colour with the swatches when it is selected. Its Arma marker uses that '
+            'colour too, and its own map takes it when the map is made. **Map settings** switches the grey off or '
+            'changes its strength.',
             'The layers keep up with the planner: a new AO gets an outline, a renamed '
             'phase or mission renames its layer, and a phase moved to another AO or '
             'deleted loses its layer — unless something is drawn on it, which is kept.',

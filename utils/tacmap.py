@@ -33,6 +33,7 @@ sheet, and nothing here knows about pixels or zoom levels.
 """
 
 import gzip
+import hashlib
 import html as _html
 import json
 import math
@@ -525,6 +526,40 @@ LINE_COLOURS = (
     ('#1b1f24', 'Black'),
 )
 
+# The order AOs are coloured in, so two AOs on one map — overlapping ones
+# above all — never share a border. Neighbours in the list are far apart
+# (red, then blue, then yellow), so the first few AOs, which is most
+# campaigns, are as distinct as the palette allows. Black and white are left
+# out: they are what an AO's edging and an unpicked line already are.
+# Pink comes before purple and cyan because Arma has neither of those two and
+# would draw them as pink and blue — so the first six AOs stay distinct in
+# the mission as well as on the website.
+AO_COLOURS = ('#e03b3b', '#3d8ee8', '#f2c832', '#3fb950',
+              '#f07f2a', '#e060b8', '#a06ee8', '#35c9c2')
+
+
+def next_ao_colour(items: list, skip=None) -> str:
+    """The first of `AO_COLOURS` no AO among `items` is drawn in (`skip`: an
+    item to leave out, the one being coloured). With every colour taken —
+    nine AOs on one map — it goes round again rather than giving up."""
+    used = {item_colour(i).lower() for i in items if i is not skip and is_ao(i)}
+    for colour in AO_COLOURS:
+        if colour not in used:
+            return colour
+    return AO_COLOURS[len(used) % len(AO_COLOURS)]
+
+
+def colour_aos(items: list) -> int:
+    """Give every AO that has no colour of its own a distinct one, in order.
+    A colour somebody picked — black included — is theirs and kept. Returns
+    how many were coloured."""
+    count = 0
+    for item in items:
+        if is_ao(item) and not item.get('color'):
+            item['color'] = next_ao_colour(items, skip=item)
+            count += 1
+    return count
+
 # ---------------------------------------------------------------------------
 # Backgrounds
 # ---------------------------------------------------------------------------
@@ -612,6 +647,15 @@ DEFAULT_EXTENT = {'terrain': '', 'left': 0.0, 'bottom': 0.0,
 # all of them — a terrain whose names have just been imported should show them
 # rather than nothing. See the place-names section at the foot of this module.
 DEFAULT_PLACES = {'show': True, 'groups': [], 'scale': 1.0}
+
+# The grey cover over everything outside the AOs, the way Arma's own map greys
+# out what a mission is not about. An AO is any area or shape flagged `ao`:
+# it cuts a clear hole in the cover and is drawn with a plain border. Off until
+# somebody turns it on, or draws an AO.
+DEFAULT_MASK = {'on': False, 'opacity': 0.55}
+MASK_COLOUR = '#565c63'
+MIN_MASK_OPACITY = 0.15
+MAX_MASK_OPACITY = 0.9
 
 # Which side a frame is, in Arma's terms: the marker-type prefix and the colour
 # used for everything that is not an icon.
@@ -733,6 +777,7 @@ def blank_doc(width: int = DEFAULT_WIDTH, height: int = DEFAULT_HEIGHT) -> dict:
         # export reads it, and only the person exporting can know it — which
         # image of which terrain this is, and whether it is the whole map.
         'arma': dict(DEFAULT_EXTENT),
+        'mask': dict(DEFAULT_MASK),
         'layers': [dict(DEFAULT_LAYER)],
         'items': [],
     }
@@ -899,6 +944,14 @@ def parse(raw) -> ParseResult:
                        for name in ('left', 'bottom', 'right', 'top')}
         doc['arma'] = {'terrain': _text(arma.get('terrain'), 60), **corners}
 
+    mask = raw.get('mask')
+    if isinstance(mask, dict):
+        doc['mask'] = {
+            'on': bool(mask.get('on')),
+            'opacity': round(_clamp(_number(mask.get('opacity'), DEFAULT_MASK['opacity']),
+                                    MIN_MASK_OPACITY, MAX_MASK_OPACITY), 2),
+        }
+
     doc['layers'] = _parse_layers(raw.get('layers'))
 
     items = raw.get('items')
@@ -1014,6 +1067,10 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         item['style'] = raw.get('style') if raw.get('style') in LINE_STYLES else 'solid'
         if kind == 'line':
             item['arrow'] = bool(raw.get('arrow'))
+
+    if kind in ('area', 'shape'):
+        # An AO: clear in the mask, drawn as a border with no fill.
+        item['ao'] = bool(raw.get('ao'))
 
     if kind == 'shape':
         item['shape'] = raw.get('shape') if raw.get('shape') in SHAPES else DEFAULT_SHAPE
@@ -1183,6 +1240,8 @@ def catalog() -> dict:
                   for key, value in SHAPE_FILLS.items()],
         'defaultFill': DEFAULT_FILL,
         'minShape': MIN_SHAPE,
+        'maskColour': MASK_COLOUR,
+        'aoColours': list(AO_COLOURS),
         'hatchGap': HATCH_GAP,
         'lineColours': [{'value': value, 'label': label}
                         for value, label in LINE_COLOURS],
@@ -1350,6 +1409,107 @@ def item_svg(item: dict) -> str:
     if kind == 'shape':
         return _figure_svg(item)
     return _shape_svg(item)
+
+
+def is_ao(item: dict) -> bool:
+    return item['kind'] in ('area', 'shape') and bool(item.get('ao'))
+
+
+def ao_corner(item: dict) -> tuple:
+    """Where an AO's name tab hangs: the corner nearest the sheet's top left
+    (smallest x + y) — of the box for a shape, of the outline for an area.
+    Two AOs that overlap have different top-left corners, so their names stop
+    landing on one another in the ground they share.
+
+    An ellipse has no corner, and the corner of its box is off the ellipse
+    altogether, so it is the point on the ellipse itself furthest towards the
+    top left: the one where x + y is smallest."""
+    if item['kind'] == 'shape' and item['shape'] == 'ellipse':
+        a, b = item['w'] / 2, item['h'] / 2
+        turn = math.radians(item.get('rotation') or 0)
+        cos, sin = math.cos(turn), math.sin(turn)
+        # The direction (1, 1) seen from inside the ellipse's own frame …
+        dx, dy = cos + sin, cos - sin
+        reach = math.sqrt(a * a * dx * dx + b * b * dy * dy) or 1
+        # … and the point on x²/a² + y²/b² = 1 furthest against it, turned back.
+        px, py = -a * a * dx / reach, -b * b * dy / reach
+        return (round(item['x'] + px * cos - py * sin, 2),
+                round(item['y'] + px * sin + py * cos, 2))
+    points = shape_corners(item) if item['kind'] == 'shape' else item['points']
+    x, y = min(points, key=lambda p: (p[0] + p[1], p[1]))
+    return round(x, 2), round(y, 2)
+
+
+def ao_tab(item: dict) -> dict | None:
+    """The name tab's box and text position, or None without a name. Its width
+    is estimated from the character count rather than measured, so the browser
+    and this module — which cannot measure text — draw the same box."""
+    text = item.get('label') or ''
+    if not text:
+        return None
+    font = label_size(item['size'])
+    pad = round(font * 0.4, 2)
+    x, y = ao_corner(item)
+    w = round(len(text) * font * 0.6 + 2 * pad, 2)
+    h = round(font * 1.45, 2)
+    return {'x': x, 'y': y, 'w': w, 'h': h, 'font': font,
+            'tx': round(x + pad, 2), 'ty': round(y + h * 0.72, 2)}
+
+
+def _ao_tab_svg(item: dict) -> str:
+    """An AO's name in a small tab filled with its border colour, hung inside
+    its top-left corner: the tab ties the name to the border it belongs to.
+    The text takes the backing colour, so it reads on a yellow tab and a
+    blue one alike."""
+    tab = ao_tab(item)
+    if tab is None:
+        return ''
+    colour = item_colour(item)
+    contrast = ink_backing(colour)
+    return (
+        f'<g class="tm-aotab"><rect x="{tab["x"]}" y="{tab["y"]}" width="{tab["w"]}" '
+        f'height="{tab["h"]}" rx="{round(tab["font"] * 0.2, 2)}" fill="{colour}" '
+        f'stroke="{contrast}" stroke-width="{round(tab["font"] * 0.12, 2)}"/>'
+        f'<text x="{tab["tx"]}" y="{tab["ty"]}" text-anchor="start" '
+        f'font-size="{tab["font"]}" font-weight="700" '
+        f'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" '
+        f'fill="{contrast}">{escape(item["label"])}</text></g>'
+    )
+
+
+def _hole_svg(item: dict) -> str:
+    """An AO's outline as a hole in the mask: filled black in the mask, so
+    whatever is under it shows through. Overlapping AOs merge, because a mask
+    adds holes rather than toggling them the way an even-odd path would."""
+    if item['kind'] == 'shape':
+        a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
+        inner = (f'<ellipse cx="0" cy="0" rx="{a}" ry="{b}"/>' if item['shape'] == 'ellipse'
+                 else f'<rect x="{-a}" y="{-b}" width="{round(2 * a, 2)}" '
+                      f'height="{round(2 * b, 2)}"/>')
+        return (f'<g transform="translate({item["x"]} {item["y"]}) '
+                f'rotate({item.get("rotation") or 0})">{inner}</g>')
+    points = ' '.join(f'{x},{y}' for x, y in item['points'])
+    return f'<polygon points="{points}"/>'
+
+
+def mask_svg(doc: dict) -> str:
+    """The grey cover with every visible AO cut out of it, or nothing.
+
+    Drawn over the terrain and under the plan, so symbols stay readable over
+    the grey. The mask id is taken from what is in it, so two maps on one page
+    — or a stale one in the browser — cannot borrow each other's holes."""
+    mask = doc.get('mask') or DEFAULT_MASK
+    if not mask.get('on'):
+        return ''
+    holes = ''.join(_hole_svg(item) for item in ordered_items(doc) if is_ao(item))
+    pad = max(doc['width'], doc['height'])
+    box = (f'x="{-pad}" y="{-pad}" width="{doc["width"] + 2 * pad}" '
+           f'height="{doc["height"] + 2 * pad}"')
+    key = 'tm-aomask-' + hashlib.sha1((holes + str(mask)).encode()).hexdigest()[:10]
+    return (f'<defs><mask id="{key}" maskUnits="userSpaceOnUse" {box}>'
+            f'<rect {box} fill="#fff"/><g fill="#000">{holes}</g></mask></defs>'
+            f'<rect {box} fill="{MASK_COLOUR}" fill-opacity="{mask["opacity"]}" '
+            f'mask="url(#{key})" pointer-events="none"/>')
 
 
 def _unit_svg(item: dict) -> str:
@@ -1568,13 +1728,16 @@ def _shape_svg(item: dict) -> str:
     dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
         if item['style'] == 'dashed' else ''
     if item['kind'] == 'area':
+        fill = 'fill="none"' if item.get('ao') else f'fill="{colour}" fill-opacity="0.22"'
         shape = (
             f'<polygon points="{path}" fill="none" stroke="{backing}" '
             f'stroke-width="{back_width}" stroke-linejoin="round"/>'
-            f'<polygon points="{path}" fill="{colour}" fill-opacity="0.22" '
+            f'<polygon points="{path}" {fill} '
             f'stroke="{colour}" stroke-width="{width}"{dash} '
             f'stroke-linejoin="round"/>'
         )
+        if item.get('ao'):
+            return shape + _ao_tab_svg(item)
         centre = _centroid(item['points'])
         return shape + _label_svg(item['label'], centre[0], centre[1], item['size'])
 
@@ -1660,6 +1823,9 @@ def _figure_svg(item: dict) -> str:
     dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
         if item['style'] == 'dashed' else ''
     a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
+    ao = bool(item.get('ao'))
+    if ao:
+        item = {**item, 'fill': 'none'}     # an AO is the clear ground itself
     if item['shape'] == 'ellipse':
         outline = f'<ellipse cx="0" cy="0" rx="{a}" ry="{b}"'
     else:
@@ -1683,7 +1849,8 @@ def _figure_svg(item: dict) -> str:
     turn = item.get('rotation') or 0
     return (f'<g transform="translate({item["x"]} {item["y"]}) rotate({turn})">'
             + ''.join(parts) + '</g>'
-            + _label_svg(item['label'], item['x'], item['y'], item['size']))
+            + (_ao_tab_svg(item) if ao
+               else _label_svg(item['label'], item['x'], item['y'], item['size'])))
 
 
 def tile_url(background: dict, zoom: int, column: int, row: int) -> str:
@@ -1808,6 +1975,7 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
         f'{defs()}<g id="tm-back">'
         f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
         f'{_grid_svg(doc)}{names}</g>'
+        f'<g id="tm-mask">{mask_svg(doc)}</g>'
         f'<g class="tm-items">{body}</g></svg>'
     )
 
@@ -2137,6 +2305,11 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
     # off again once it is drawn.
     items = ordered_items(doc)
     lines = [f'// {title or "Tactical map"} — {summarise(doc)}']
+    if (doc.get('mask') or {}).get('on'):
+        # A grey cover with holes cut in it is not something a marker can be,
+        # and Arma's own cover-map effect takes one rectangle. The AO borders
+        # come across; the grey stays on the website.
+        lines.append('// The grey mask outside the AOs is not exported — the AO borders are.')
     if editable:
         channel_name = dict(ARMA_CHANNELS)[channel]
         lines += [
@@ -2201,7 +2374,8 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
             # Both turn clockwise: the sheet's y grows downward, Arma's
             # bearing is clockwise from north.
             lines.append(f'_m setMarkerDir {round((item.get("rotation") or 0) % 360, 1)};')
-            lines.append(f'_m setMarkerBrush "{SHAPE_FILLS[item["fill"]]["brush"]}";')
+            brush = 'Border' if item.get('ao') else SHAPE_FILLS[item['fill']]['brush']
+            lines.append(f'_m setMarkerBrush "{brush}";')
             lines.append(f'_m setMarkerColor "{colour}";')
             if text:
                 lines.append(f'_m setMarkerText {_sqf_string(text)};')

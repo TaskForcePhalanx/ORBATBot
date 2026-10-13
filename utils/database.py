@@ -2102,6 +2102,14 @@ async def list_cp_aos(campaign_id: int) -> list:
     return [dict(r) for r in rows]
 
 
+async def cp_campaign_by_map(map_id: int):
+    """The planner campaign whose campaign map this is, or None."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow('SELECT * FROM cp_campaigns WHERE map_id = $1', map_id)
+    return dict(row) if row else None
+
+
 async def add_cp_ao(campaign_id: int, name: str) -> int:
     pool = await get_pool()
     async with pool.acquire() as db:

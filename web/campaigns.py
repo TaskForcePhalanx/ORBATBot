@@ -10,12 +10,13 @@ calls and shapes the answers for a template or for the wizard's JSON. A
 `web/`.
 """
 
+import json
 from datetime import date, datetime, timedelta
 
 from cogs.campaigns import mission_drops, post_context
 from utils import campaign as rules
 from utils import database, tacmap
-from web.guilds import mentionable_roles, postable_channels
+from web.guilds import can_plan, mentionable_roles, postable_channels
 
 
 class NotFound(LookupError):
@@ -274,12 +275,14 @@ async def campaign_page(guild, campaign: dict, tz: str) -> dict:
     # The next mission defaults to four weeks after the last one: the cycle the
     # drops are built around.
     suggested = (last['op_date'] + timedelta(days=28)) if last and last['op_date'] else None
+    map_svg, legend = await campaign_map_view(guild, campaign)
     return {
         'campaign': campaign,
         'missions': summaries,
         'open_slots': list(range(len(missions) + 1, campaign['planned_missions'] + 1)),
         'aos': await database.list_cp_aos(campaign['id']),
-        'campaign_map_svg': await campaign_map_svg(guild, campaign),
+        'campaign_map_svg': map_svg,
+        'ao_legend': legend,
         'statuses': rules.CAMPAIGN_STATUSES,
         'auto_complete': plan['auto_complete'],
         'suggested_date': suggested.isoformat() if suggested else '',
@@ -760,13 +763,116 @@ async def open_campaign_map(guild, campaign: dict, member) -> tuple[int, list]:
     fresh = await database.get_cp_campaign(campaign['id'])
     if not fresh.get('map_id') or await database.get_tac_map(fresh['map_id']) is None:
         doc = tacmap.blank_doc()
+        # Masked from the start: the AOs are the clear ground on it.
+        doc['mask'] = {**tacmap.DEFAULT_MASK, 'on': True}
         map_id = await database.create_tac_map(
             str(guild.id), f"{campaign['name']} — campaign map"[:120],
-            f"The campaign map for {campaign['name']}: one outline per AO.",
+            f"The campaign map for {campaign['name']}: draw each AO on it with the AO tool.",
             tacmap.dumps(doc), str(member.id), member.display_name)
         await database.set_cp_campaign_map(campaign['id'], map_id)
-    notes = await sync_campaign_map(campaign, member)
+    notes = await reconcile_campaign_map(campaign, member)
+    notes += await sync_campaign_map(campaign, member)
     return (await database.get_cp_campaign(campaign['id']))['map_id'], notes
+
+
+async def _ao_in_use(campaign_id: int, ao: dict) -> str | None:
+    """Why an AO whose outline was deleted on the map should be kept, or None.
+    Deleting it there would take its own map with it, so it only goes when
+    nothing would be lost: no phase is fought in it, and nothing is drawn on
+    its map but the outline the planner copied in."""
+    if await database.cp_ao_phases(campaign_id, ao['id']):
+        return 'phases are fought in it'
+    if ao.get('map_id'):
+        record = await database.get_tac_map(ao['map_id'])
+        if record is not None:
+            doc = tacmap.parse(record['doc']).doc
+            if any(not rules.is_planner_outline(i) for i in doc['items']):
+                return 'something is drawn on its map'
+    return None
+
+
+async def reconcile_campaign_map(campaign: dict, member=None, previous=None) -> list:
+    """Take what somebody did to the AOs on the campaign map into the planner:
+    an AO drawn there becomes an AO (`rules.campaign_map_changes()`), a
+    relabelled outline renames its AO, and a deleted outline deletes its AO —
+    unless that would lose work, when the AO is kept and gets its outline back:
+    the very outline that was deleted when `previous` (the map as it stood
+    before this save) has it, a fresh box to place otherwise. Returns notes
+    for whoever saved. Only somebody who may plan gets here."""
+    campaign = await database.get_cp_campaign(campaign['id'])
+    if not campaign or not campaign.get('map_id'):
+        return []
+    record = await database.get_tac_map(campaign['map_id'])
+    if record is None:
+        return []
+    doc = tacmap.parse(record['doc']).doc
+    aos = await database.list_cp_aos(campaign['id'])
+    changes = rules.campaign_map_changes(doc, [{'id': a['id'], 'name': a['name']} for a in aos])
+    if not any(changes.values()):
+        return []
+    notes, moves = [], {}
+    names = {a['id']: a['name'] for a in aos}
+    room = tacmap.MAX_LAYERS - len(doc['layers'])
+    for index, name in changes['new']:
+        if room <= 0:
+            notes.append(f'No room on the campaign map for another AO ({name}): a map holds '
+                         f'{tacmap.MAX_LAYERS} layers.')
+            continue
+        room -= 1
+        moves[index] = (await database.add_cp_ao(campaign['id'], name), name)
+        notes.append(f'Added the {name} AO to the campaign.')
+    for index, ao_id in changes['reattach'].items():
+        moves[index] = (ao_id, names[ao_id])
+    doc, placed = rules.place_ao_items(doc, moves)
+    notes += placed
+    for ao_id, name in changes['renamed'].items():
+        await database.rename_cp_ao(ao_id, campaign['id'], name)
+        notes.append(f'Renamed the {names[ao_id]} AO to {name}.')
+    for ao_id in changes['missing']:
+        ao = next(a for a in aos if a['id'] == ao_id)
+        why = await _ao_in_use(campaign['id'], ao)
+        if why:
+            key = rules.ao_layer_id(ao_id)
+            old = [i for i in (previous or {}).get('items', [])
+                   if i['layer'] == key and tacmap.is_ao(i)]
+            if old and any(l['id'] == key for l in doc['layers']):
+                doc['items'].extend(json.loads(json.dumps(old)))
+                notes.append(f"Kept the {ao['name']} AO and put its outline back: {why}. "
+                             'Delete it from the campaign page if you mean to.')
+            else:
+                notes.append(f"Kept the {ao['name']} AO — {why} — and gave it a new "
+                             'outline to move into place. Delete it from the campaign page '
+                             'if you mean to.')
+        else:
+            await database.delete_cp_ao(ao_id, campaign['id'])
+            notes.append(f"Deleted the {ao['name']} AO.")
+    await database.save_tac_map_doc(record['id'], tacmap.dumps(doc), _map_user(member))
+    notes += await sync_campaign_map(campaign, member)
+    if changes['renamed']:
+        notes += await refresh_ao_maps(campaign['id'], member)
+    return notes
+
+
+async def after_map_save(guild, record, member) -> dict | None:
+    # `record` is the map as it was before this save, which is what lets a
+    # refused AO deletion put back the outline that was drawn.
+    """Called after any map is saved in the editor. For a campaign map saved by
+    somebody who may plan, the AOs drawn on it are taken into the planner, and
+    the map as it now stands is handed back for the editor to show (new AOs
+    sit on layers of their own). None for every other map."""
+    campaign = await database.cp_campaign_by_map(record['id'])
+    if campaign is None or campaign['guild_id'] != str(guild.id):
+        return None
+    plan = await settings(guild.id)
+    if member is None or not can_plan(member, plan['unit_role_id']):
+        return {'notes': ['This is a campaign map: AO changes reach the planner when '
+                          'somebody who plans opens it from there.']}
+    previous = tacmap.parse(record['doc']).doc
+    notes = await reconcile_campaign_map(campaign, member, previous)
+    if not notes:
+        return None
+    fresh = await database.get_tac_map(record['id'])
+    return {'notes': notes, 'doc': tacmap.parse(fresh['doc']).doc}
 
 
 async def _phase_list(campaign_id: int, ao_id: int) -> list:
@@ -798,6 +904,21 @@ async def refresh_ao_maps(campaign_id: int, member=None) -> list:
     return notes
 
 
+async def _match_ao_colour(campaign_id: int, ao: dict, member=None) -> None:
+    """An AO map made before AOs were coloured takes its AO's colour from the
+    campaign map (`rules.match_ao_colour()`)."""
+    fresh = await database.get_cp_campaign(campaign_id)
+    base = await database.get_tac_map(fresh['map_id']) if fresh.get('map_id') else None
+    record = await database.get_tac_map(ao['map_id'])
+    if base is None or record is None:
+        return
+    campaign_doc = tacmap.parse(base['doc']).doc
+    tacmap.colour_aos(campaign_doc['items'])
+    doc, changed = rules.match_ao_colour(tacmap.parse(record['doc']).doc, campaign_doc, ao['id'])
+    if changed:
+        await database.save_tac_map_doc(record['id'], tacmap.dumps(doc), _map_user(member))
+
+
 async def open_ao_map(guild, campaign: dict, ao_id: int, member) -> tuple[int, list]:
     """An AO's map id, making it first from the campaign map's terrain."""
     aos = {a['id']: a for a in await database.list_cp_aos(campaign['id'])}
@@ -817,6 +938,8 @@ async def open_ao_map(guild, campaign: dict, ao_id: int, member) -> tuple[int, l
             tacmap.dumps(doc), str(member.id), member.display_name)
         await database.set_cp_ao_map(ao_id, map_id)
         ao['map_id'] = map_id
+    else:
+        await _match_ao_colour(campaign['id'], ao, member)
     notes = await sync_ao_map(campaign['id'], ao, member)
     return ao['map_id'], notes
 
@@ -836,16 +959,20 @@ async def maps_panel(guild, campaign: dict, mission: dict | None = None) -> dict
             'aos': [{**a, 'used': a['id'] in order} for a in aos]}
 
 
-async def campaign_map_svg(guild, campaign: dict) -> str | None:
-    """The campaign map, drawn for the campaign page — read only."""
+async def campaign_map_view(guild, campaign: dict) -> tuple[str | None, list]:
+    """The campaign map drawn for the campaign page — read only — and its key
+    (`rules.ao_legend()`). An AO not yet coloured is coloured here for the
+    picture only, exactly as the next sync will store it, so the preview and
+    the key agree with the map as it will open."""
     fresh = await database.get_cp_campaign(campaign['id'])
     record = await database.get_tac_map(fresh['map_id']) if fresh.get('map_id') else None
     if record is None:
-        return None
+        return None, []
     from web.tacmap import places_for
     doc = tacmap.parse(record['doc']).doc
-    return tacmap.render(doc, places=await places_for(str(guild.id), doc),
-                         extra_class='cpmap')
+    tacmap.colour_aos(doc['items'])
+    svg = tacmap.render(doc, places=await places_for(str(guild.id), doc), extra_class='cpmap')
+    return svg, rules.ao_legend(doc)
 
 
 # ---------------------------------------------------------------------------
