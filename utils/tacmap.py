@@ -402,6 +402,9 @@ SYMBOLS = {
     'installation': {'label': 'Installation', 'group': 'Support',
                      'icon': '<path d="M34,33 V67"/>'
                              '<path d="M34,35 H68 V51 H34 Z" fill="currentColor"/>'},
+    'eod': {'label': 'Explosive ordnance (EOD)', 'group': 'Support',
+            'icon': '<circle cx="47" cy="54" r="10"/>'
+                    '<path d="M54,47 L61,40 M61,34 V38 M65,40 H69 M64,36 L67,33"/>'},
     'signal': {'label': 'Signals', 'group': 'Support',
                'icon': '<path d="M30,66 L50,34 L70,66 M38,54 H62"/>'},
     'unknown': {'label': 'Unknown', 'group': 'Support',
@@ -458,7 +461,12 @@ MARKERS = {
              'icon': '<path d="M30,20 V80"/>'
                      '<path d="M30,22 H72 L62,38 L72,54 H30 Z" fill="currentColor"/>'},
     'arrow': {'label': 'Arrow', 'arma': 'mil_arrow', 'text': False,
-              'icon': '<path d="M50,20 L74,72 L50,60 L26,72 Z" fill="currentColor"/>'},
+              'icon': '<path d="M50,20 L74,72 L50,60 L26,72 Z"/>'},
+    'arrow2': {'label': 'Arrow (filled)', 'arma': 'mil_arrow2', 'text': False,
+               'icon': '<path d="M50,20 L74,72 L50,60 L26,72 Z" fill="currentColor"/>'},
+    'ambush': {'label': 'Ambush', 'arma': 'mil_ambush', 'text': False,
+               'icon': '<path d="M30,24 Q72,50 30,76"/>'
+                       '<path d="M43,34 L53,28 M48,50 H60 M43,66 L53,72"/>'},
     'start': {'label': 'Start', 'arma': 'mil_start', 'text': False,
               'icon': '<path d="M28,24 L76,50 L28,76 Z" fill="currentColor"/>'},
     'end': {'label': 'End', 'arma': 'mil_end', 'text': False,
@@ -472,6 +480,20 @@ MARKERS = {
                'icon': '<path d="M50,24 V76 M24,50 H76"/>'},
 }
 DEFAULT_MARKER = 'dot'
+for _marker in MARKERS.values():
+    _marker.setdefault('group', 'Military')
+
+# Every other marker vanilla Arma ships — hand-drawn, map locations, unit
+# sizes, respawn points, Zeus and flags — drawn by `utils/arma_markers.py`.
+# A flag is `paint`: full colour, drawn once, never tinted.
+try:
+    from . import arma_markers as _more
+except ImportError:                     # imported as a top-level module
+    import arma_markers as _more
+MARKERS.update(_more.LINE_MARKERS)
+MARKERS.update(_more.FLAG_MARKERS)
+MARKER_GROUPS = ('Military', 'Hand-drawn', 'Map locations', 'Unit sizes', 'Respawn',
+                 'Zeus', 'Flags')
 
 LINE_STYLES = ('solid', 'dashed', 'dotted')
 LINE_STYLE_LABELS = {'solid': 'Solid', 'dashed': 'Dashed', 'dotted': 'Dotted'}
@@ -699,7 +721,7 @@ ARMA_SIDES = {
     'friend': ('b', 'ColorWEST'),
     'hostile': ('o', 'ColorEAST'),
     'neutral': ('n', 'ColorGUER'),
-    'civ': ('u', 'ColorCIV'),
+    'civ': ('c', 'ColorCIV'),
     'unknown': ('u', 'ColorUNKNOWN'),
 }
 
@@ -751,6 +773,8 @@ def arma_colour(item: dict) -> str:
     """
     if item['kind'] == 'unit':
         return ARMA_SIDES.get(item['side'], ARMA_SIDES['unknown'])[1]
+    if item['kind'] == 'point' and MARKERS[marker_key(item)].get('paint'):
+        return 'Default'          # a flag is its own colours in the game too
     wanted = _rgb(item_colour(item))
     if wanted is None:
         return ARMA_SIDES.get(item['side'], ARMA_SIDES['unknown'])[1]
@@ -772,6 +796,18 @@ ARMA_TYPES = {
     'naval': 'naval', 'med': 'med', 'engr': 'maint', 'maint': 'maint',
     'logi': 'service', 'support': 'support', 'installation': 'installation',
     'signal': 'support', 'unknown': 'unknown',
+    # The equipment symbols, onto the unit marker that says the same.
+    'truck': 'motor_inf', 'apc': 'mech_inf', 'ifv': 'mech_inf', 'tank': 'armor',
+    'hmg': 'inf', 'gl': 'inf', 'eod': 'Ordnance',
+}
+
+# Civilians have only five markers in Arma (`c_`), and an unknown side has
+# none but `u_installation` — so those two map onto what exists rather than
+# onto names the game does not have, which draw nothing.
+ARMA_CIVILIAN = {
+    'motor': 'car', 'mech': 'car', 'armor': 'car', 'veh': 'car', 'truck': 'car',
+    'apc': 'car', 'ifv': 'car', 'tank': 'car', 'naval': 'ship', 'heli': 'air',
+    'air': 'plane', 'uav': 'plane',
 }
 
 # What a glyph means when the point was drawn before the marker shapes
@@ -1284,7 +1320,8 @@ def catalog() -> dict:
             for key, value in STATUSES.items()
         ],
         'markers': [
-            {'key': key, 'label': value['label'], 'text': value['text']}
+            {'key': key, 'label': value['label'], 'text': value['text'],
+             'group': value.get('group', 'Military'), 'paint': bool(value.get('paint'))}
             for key, value in MARKERS.items()
         ],
         'points': [{'glyph': glyph, 'label': label} for glyph, label in POINT_PRESETS],
@@ -1713,7 +1750,13 @@ def _point_svg(item: dict) -> str:
     # passes carry the same pattern or the solid one shows through the gaps.
     dash = _attrs(stroke_dasharray=STATUSES[item.get('status')
                                             or DEFAULT_STATUS]['dash'])
-    shape = (
+    if marker.get('paint'):
+        # A flag: its own colours, drawn once and never tinted.
+        shape = (f'<g transform="{transform}">'
+                 f'<use href="#tmm-{marker_key(item)}"/></g>')
+    else:
+        shape = None
+    shape = shape or (
         f'<g transform="{transform}">'
         f'<use href="#tmm-{marker_key(item)}" fill="none" '
         f'stroke="{backing}" color="{backing}" stroke-width="15" '
@@ -2302,6 +2345,19 @@ def _arma_type(item: dict) -> str:
         return MARKERS[marker_key(item)]['arma']
     if item['kind'] == 'text':
         return 'Empty'
+    symbol = item.get('symbol')
+    if item['side'] == 'civ':
+        if symbol == 'installation':
+            return 'u_installation'
+        if item.get('dimension') == 'air' and symbol not in ARMA_CIVILIAN:
+            return 'c_air'
+        return f"c_{ARMA_CIVILIAN.get(symbol, 'unknown')}"
+    if item['side'] == 'unknown':
+        # The only unknown-side marker Arma has; anything else is drawn in
+        # the neutral frame, in the unknown colour.
+        if symbol == 'installation':
+            return 'u_installation'
+        side = 'n'
     # A headquarters is the one modifier Arma has a marker of its own for, and
     # it says more about the unit than its branch does.
     if item.get('hq'):
@@ -3268,7 +3324,7 @@ _ARMA_SYMBOL_FROM = {
     'armor': 'armor', 'recon': 'recon', 'air': 'heli', 'plane': 'air', 'uav': 'uav',
     'naval': 'naval', 'med': 'med', 'art': 'arty', 'mortar': 'mortar',
     'support': 'support', 'maint': 'maint', 'service': 'logi',
-    'installation': 'installation', 'antiair': 'aa', 'ordnance': 'unknown',
+    'installation': 'installation', 'antiair': 'aa', 'ordnance': 'eod',
     'car': 'motor', 'ship': 'naval',
 }
 _SIDE_COLOURS = {
@@ -3311,6 +3367,7 @@ def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> 
         raise ValueError('That is not what the script copies.')
     across, down = metres_per_unit(doc)
     points_by_marker = {value['arma']: key for key, value in MARKERS.items()}
+    by_lower = {name.lower(): key for name, key in points_by_marker.items()}
     items, skipped, unknown, outside = [], 0, {}, 0
 
     def on_sheet(x, y):
@@ -3366,12 +3423,11 @@ def import_arma_markers(doc: dict, text: str, *, players_only: bool = False) -> 
         # An Arma marker at size 1 is the size this editor draws a new one.
         scale = round(_clamp(float(half[0] or 1) * DEFAULT_SIZE, MIN_SIZE, MAX_SIZE), 2)
         prefix, _, rest = mtype.partition('_')
-        if mtype.startswith(('mil_', 'hd_')):
-            key = points_by_marker.get('mil_' + mtype.split('_', 1)[1])
-            if key:
-                items.append({'kind': 'point', 'marker': key, 'x': x, 'y': y, 'label': label,
-                              'color': tint, 'size': scale})
-                continue
+        key = points_by_marker.get(mtype) or by_lower.get(mtype.lower())
+        if key:
+            items.append({'kind': 'point', 'marker': key, 'x': x, 'y': y, 'label': label,
+                          'color': '' if MARKERS[key].get('paint') else tint, 'size': scale})
+            continue
         if prefix in _ARMA_SIDE_FROM and rest.lower() in _ARMA_SYMBOL_FROM | {'hq': ''}:
             unit = {'kind': 'unit', 'side': _ARMA_SIDE_FROM[prefix], 'x': x, 'y': y,
                     'label': label, 'size': scale,

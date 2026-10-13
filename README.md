@@ -652,6 +652,8 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 
 > The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
 >
+> The **Marker** tool has every marker vanilla Arma ships — military, hand-drawn, map locations, unit sizes, respawn points, Zeus and flags — grouped as in the game, and each exports as exactly that marker.
+>
 > Lines get an arrow head only when you ask for one — most lines on a plan are boundaries and phase lines, which point nowhere.
 >
 > Lines, areas, shapes and markers are black until you colour them, and take whatever you pick from the swatches. Symbols do not: their colour is what says which side they are.

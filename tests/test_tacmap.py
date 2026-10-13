@@ -2089,19 +2089,21 @@ def test_a_mission_s_markers_come_back_as_the_map_s_own():
         '["m4","POLYLINE","",[0,0],"PL AMBER","ColorBlack",[1,1],0,"Solid",[100,100,900,100]]',
         '["m5","POLYLINE","",[0,0],"","Default",[1,1],0,"Solid",[100,100,200,100,200,200,100,100]]',
         '["m6","RECTANGLE","",[500,500],"","ColorGreen",[50,25],30,"FDiagonal",[]]',
-        '["m7","ICON","loc_Church",[300,300],"","Default",[1,1],0,"Solid",[]]',
+        '["m7","ICON","rhs_flag_vdv",[300,300],"","Default",[1,1],0,"Solid",[]]',
+        '["m9","ICON","loc_Church",[320,300],"","Default",[1,1],0,"Solid",[]]',
         '["m8","ICON","mil_dot",[5000,5000],"far","Default",[1,1],0,"Solid",[]]',
     )
     items, notes = tacmap.import_arma_markers(doc, text)
     kinds = [i['kind'] for i in items]
-    assert kinds == ['point', 'unit', 'unit', 'line', 'area', 'shape', 'point']
+    assert kinds == ['point', 'unit', 'unit', 'line', 'area', 'shape', 'point', 'point']
     assert items[0]['marker'] == 'objective' and items[0]['color'] == '#e03b3b'
     assert (items[1]['side'], items[1]['symbol'], items[1]['rotation']) == ('friend', 'inf', 45.0)
     assert items[2]['hq'] and items[2]['side'] == 'hostile'
     assert items[3]['points'] == [[100.0, 900.0], [900.0, 900.0]]
     assert len(items[4]['points']) == 3                      # closed polyline → area
     assert (items[5]['w'], items[5]['h'], items[5]['fill']) == (100.0, 50.0, 'hatch')
-    assert items[6]['label'] == 'loc_Church'                  # not drawn yet: a named dot
+    assert items[6]['label'] == 'rhs_flag_vdv'                # a mod's: a named dot
+    assert items[7]['marker'] == 'loc_church'                 # every vanilla marker is ours
     assert any('outside' in n for n in notes)
     only, _ = tacmap.import_arma_markers(doc, text, players_only=True)
     assert len(only) == 1
@@ -2128,3 +2130,46 @@ def test_the_export_report_says_what_does_not_survive():
     assert report['markers'] == sqf.count('createMarker')
     text = ' '.join(report['notes'])
     assert 'dashes' in text and 'thickness' in text and 'outlines' in text and 'Sniper' in text
+
+
+# -- the full marker set -----------------------------------------------------
+#
+# Read out of a running game's CfgMarkers: every class a unit or a marker may
+# export as has to be one of these, or the mission draws nothing for it.
+
+VANILLA_UNIT_MARKERS = {
+    f'{side}_{kind}' for side in 'bon' for kind in (
+        'unknown', 'inf', 'motor_inf', 'mech_inf', 'armor', 'recon', 'air', 'plane', 'uav',
+        'naval', 'med', 'art', 'mortar', 'hq', 'support', 'maint', 'service', 'installation',
+        'antiair', 'Ordnance')
+} | {'c_unknown', 'c_car', 'c_ship', 'c_air', 'c_plane', 'u_installation'}
+
+
+def test_every_unit_exports_as_a_marker_arma_has():
+    for side in tacmap.AFFILIATIONS:
+        for symbol in tacmap.SYMBOLS:
+            for hq in (False, True):
+                for dimension in tacmap.DIMENSIONS:
+                    item = {'kind': 'unit', 'side': side, 'symbol': symbol, 'hq': hq,
+                            'dimension': dimension}
+                    assert tacmap._arma_type(item) in VANILLA_UNIT_MARKERS, item
+
+
+def test_every_marker_has_a_drawing_a_group_and_its_own_class():
+    names = [m['arma'] for m in tacmap.MARKERS.values()]
+    assert len(names) == len(set(names))
+    for key, marker in tacmap.MARKERS.items():
+        assert marker['icon'] and marker['group'] in tacmap.MARKER_GROUPS, key
+    # The whole of vanilla's Military, hand-drawn and Zeus sets.
+    for name in ('mil_ambush', 'mil_arrow2', 'hd_join', 'loc_PowerWind', 'group_11',
+                 'respawn_para', 'MinefieldAP', 'flag_UK', 'RedCrystal'):
+        assert name in names
+
+
+def test_a_flag_is_its_own_colours_in_both_places():
+    item = _parse_one({'kind': 'point', 'marker': 'flag_uk', 'x': 10, 'y': 10,
+                       'color': '#e03b3b'})
+    svg = tacmap.item_svg(item)
+    assert svg.count('<use href="#tmm-flag_uk"') == 1 and 'stroke-width="15"' not in svg
+    assert tacmap.arma_colour(item) == 'Default'
+    assert '<g id="tmm-flag_uk">' in tacmap.defs()

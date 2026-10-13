@@ -102,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(627 cases), and every one of them covers a module that imports nothing beyond
+(630 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -2541,6 +2541,30 @@ Three things about them:
   label rather than being dropped. A point drawn before the shapes existed has
   no marker, so `parse()` reads its glyph — one typed `OBJ` becomes the
   objective marker, which is what the export already assumed it meant.
+
+**Every vanilla marker is in `MARKERS`** — the military set here, and the
+rest (hand-drawn `hd_`, map locations `loc_`, unit sizes `group_`, respawn,
+Zeus and 44 flags) in `utils/arma_markers.py`, merged at import. The list is
+the game's own `CfgMarkers` read out of a running game (scope > 0, icon under
+`\A3\`), and each entry keeps its exact class name, which is what exports and
+what an imported marker is matched by (case-insensitively). **The drawings are
+our own**: Arma's icons are Bohemia's artwork, so each is a plain pictogram of
+what it means; national flags are the flags; a fictional faction's or an
+organisation's flag (NATO, UN, CSAT, AAF…) is a plain cloth with its short
+name rather than a copy of its emblem. A flag is `paint`: full colour, drawn
+once, never tinted, and exported with `setMarkerColor "Default"`. The picker
+groups them by `MARKER_GROUPS`. Mod markers (RHS, 3CB flags) are left out —
+a player without the mod sees nothing for them; an imported one comes back
+as a dot named after its class.
+
+**Every unit exports as a marker the game has.** Arma's civilian markers are
+only `c_unknown/car/ship/air/plane` and its unknown side has only
+`u_installation`, so `ARMA_CIVILIAN` maps civilians onto those and an unknown
+unit takes the neutral frame in the unknown colour; `civ` used to export as
+`u_inf` and the like, which draw nothing. The equipment symbols (truck, APC,
+IFV, tank, HMG, GL) and the new EOD symbol (`b_Ordnance`) are in
+`ARMA_TYPES`. `test_every_unit_exports_as_a_marker_arma_has` checks every
+side × symbol × HQ × dimension against the game's list.
 
 `UNIT_BOX` is small on purpose. A platoon plan puts twenty symbols on one
 sheet, and what reads as comfortable with three of them is a wall of colour

@@ -345,7 +345,10 @@
     var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') scale(' +
       scale + ') translate(-50,-50)';
     var dash = dashOf(item);
-    var shape = '<g transform="' + transform + '">' +
+    // A flag: its own colours, drawn once and never tinted.
+    var shape = markers[key] && markers[key].paint
+      ? '<g transform="' + transform + '"><use href="#tmm-' + key + '"/></g>'
+      : '<g transform="' + transform + '">' +
       '<use href="#tmm-' + key + '" fill="none" stroke="' + backing +
       '" color="' + backing + '" stroke-width="15"' +
       ' stroke-linecap="round" stroke-linejoin="round"' + dash + '/>' +
@@ -1893,6 +1896,27 @@
     });
   }
 
+  // The markers are a hundred and more, so they are grouped the way Arma's
+  // own marker list groups them.
+  function fillMarkerOptions(select, value) {
+    var groups = {};
+    var order = [];
+    catalog.markers.forEach(function (marker) {
+      var group = marker.group || 'Military';
+      if (!groups[group]) {
+        groups[group] = [];
+        order.push(group);
+      }
+      groups[group].push(marker);
+    });
+    select.innerHTML = order.map(function (group) {
+      return '<optgroup label="' + attr(group) + '">' + groups[group].map(function (marker) {
+        return '<option value="' + attr(marker.key) + '">' + esc(marker.label) + '</option>';
+      }).join('') + '</optgroup>';
+    }).join('');
+    select.value = value;
+  }
+
   function fillOptions(select, options, value) {
     select.innerHTML = options.map(function (option) {
       return '<option value="' + attr(option.value) + '">' + esc(option.label) + '</option>';
@@ -1908,9 +1932,6 @@
   });
   var glyphOptions = catalog.points.map(function (preset) {
     return { value: preset.glyph, label: preset.glyph + ' · ' + preset.label };
-  });
-  var markerOptions = catalog.markers.map(function (marker) {
-    return { value: marker.key, label: marker.label };
   });
   var echelonOptions = [{ value: '', label: 'No size' }].concat(
     catalog.echelons.map(function (entry) {
@@ -1943,7 +1964,7 @@
   fillOptions(sidePick, sideOptions, state.side);
   fillOptions(symbolPick, symbolOptions, state.symbol);
   fillOptions(glyphPick, glyphOptions, state.glyph);
-  fillOptions(markerPick, markerOptions, state.marker);
+  fillMarkerOptions(markerPick, state.marker);
   fillOptions(echelonPick, echelonOptions, state.echelon);
   fillOptions(dimensionPick, dimensionOptions, state.dimension);
   fillOptions(statusPick, statusOptions, state.status);
@@ -2082,7 +2103,7 @@
   }), catalog.defaultFill);
   fillOptions(fields.side, sideOptions, state.side);
   fillOptions(fields.symbol, symbolOptions, state.symbol);
-  fillOptions(fields.marker, markerOptions, state.marker);
+  fillMarkerOptions(fields.marker, state.marker);
   fillOptions(fields.echelon, echelonOptions, state.echelon);
   fillOptions(fields.strength, strengthOptions, '');
   fillOptions(fields.mobility, mobilityOptions, '');
