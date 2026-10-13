@@ -103,7 +103,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(616 cases), and every one of them covers a module that imports nothing beyond
+(619 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -3004,6 +3004,23 @@ One bar, a rail, the map, a side panel (`_tacmap_canvas.html`, `.tmeditor`):
   the map.
 
 ### Editing, measuring and moving several things at once
+
+- **A drawing tool draws one thing.** After a line, area, phase line, box,
+  ellipse or AO the editor goes back to Select with it selected
+  (`afterDrawn()`), because a click on empty ground used to start the next
+  drawing when people meant to deselect. Double-clicking a tool in the rail
+  locks it (`state.toolLock`, 🔒): drawings then come out unselected, an AO or
+  phase line keeps its selection for naming and the next click on empty ground
+  only deselects (`state.afterDraw`); Esc with nothing selected puts the tool
+  down. Unit, marker and label placement keep their tool, since placing several
+  in a row is the common case.
+- **Names are written as Arma writes marker text** (`_label_svg()`): a narrow
+  face (`ARMA_FONT`, Purista where installed), the item's own colour, a thin
+  shadow in `ink_backing()`, beside a unit or marker rather than under it
+  (`UNIT_LABEL_GAP`, `POINT_LABEL_GAP`). One map-wide `doc['text_scale']`
+  (0.5–3, **Map settings → Text size**) multiplies every name and AO tab, as
+  Arma has one marker-text size. Markers carry a `rotation` too, drawn and
+  exported with `setMarkerDir`, and read back from Arma's direction.
 
 All of it lives in `tacmap.js`; what has to agree with the server (lengths,
 grid references, label places) has a Python twin in `utils/tacmap.py`.

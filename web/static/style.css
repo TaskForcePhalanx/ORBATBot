@@ -729,6 +729,8 @@ table.rawslots tr:last-child td { border-bottom: 0; }
 }
 .tmtool:hover { border-color: var(--muted); }
 .tmtool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tmtool { position: relative; }
+.tmtool.locked::after { content: '🔒'; position: absolute; top: 1px; right: 2px; font-size: 10px; }
 
 .tmstatus { font-size: 13px; color: var(--muted); min-width: 120px; }
 /* One line, always: a hint that wraps when it changes moves the whole map
