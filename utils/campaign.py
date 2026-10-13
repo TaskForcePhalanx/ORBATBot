@@ -1873,7 +1873,46 @@ def sync_campaign_map(doc: dict, aos: list) -> tuple[dict, list]:
                 if item['layer'] == key and item.get('label') == layer['name']:
                     item['label'] = name[:tacmap.MAX_LABEL]
             layer['name'] = name
+    # Every AO in a colour of its own — a placeholder just added, and the
+    # outlines of a map from before AOs were coloured. A colour somebody
+    # picked is kept.
+    tacmap.colour_aos(doc['items'])
     return doc, notes
+
+
+def match_ao_colour(ao_doc: dict, campaign_doc: dict | None, ao_id) -> tuple[dict, bool]:
+    """An AO map's copy of its outline in the colour the campaign map gives
+    that AO, when the copy has none of its own — an AO map made before AOs
+    were coloured. A colour somebody picked on the AO map is left alone.
+    Returns the document and whether it changed."""
+    if not campaign_doc:
+        return ao_doc, False
+    key = ao_layer_id(ao_id)
+    source = next((i for i in campaign_doc['items']
+                   if i['layer'] == key and tacmap.is_ao(i) and i.get('color')), None)
+    if source is None:
+        return ao_doc, False
+    doc = json.loads(json.dumps(ao_doc))
+    changed = False
+    for item in doc['items']:
+        if item['layer'] == key and tacmap.is_ao(item) and not item.get('color'):
+            item['color'] = source['color']
+            changed = True
+    return doc, changed
+
+
+def ao_legend(doc: dict | None) -> list:
+    """The key beside the campaign map: each AO drawn on a visible layer, as
+    {name, colour}, in the order the map's layers run — so a reader matches a
+    name to a border without tracing it."""
+    if not doc:
+        return []
+    order = {l['id']: n for n, l in enumerate(doc['layers'])}
+    visible = {l['id'] for l in doc['layers'] if l['visible']}
+    entries = [(order.get(i['layer'], 0), n, i) for n, i in enumerate(doc['items'])
+               if tacmap.is_ao(i) and i['layer'] in visible]
+    return [{'name': i.get('label') or 'AO', 'colour': tacmap.item_colour(i)}
+            for _, _, i in sorted(entries, key=lambda e: (e[0], e[1]))]
 
 
 def campaign_map_changes(doc: dict, aos: list) -> dict:

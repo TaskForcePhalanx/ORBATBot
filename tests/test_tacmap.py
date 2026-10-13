@@ -6,6 +6,7 @@ share link typed straight into the page."""
 
 import gzip
 import json
+import math
 import re
 
 from utils import tacmap
@@ -1891,3 +1892,76 @@ def test_an_ao_exports_as_a_border_and_the_mask_is_said_to_stay_behind():
     sqf = tacmap.to_sqf(doc, prefix='tm7')
     assert '_m setMarkerBrush "Border";' in sqf
     assert 'grey mask outside the AOs is not exported' in sqf
+
+
+# -- telling AOs apart ---------------------------------------------------------
+
+def test_each_ao_gets_a_colour_no_other_ao_is_using():
+    items = [_parse_one(ao_box()), _parse_one(ao_box(x=300)), _parse_one(ao_box(x=600))]
+    items[1]['color'] = tacmap.AO_COLOURS[0]                # picked by hand, kept
+    assert tacmap.colour_aos(items) == 2
+    colours = [i['color'] for i in items]
+    assert len(set(colours)) == 3 and colours[1] == tacmap.AO_COLOURS[0]
+    assert set(colours) <= set(tacmap.AO_COLOURS)
+    assert tacmap.colour_aos(items) == 0                    # nothing left to colour
+
+
+def test_a_line_in_an_ao_colour_does_not_use_it_up_and_a_full_palette_wraps():
+    line = _parse_one({'kind': 'line', 'color': tacmap.AO_COLOURS[0],
+                       'points': [[0, 0], [10, 10]]})
+    assert tacmap.next_ao_colour([line]) == tacmap.AO_COLOURS[0]
+    many = [_parse_one(ao_box(x=10 * n, color=c)) for n, c in enumerate(tacmap.AO_COLOURS)]
+    assert tacmap.next_ao_colour(many) in tacmap.AO_COLOURS
+    assert tacmap.catalog()['aoColours'] == list(tacmap.AO_COLOURS)
+
+
+def test_an_ao_name_hangs_in_a_tab_at_its_top_left_corner():
+    box = _parse_one(ao_box(label='North', color='#3d8ee8', rotation=0))
+    assert tacmap.ao_corner(box) == (box['x'] - box['w'] / 2, box['y'] - box['h'] / 2)
+    svg = tacmap.item_svg(box)
+    assert 'class="tm-aotab"' in svg and 'fill="#3d8ee8"' in svg and '>North</text>' in svg
+    assert 'text-anchor="middle"' not in svg                # not in the centre any more
+    area = _parse_one({'kind': 'area', 'ao': True, 'label': 'South',
+                       'points': [[50, 40], [90, 10], [120, 80], [30, 90]]})
+    assert tacmap.ao_corner(area) == (50, 40)
+    assert tacmap.ao_tab(_parse_one(ao_box(label=''))) is None
+
+
+def test_overlapping_aos_put_their_names_in_different_places():
+    one = _parse_one(ao_box(label='North'))
+    two = _parse_one(ao_box(label='South', x=one['x'] + 60, y=one['y'] + 40))
+    assert tacmap.ao_corner(one) != tacmap.ao_corner(two)
+
+
+def test_a_tab_reads_on_a_light_colour_and_a_dark_one():
+    light = tacmap.item_svg(_parse_one(ao_box(label='A', color='#f2c832')))
+    dark = tacmap.item_svg(_parse_one(ao_box(label='A', color='#1b1f24')))
+    text = re.compile(r'<text[^>]*fill="([^"]+)"')
+    assert text.search(light).group(1) != text.search(dark).group(1)
+
+
+def test_a_turned_ao_hangs_its_tab_on_the_corner_now_nearest_the_top_left():
+    turned = _parse_one(ao_box(label='North'))              # turned 30°
+    assert tacmap.ao_corner(turned) in tacmap.shape_corners(turned)
+    assert tacmap.ao_corner(turned) == min(tacmap.shape_corners(turned),
+                                           key=lambda p: p[0] + p[1])
+
+
+def test_an_elliptical_ao_hangs_its_tab_on_the_ellipse_itself():
+    for turn in (0, 30, 75):
+        oval = _parse_one(ao_box(shape='ellipse', label='South', rotation=turn))
+        x, y = tacmap.ao_corner(oval)
+        a, b, t = oval['w'] / 2, oval['h'] / 2, math.radians(turn)
+        lx = (x - oval['x']) * math.cos(t) + (y - oval['y']) * math.sin(t)
+        ly = -(x - oval['x']) * math.sin(t) + (y - oval['y']) * math.cos(t)
+        assert abs(lx * lx / (a * a) + ly * ly / (b * b) - 1) < 0.01     # on the outline
+        assert x + y < oval['x'] + oval['y']                                # towards top left
+    upright = _parse_one(ao_box(shape='ellipse', rotation=0, w=200, h=100))
+    assert tacmap.ao_corner(upright) == (round(500 - 200 ** 2 / 4 / math.hypot(100, 50), 2),
+                                         round(400 - 50 ** 2 / math.hypot(100, 50), 2))
+
+
+def test_the_first_six_ao_colours_stay_distinct_in_arma():
+    names = [tacmap.arma_colour({'kind': 'shape', 'color': c, 'side': 'friendly'})
+             for c in tacmap.AO_COLOURS[:6]]
+    assert len(set(names)) == 6

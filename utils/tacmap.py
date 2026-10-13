@@ -526,6 +526,40 @@ LINE_COLOURS = (
     ('#1b1f24', 'Black'),
 )
 
+# The order AOs are coloured in, so two AOs on one map — overlapping ones
+# above all — never share a border. Neighbours in the list are far apart
+# (red, then blue, then yellow), so the first few AOs, which is most
+# campaigns, are as distinct as the palette allows. Black and white are left
+# out: they are what an AO's edging and an unpicked line already are.
+# Pink comes before purple and cyan because Arma has neither of those two and
+# would draw them as pink and blue — so the first six AOs stay distinct in
+# the mission as well as on the website.
+AO_COLOURS = ('#e03b3b', '#3d8ee8', '#f2c832', '#3fb950',
+              '#f07f2a', '#e060b8', '#a06ee8', '#35c9c2')
+
+
+def next_ao_colour(items: list, skip=None) -> str:
+    """The first of `AO_COLOURS` no AO among `items` is drawn in (`skip`: an
+    item to leave out, the one being coloured). With every colour taken —
+    nine AOs on one map — it goes round again rather than giving up."""
+    used = {item_colour(i).lower() for i in items if i is not skip and is_ao(i)}
+    for colour in AO_COLOURS:
+        if colour not in used:
+            return colour
+    return AO_COLOURS[len(used) % len(AO_COLOURS)]
+
+
+def colour_aos(items: list) -> int:
+    """Give every AO that has no colour of its own a distinct one, in order.
+    A colour somebody picked — black included — is theirs and kept. Returns
+    how many were coloured."""
+    count = 0
+    for item in items:
+        if is_ao(item) and not item.get('color'):
+            item['color'] = next_ao_colour(items, skip=item)
+            count += 1
+    return count
+
 # ---------------------------------------------------------------------------
 # Backgrounds
 # ---------------------------------------------------------------------------
@@ -1207,6 +1241,7 @@ def catalog() -> dict:
         'defaultFill': DEFAULT_FILL,
         'minShape': MIN_SHAPE,
         'maskColour': MASK_COLOUR,
+        'aoColours': list(AO_COLOURS),
         'hatchGap': HATCH_GAP,
         'lineColours': [{'value': value, 'label': label}
                         for value, label in LINE_COLOURS],
@@ -1378,6 +1413,68 @@ def item_svg(item: dict) -> str:
 
 def is_ao(item: dict) -> bool:
     return item['kind'] in ('area', 'shape') and bool(item.get('ao'))
+
+
+def ao_corner(item: dict) -> tuple:
+    """Where an AO's name tab hangs: the corner nearest the sheet's top left
+    (smallest x + y) — of the box for a shape, of the outline for an area.
+    Two AOs that overlap have different top-left corners, so their names stop
+    landing on one another in the ground they share.
+
+    An ellipse has no corner, and the corner of its box is off the ellipse
+    altogether, so it is the point on the ellipse itself furthest towards the
+    top left: the one where x + y is smallest."""
+    if item['kind'] == 'shape' and item['shape'] == 'ellipse':
+        a, b = item['w'] / 2, item['h'] / 2
+        turn = math.radians(item.get('rotation') or 0)
+        cos, sin = math.cos(turn), math.sin(turn)
+        # The direction (1, 1) seen from inside the ellipse's own frame …
+        dx, dy = cos + sin, cos - sin
+        reach = math.sqrt(a * a * dx * dx + b * b * dy * dy) or 1
+        # … and the point on x²/a² + y²/b² = 1 furthest against it, turned back.
+        px, py = -a * a * dx / reach, -b * b * dy / reach
+        return (round(item['x'] + px * cos - py * sin, 2),
+                round(item['y'] + px * sin + py * cos, 2))
+    points = shape_corners(item) if item['kind'] == 'shape' else item['points']
+    x, y = min(points, key=lambda p: (p[0] + p[1], p[1]))
+    return round(x, 2), round(y, 2)
+
+
+def ao_tab(item: dict) -> dict | None:
+    """The name tab's box and text position, or None without a name. Its width
+    is estimated from the character count rather than measured, so the browser
+    and this module — which cannot measure text — draw the same box."""
+    text = item.get('label') or ''
+    if not text:
+        return None
+    font = label_size(item['size'])
+    pad = round(font * 0.4, 2)
+    x, y = ao_corner(item)
+    w = round(len(text) * font * 0.6 + 2 * pad, 2)
+    h = round(font * 1.45, 2)
+    return {'x': x, 'y': y, 'w': w, 'h': h, 'font': font,
+            'tx': round(x + pad, 2), 'ty': round(y + h * 0.72, 2)}
+
+
+def _ao_tab_svg(item: dict) -> str:
+    """An AO's name in a small tab filled with its border colour, hung inside
+    its top-left corner: the tab ties the name to the border it belongs to.
+    The text takes the backing colour, so it reads on a yellow tab and a
+    blue one alike."""
+    tab = ao_tab(item)
+    if tab is None:
+        return ''
+    colour = item_colour(item)
+    contrast = ink_backing(colour)
+    return (
+        f'<g class="tm-aotab"><rect x="{tab["x"]}" y="{tab["y"]}" width="{tab["w"]}" '
+        f'height="{tab["h"]}" rx="{round(tab["font"] * 0.2, 2)}" fill="{colour}" '
+        f'stroke="{contrast}" stroke-width="{round(tab["font"] * 0.12, 2)}"/>'
+        f'<text x="{tab["tx"]}" y="{tab["ty"]}" text-anchor="start" '
+        f'font-size="{tab["font"]}" font-weight="700" '
+        f'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" '
+        f'fill="{contrast}">{escape(item["label"])}</text></g>'
+    )
 
 
 def _hole_svg(item: dict) -> str:
@@ -1639,6 +1736,8 @@ def _shape_svg(item: dict) -> str:
             f'stroke="{colour}" stroke-width="{width}"{dash} '
             f'stroke-linejoin="round"/>'
         )
+        if item.get('ao'):
+            return shape + _ao_tab_svg(item)
         centre = _centroid(item['points'])
         return shape + _label_svg(item['label'], centre[0], centre[1], item['size'])
 
@@ -1724,7 +1823,8 @@ def _figure_svg(item: dict) -> str:
     dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
         if item['style'] == 'dashed' else ''
     a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
-    if item.get('ao'):
+    ao = bool(item.get('ao'))
+    if ao:
         item = {**item, 'fill': 'none'}     # an AO is the clear ground itself
     if item['shape'] == 'ellipse':
         outline = f'<ellipse cx="0" cy="0" rx="{a}" ry="{b}"'
@@ -1749,7 +1849,8 @@ def _figure_svg(item: dict) -> str:
     turn = item.get('rotation') or 0
     return (f'<g transform="translate({item["x"]} {item["y"]}) rotate({turn})">'
             + ''.join(parts) + '</g>'
-            + _label_svg(item['label'], item['x'], item['y'], item['size']))
+            + (_ao_tab_svg(item) if ao
+               else _label_svg(item['label'], item['x'], item['y'], item['size'])))
 
 
 def tile_url(background: dict, zoom: int, column: int, row: int) -> str:

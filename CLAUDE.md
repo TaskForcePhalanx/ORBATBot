@@ -101,7 +101,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(591 cases), and every one of them covers a module that imports nothing beyond
+(602 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -3047,6 +3047,38 @@ cursor into its label, and turns the mask on if it was off; the inspector's
   Arma's own cover-map effect takes one rectangle; the export says so in a
   comment and brings the AO borders (an AO shape always exports with the
   `Border` brush).
+
+#### Telling overlapping AOs apart
+
+Overlapping AOs merge into one clear area, which is right for the mask and
+leaves only the borders to say which ground is whose. Three things carry that:
+
+- **Every AO its own colour.** `next_ao_colour()` is the first of `AO_COLOURS`
+  no other AO on the map is drawn in; the editor's AO tool and *AO* tick
+  (`nextAOColour()`) and `colour_aos()` — run by `sync_campaign_map()` on
+  placeholders and on maps from before colours — all use it. **Only an empty
+  `color` is filled in**: one somebody picked, black included, is theirs.
+  The order keeps neighbours far apart and puts pink before purple and cyan,
+  which Arma draws as pink and blue — so the first six AOs are distinct in the
+  mission too (`arma_colour()` is unchanged; it is the colour that changed).
+- **The name in a tab, not the middle** (`ao_corner()`, `ao_tab()`,
+  `_ao_tab_svg()`, mirrored by `aoCorner()`/`aoTabSVG()`): a box in the AO's
+  colour hung inside the corner nearest the top left (smallest x + y), text in
+  `ink_backing()` so it reads on yellow and blue alike. An ellipse's tab is on
+  the ellipse itself, at its point furthest towards the top left — the corner
+  of its box is off it. Overlapping AOs have different top-left corners, which
+  is what keeps their names off each other. **The tab's width is estimated
+  from the character count**, not measured, because the server cannot measure
+  text and the two renderers must draw the same box.
+- **A key beside the campaign map** (`campaign.ao_legend()`, visible AOs in
+  layer order, through `web/campaigns.campaign_map_view()`). The preview colours
+  any uncoloured AO for the picture only, as the next sync will store it, so
+  the preview and the key never disagree with the map as it opens.
+
+An AO map copies its outline, colour included. One made before colours takes
+its AO's colour from the campaign map when opened (`match_ao_colour()`) —
+again only into an empty `color`, so a colour changed later on either map is
+not chased.
 
 ### Posting is a link, not a picture
 

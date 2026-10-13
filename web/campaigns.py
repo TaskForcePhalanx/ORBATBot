@@ -275,12 +275,14 @@ async def campaign_page(guild, campaign: dict, tz: str) -> dict:
     # The next mission defaults to four weeks after the last one: the cycle the
     # drops are built around.
     suggested = (last['op_date'] + timedelta(days=28)) if last and last['op_date'] else None
+    map_svg, legend = await campaign_map_view(guild, campaign)
     return {
         'campaign': campaign,
         'missions': summaries,
         'open_slots': list(range(len(missions) + 1, campaign['planned_missions'] + 1)),
         'aos': await database.list_cp_aos(campaign['id']),
-        'campaign_map_svg': await campaign_map_svg(guild, campaign),
+        'campaign_map_svg': map_svg,
+        'ao_legend': legend,
         'statuses': rules.CAMPAIGN_STATUSES,
         'auto_complete': plan['auto_complete'],
         'suggested_date': suggested.isoformat() if suggested else '',
@@ -902,6 +904,21 @@ async def refresh_ao_maps(campaign_id: int, member=None) -> list:
     return notes
 
 
+async def _match_ao_colour(campaign_id: int, ao: dict, member=None) -> None:
+    """An AO map made before AOs were coloured takes its AO's colour from the
+    campaign map (`rules.match_ao_colour()`)."""
+    fresh = await database.get_cp_campaign(campaign_id)
+    base = await database.get_tac_map(fresh['map_id']) if fresh.get('map_id') else None
+    record = await database.get_tac_map(ao['map_id'])
+    if base is None or record is None:
+        return
+    campaign_doc = tacmap.parse(base['doc']).doc
+    tacmap.colour_aos(campaign_doc['items'])
+    doc, changed = rules.match_ao_colour(tacmap.parse(record['doc']).doc, campaign_doc, ao['id'])
+    if changed:
+        await database.save_tac_map_doc(record['id'], tacmap.dumps(doc), _map_user(member))
+
+
 async def open_ao_map(guild, campaign: dict, ao_id: int, member) -> tuple[int, list]:
     """An AO's map id, making it first from the campaign map's terrain."""
     aos = {a['id']: a for a in await database.list_cp_aos(campaign['id'])}
@@ -921,6 +938,8 @@ async def open_ao_map(guild, campaign: dict, ao_id: int, member) -> tuple[int, l
             tacmap.dumps(doc), str(member.id), member.display_name)
         await database.set_cp_ao_map(ao_id, map_id)
         ao['map_id'] = map_id
+    else:
+        await _match_ao_colour(campaign['id'], ao, member)
     notes = await sync_ao_map(campaign['id'], ao, member)
     return ao['map_id'], notes
 
@@ -940,16 +959,20 @@ async def maps_panel(guild, campaign: dict, mission: dict | None = None) -> dict
             'aos': [{**a, 'used': a['id'] in order} for a in aos]}
 
 
-async def campaign_map_svg(guild, campaign: dict) -> str | None:
-    """The campaign map, drawn for the campaign page — read only."""
+async def campaign_map_view(guild, campaign: dict) -> tuple[str | None, list]:
+    """The campaign map drawn for the campaign page — read only — and its key
+    (`rules.ao_legend()`). An AO not yet coloured is coloured here for the
+    picture only, exactly as the next sync will store it, so the preview and
+    the key agree with the map as it will open."""
     fresh = await database.get_cp_campaign(campaign['id'])
     record = await database.get_tac_map(fresh['map_id']) if fresh.get('map_id') else None
     if record is None:
-        return None
+        return None, []
     from web.tacmap import places_for
     doc = tacmap.parse(record['doc']).doc
-    return tacmap.render(doc, places=await places_for(str(guild.id), doc),
-                         extra_class='cpmap')
+    tacmap.colour_aos(doc['items'])
+    svg = tacmap.render(doc, places=await places_for(str(guild.id), doc), extra_class='cpmap')
+    return svg, rules.ao_legend(doc)
 
 
 # ---------------------------------------------------------------------------

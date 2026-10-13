@@ -924,3 +924,38 @@ def test_an_old_outline_or_an_ao_with_no_room_is_never_read_as_deleted():
     aos = [{'id': 3, 'name': 'North'}, {'id': 4, 'name': 'Never placed'}]
     changes = cp.campaign_map_changes(legacy, aos)
     assert changes['missing'] == [] and changes['new'] == []
+
+
+def test_every_ao_on_the_campaign_map_is_its_own_colour():
+    doc, _ = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'},
+                                                       {'id': 4, 'name': 'South'}])
+    colours = [i['color'] for i in doc['items'] if tacmap.is_ao(i)]
+    assert colours == list(tacmap.AO_COLOURS[:2])
+    legacy = _ao_doc(_box('cpao3', 'North'), _box('cpao4', 'South', color='#1b1f24'),
+                     layers=['cpao3', 'cpao4'])
+    synced, _ = cp.sync_campaign_map(legacy, [{'id': 3, 'name': 'North'},
+                                              {'id': 4, 'name': 'South'}])
+    assert [i['color'] for i in synced['items']] == [tacmap.AO_COLOURS[0], '#1b1f24']
+
+
+def test_an_ao_map_carries_its_aos_colour():
+    camp, _ = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'},
+                                                        {'id': 4, 'name': 'South'}])
+    doc = cp.ao_map_doc(camp, 4, 'South')
+    assert [i['color'] for i in doc['items'] if tacmap.is_ao(i)] == [tacmap.AO_COLOURS[1]]
+    for item in doc['items']:
+        item['color'] = ''                                  # an AO map from before colours
+    matched, changed = cp.match_ao_colour(doc, camp, 4)
+    assert changed and [i['color'] for i in matched['items']] == [tacmap.AO_COLOURS[1]]
+    matched['items'][0]['color'] = '#f5f5f5'                # somebody's own choice …
+    assert cp.match_ao_colour(matched, camp, 4) == (matched, False)   # … is left alone
+
+
+def test_the_campaign_page_key_lists_each_visible_ao_with_its_colour():
+    doc, _ = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'},
+                                                       {'id': 4, 'name': 'South'}])
+    assert cp.ao_legend(doc) == [{'name': 'North', 'colour': tacmap.AO_COLOURS[0]},
+                                 {'name': 'South', 'colour': tacmap.AO_COLOURS[1]}]
+    doc['layers'][2]['visible'] = False
+    assert [e['name'] for e in cp.ao_legend(doc)] == ['North']
+    assert cp.ao_legend(None) == []

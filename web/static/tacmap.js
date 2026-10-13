@@ -177,6 +177,76 @@
 
   var FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
 
+  // Mirrors next_ao_colour(): the first AO colour no other AO on the map is
+  // drawn in, so overlapping AOs never share a border.
+  function nextAOColour(skip) {
+    var used = {};
+    state.doc.items.forEach(function (entry) {
+      if (entry !== skip && entry.ao && (entry.kind === 'area' || entry.kind === 'shape')) {
+        used[itemColour(entry).toLowerCase()] = true;
+      }
+    });
+    var list = catalog.aoColours || [];
+    for (var i = 0; i < list.length; i++) {
+      if (!used[list[i]]) return list[i];
+    }
+    return list.length ? list[Object.keys(used).length % list.length] : '';
+  }
+
+  // Mirrors ao_corner() and ao_tab(): the AO's name in a tab of its own
+  // colour, hung inside the corner nearest the sheet's top left. The width is
+  // estimated from the character count, as the server does, so both draw
+  // the same box.
+  function aoCorner(item) {
+    var points;
+    if (item.kind === 'shape') {
+      var a = item.w / 2;
+      var b = item.h / 2;
+      var turn = (item.rotation || 0) * Math.PI / 180;
+      var cos = Math.cos(turn);
+      var sin = Math.sin(turn);
+      if (item.shape === 'ellipse') {
+        // No corner: the point on the ellipse furthest towards the top left.
+        var dx = cos + sin;
+        var dy = cos - sin;
+        var reach = Math.sqrt(a * a * dx * dx + b * b * dy * dy) || 1;
+        var px = -a * a * dx / reach;
+        var py = -b * b * dy / reach;
+        return [round(item.x + px * cos - py * sin), round(item.y + px * sin + py * cos)];
+      }
+      points = [[-a, -b], [a, -b], [a, b], [-a, b]].map(function (d) {
+        return [round(item.x + d[0] * cos - d[1] * sin), round(item.y + d[0] * sin + d[1] * cos)];
+      });
+    } else {
+      points = item.points;
+    }
+    var best = points[0];
+    points.forEach(function (p) {
+      var s = p[0] + p[1];
+      var t = best[0] + best[1];
+      if (s < t || (s === t && p[1] < best[1])) best = p;
+    });
+    return [round(best[0]), round(best[1])];
+  }
+
+  function aoTabSVG(item) {
+    if (!item.label) return '';
+    var font = labelSize(item.size);
+    var pad = round(font * 0.4);
+    var corner = aoCorner(item);
+    var w = round(item.label.length * font * 0.6 + 2 * pad);
+    var h = round(font * 1.45);
+    var colour = itemColour(item);
+    var contrast = inkBacking(colour);
+    return '<g class="tm-aotab"><rect x="' + corner[0] + '" y="' + corner[1] +
+      '" width="' + w + '" height="' + h + '" rx="' + round(font * 0.2) +
+      '" fill="' + colour + '" stroke="' + contrast + '" stroke-width="' +
+      round(font * 0.12) + '"/><text x="' + round(corner[0] + pad) + '" y="' +
+      round(corner[1] + h * 0.72) + '" text-anchor="start" font-size="' + font +
+      '" font-weight="700" font-family="' + FONT + '" fill="' + contrast + '">' +
+      esc(item.label) + '</text></g>';
+  }
+
   function chromeText(text, x, y, size, paint, anchor) {
     // Mirrors _chrome_text() in utils/tacmap.py: dark over a pale outline, so
     // what sits outside the frame reads on terrain of any colour.
@@ -334,7 +404,7 @@
         (item.ao ? 'fill="none"' : 'fill="' + colour + '" fill-opacity="0.22"') +
         ' stroke="' + colour + '" stroke-width="' + width +
         '"' + dash + ' stroke-linejoin="round"/>' +
-        label(item.label, centre[0], centre[1], item.size);
+        (item.ao ? aoTabSVG(item) : label(item.label, centre[0], centre[1], item.size));
     }
     var parts = ['<polyline points="' + points + '" fill="none" stroke="' + backing +
       '" stroke-width="' + backWidth +
@@ -434,7 +504,7 @@
     parts.push(outline + ' ' + fill + ' stroke="' + colour + '" stroke-width="' + width +
       '"' + dash + ' stroke-linejoin="round"/>');
     return figureTurn(item) + parts.join('') + '</g>' +
-      label(item.label, item.x, item.y, item.size);
+      (item.ao ? aoTabSVG(item) : label(item.label, item.x, item.y, item.size));
   }
 
   function itemSVG(item) {
@@ -1212,7 +1282,7 @@
   function makeAO(item) {
     var count = state.doc.items.filter(function (entry) { return entry.ao; }).length;
     item.ao = true;
-    item.color = '';
+    item.color = nextAOColour(item);
     item.style = 'solid';
     item.fill = 'none';
     item.size = 1;
@@ -1579,6 +1649,9 @@
   editField(fields.fill, function (item) { item.fill = fields.fill.value; });
   editField(fields.ao, function (item) {
     item.ao = fields.ao.checked;
+    // A colour somebody picked stays theirs; an unpicked one gets a colour
+    // no other AO is using, as a drawn AO does.
+    if (item.ao && !item.color) item.color = nextAOColour(item);
     if (item.ao && (!state.doc.mask || !state.doc.mask.on)) {
       state.doc.mask = { on: true, opacity: (state.doc.mask && state.doc.mask.opacity) || 0.55 };
       if (settings.mask) settings.mask.checked = true;

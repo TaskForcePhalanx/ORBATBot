@@ -114,7 +114,16 @@
 </p>
 <div class="cpmapbox">
   {% if campaign_map_svg %}
-    <div class="cpmapframe">{{ campaign_map_svg|safe }}</div>
+    <div class="cpmaprow">
+      <div class="cpmapframe">{{ campaign_map_svg|safe }}</div>
+      {% if ao_legend %}
+        <ul class="cpmapkey" aria-label="Key to the AOs on the campaign map">
+          {% for entry in ao_legend %}
+            <li><span class="cpmapswatch" style="background: {{ entry.colour }}"></span>{{ entry.name }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
   {% endif %}
   <form method="post" action="/g/{{ guild.id }}/campaigns/{{ campaign.id }}/map">
     <input type="hidden" name="csrf" value="{{ csrf }}">

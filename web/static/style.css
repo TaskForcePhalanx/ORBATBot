@@ -1227,6 +1227,11 @@ details.panel > summary .cpstatus { margin-left: 8px; font-size: 13px; font-weig
 .cpmapbox { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 14px; align-items: flex-start; }
 .cpmapframe { width: 100%; max-width: 440px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #20262e; }
 .cpmapframe svg { display: block; width: 100%; height: auto; }
+.cpmaprow { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; width: 100%; }
+.cpmaprow .cpmapframe { flex: 1 1 280px; }
+.cpmapkey { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 140px; }
+.cpmapkey li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.cpmapswatch { flex: none; width: 22px; height: 14px; border-radius: 3px; border: 2px solid #11161c; box-shadow: 0 0 0 1px #f5f5f5; }
 .cpmaplist { list-style: none; padding: 0; margin: 8px 0; }
 .cpmaplist li { margin: 4px 0; }
 .cpmaplist form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
