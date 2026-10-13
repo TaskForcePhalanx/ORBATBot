@@ -519,8 +519,11 @@ LABEL_PLACES = (('middle', 'In the middle'), ('ends', 'At both ends'),
 
 # The marker a line's name rides on in Arma. A line marker shows no text, so
 # the name goes on a small marker of its own at each place it is written.
+# A dot at size 0: checked in game against an Empty or EmptyIcon marker, a
+# dot at 0.4 and text on the line itself, it is the one that shows the name
+# and nothing else — no dot, and the text in Arma's own bold map lettering.
 LINE_LABEL_MARKER = 'mil_dot'
-LINE_LABEL_SIZE = 0.4
+LINE_LABEL_SIZE = 0
 
 # A dashed or dotted line in Arma, in sheet units: Arma has no dashed marker,
 # so the export cuts the line into short line markers, one per dash. Measured
@@ -1432,8 +1435,16 @@ def defs() -> str:
         parts.append(f'<g id="tmv-{key}">{mobility["icon"]}</g>')
     for key, symbol in SYMBOLS.items():
         parts.append(f'<g id="tmi-{key}">{symbol["icon"]}</g>')
+    # The hand-drawn set is the military set with a wobble, as Arma's are: a
+    # small displacement of the line work, the same in the browser and in
+    # resvg, so the two sets look like the two the game has.
+    parts.append('<filter id="tm-rough" x="-30%" y="-30%" width="160%" height="160%">'
+                 '<feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="1" '
+                 'seed="7"/><feDisplacementMap in="SourceGraphic" scale="6" '
+                 'xChannelSelector="R" yChannelSelector="G"/></filter>')
     for key, marker in MARKERS.items():
-        parts.append(f'<g id="tmm-{key}">{marker["icon"]}</g>')
+        rough = ' filter="url(#tm-rough)"' if marker.get('group') == 'Hand-drawn' else ''
+        parts.append(f'<g id="tmm-{key}"{rough}>{marker["icon"]}</g>')
     parts.append('</defs>')
     return ''.join(parts)
 

@@ -2551,7 +2551,11 @@ what an imported marker is matched by (case-insensitively). **The drawings are
 our own**: Arma's icons are Bohemia's artwork, so each is a plain pictogram of
 what it means; national flags are the flags; a fictional faction's or an
 organisation's flag (NATO, UN, CSAT, AAF…) is a plain cloth with its short
-name rather than a copy of its emblem. A flag is `paint`: full colour, drawn
+name rather than a copy of its emblem. The **hand-drawn set** is the military set
+under `tm-rough`, an SVG displacement filter in `defs()` — the same wobble in
+the browser and in resvg — and the picker puts a rule between the groups so
+the two styles never run together. A new marker carries no text until some
+is picked. A flag is `paint`: full colour, drawn
 once, never tinted, and exported with `setMarkerColor "Default"`. The picker
 groups them by `MARKER_GROUPS`. Mod markers (RHS, 3CB flags) are left out —
 a player without the mod sees nothing for them; an imported one comes back
@@ -3140,8 +3144,11 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   tool starts the name as *PL* and drops the cursor after it.
   `line_label_spots()` puts a name above the middle corner or just past an
   end, reading away from the line. **In Arma a line marker shows no text**,
-  so `to_sqf()` writes the name on a `LINE_LABEL_MARKER` (a small `mil_dot`)
-  at each place it is drawn, instead of `setMarkerText` on the polyline.
+  so `to_sqf()` writes the name on a `LINE_LABEL_MARKER` — a `mil_dot` at
+  **size 0** — at each place it is drawn. Checked in game against an `Empty`
+  or `EmptyIcon` marker (no text at all), a dot at 0.4 (a visible dot) and
+  `setMarkerText` on the polyline (nothing): only the size-0 dot shows the
+  name and nothing else.
 
 ### Back from Arma, and what does not survive the trip
 

@@ -40,7 +40,8 @@
     tool: 'select',
     side: 'friend',
     symbol: 'inf',
-    glyph: catalog.points.length ? catalog.points[0].glyph : 'OBJ',
+    // No text on a new marker until somebody picks some.
+    glyph: '',
     marker: catalog.defaultMarker,
     echelon: '',
     dimension: catalog.defaultDimension,
@@ -2024,10 +2025,13 @@
       }
       groups[group].push(marker);
     });
-    select.innerHTML = order.map(function (group) {
-      return '<optgroup label="' + attr(group) + '">' + groups[group].map(function (marker) {
-        return '<option value="' + attr(marker.key) + '">' + esc(marker.label) + '</option>';
-      }).join('') + '</optgroup>';
+    // Military first, then the hand-drawn set, then the rest — each its own
+    // group, with a rule between them so the two styles never run together.
+    select.innerHTML = order.map(function (group, index) {
+      return (index ? '<option disabled>──────────</option>' : '') +
+        '<optgroup label="' + attr(group) + '">' + groups[group].map(function (marker) {
+          return '<option value="' + attr(marker.key) + '">' + esc(marker.label) + '</option>';
+        }).join('') + '</optgroup>';
     }).join('');
     select.value = value;
   }
@@ -2045,9 +2049,10 @@
   var symbolOptions = catalog.symbols.map(function (symbol) {
     return { value: symbol.key, label: symbol.group + ' · ' + symbol.label };
   });
-  var glyphOptions = catalog.points.map(function (preset) {
-    return { value: preset.glyph, label: preset.glyph + ' · ' + preset.label };
-  });
+  var glyphOptions = [{ value: '', label: 'No text' }].concat(
+    catalog.points.map(function (preset) {
+      return { value: preset.glyph, label: preset.glyph + ' · ' + preset.label };
+    }));
   var echelonOptions = [{ value: '', label: 'No size' }].concat(
     catalog.echelons.map(function (entry) {
       return { value: entry.key, label: entry.label };

@@ -775,7 +775,7 @@ Paste the plan into a running mission as markers, with no mod on either side.
 >
 > Arma has no dashed line and draws every line at one width, so a dashed or dotted line arrives as its dashes — one short line marker each, at most 150 per line — and thickness stays on the website. Arrow heads arrive as Arma arrow markers at whichever ends have one.
 >
-> A line’s name arrives on a small dot marker at the same place — the middle, or both ends of a phase line — because a line marker shows no text in Arma.
+> A line’s name arrives as text alone at the same place — the middle, or both ends of a phase line — on an invisible marker, because a line marker shows no text in Arma.
 >
 > Above the scripts, the panel says how many markers the plan makes and what will not survive the trip.
 >
