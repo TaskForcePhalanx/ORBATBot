@@ -64,6 +64,11 @@
         <div class="tmpanel tmpick" id="tmtoolpanel">
           <h3 id="tmtooltitle">Select</h3>
           <p class="tmtoolhint" id="tmtoolhint"></p>
+          {% if guild is defined and guild and is_admin %}
+          <p class="tmtoolhint" data-for="unit point" id="tmnopics" hidden>
+            Only units and markers this server has Arma's pictures for are listed.
+            <a href="/g/{{ guild.id }}/terrains#marker-icons">Upload marker pictures</a></p>
+          {% endif %}
 
         <label>Side <select id="tmside"></select></label>
         <label>Layer <select id="tmlayerpick"></select></label>

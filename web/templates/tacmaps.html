@@ -16,9 +16,11 @@
   The plan, drawn on the terrain: unit symbols, movement lines, objectives and
   boundaries. A map can be shared with a link so anyone who needs it can open it
   without signing in, and posted into a channel.
-  The terrains they are drawn on live under
-  <a href="/g/{{ guild.id }}/terrains">Terrains</a>.
 </p>
+<div class="actions" style="margin-bottom:16px">
+  <a class="button" href="/g/{{ guild.id }}/terrains">🗻 Terrains</a>
+  <a class="button" href="/g/{{ guild.id }}/terrains#marker-icons">🎖️ Marker pictures</a>
+</div>
 
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 

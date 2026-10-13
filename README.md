@@ -653,7 +653,7 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 
 > Units and markers are drawn with Arma’s own pictures, as the game draws them: a unit is the game’s NATO marker for its side (BLUFOR, OPFOR, Independent, civilian) with Arma’s size marker stacked on it, and every marker is the game’s, grouped as in the game. Each exports as exactly that marker.
 >
-> The pictures are Bohemia’s, so an admin uploads them once, as a zip of PNGs, at the bottom of the **Terrains** page, which also lists which files are still missing. The editor only offers the units and markers with a picture; anything else on a map shows as a **?** placeholder. The pictures stay private to the server’s members and share-link holders.
+> The pictures are Bohemia’s, so an admin uploads them once, as a zip of PNGs: **Maps → 🎖️ Marker pictures** (the bottom of the Terrains page), which also lists which files are still missing. The editor only offers the units and markers with a picture; anything else on a map shows as a **?** placeholder. The pictures stay private to the server’s members and share-link holders.
 >
 > Lines get an arrow head only when you ask for one — most lines on a plan are boundaries and phase lines, which point nowhere.
 >

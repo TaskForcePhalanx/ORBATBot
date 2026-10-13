@@ -861,8 +861,8 @@ _MAPS: tuple[Topic, ...] = (
             'marker is the game’s, grouped as in the game. Each exports as exactly '
             'that marker.',
             'The pictures are Bohemia’s, so an admin uploads them once, as a zip of '
-            'PNGs, at the bottom of the **Terrains** page, which also lists which '
-            'files are still missing. The editor only offers the units and markers '
+            'PNGs: **Maps → 🎖️ Marker pictures** (the bottom of the Terrains page), '
+            'which also lists which files are still missing. The editor only offers the units and markers '
             'with a picture; anything else on a map shows as a **?** placeholder. '
             'The pictures stay private to the server’s members and share-link holders.',
             'Lines get an arrow head only when you ask for one — most lines on '
