@@ -811,6 +811,11 @@ _MAPS: tuple[Topic, ...] = (
                 'terrain.',
         steps=(
             'Go to **Maps**, name the new map, and press **Create**.',
+            'The editor: tools down the left, the map in the middle, and on the right '
+            'what the tool in hand will draw — or, with something selected, its '
+            'details. Terrain, OCAP, sharing, posting, Arma and the map’s name are '
+            'menus in the bar above. **⤢ Whole window** gives the map the screen '
+            '(**Esc** to come back); **+ − ⤢** on the map zoom and fit it.',
             'Pick a symbol from the palette and click the sheet to place it.',
             'Select a symbol to open the inspector: side, what it is, size, '
             'mobility, parent unit, whether it is only planned, and its label.',
@@ -844,8 +849,9 @@ _MAPS: tuple[Topic, ...] = (
             'The **AO** tool greys out the whole map and clears each area you draw '
             'with it, the way a covered Arma map does. Each AO gets a border colour no '
             'other AO uses and its name in a tab of that colour at its top-left corner.',
-            'Press **Save**. Everyone looking at the map sees the saved '
-            'version.',
+            'It saves by itself a moment after each change (**Autosave** in the bar; '
+            'untick it to save only when you press **Save**). Everyone looking at '
+            'the map sees the saved version.',
         ),
         notes=(
             'The frame says whose it is: rectangle friendly, diamond hostile, '
@@ -892,6 +898,9 @@ _MAPS: tuple[Topic, ...] = (
             'else.',
             'Deleting a layer moves its items to the first layer rather than '
             'taking them with it.',
+            'The ↑ ↓ beside a layer change the drawing order — lower in the list is '
+            'drawn on top. 🔒 locks a layer: it is still drawn, but nothing on it can '
+            'be picked up or moved while you draw over it.',
             'A hidden layer is left out of the Arma export: markers you have '
             'switched off are not part of the plan being handed over.',
         ),
@@ -902,15 +911,15 @@ _MAPS: tuple[Topic, ...] = (
         title='Put a real terrain behind the plan',
         group='maps',
         audience=ADMIN,
-        where='Web — **Terrains**, or the map editor’s background panels',
+        where='Web — **Terrains**, or the map editor’s **Terrain** and **OCAP** menus',
         summary='Draw on the actual terrain instead of a blank sheet.',
         steps=(
             '**Best: upload it.** Go to **Terrains** (linked from the Maps '
             'page) and upload the same tile archive you prepare for OCAP — a '
             'zip or 7z with the numbered folders `0/ 1/ 2/ …` in it.',
-            'Then open a map and use **🗻 Put it on a terrain** to pick it.',
-            '**Or point at a running OCAP server**: in the editor, press **List '
-            'the terrains**, pick one, and import it.',
+            'Then open a map and use the **🗻 Terrain** menu in its bar to pick it.',
+            '**Or point at a running OCAP server**: in the editor’s **🛰️ OCAP** '
+            'menu, press **List the terrains**, pick one, and import it.',
             'Either way the terrain’s Arma coordinates come along, which '
             'is what makes the export land in the right place.',
         ),
@@ -936,19 +945,19 @@ _MAPS: tuple[Topic, ...] = (
         title='Put the town names on the map',
         group='maps',
         audience=ADMIN,
-        where='Web — the map\u2019s background panel, or **Terrains**',
+        where='Web — the map\u2019s **OCAP** menu, or **Terrains**',
         summary='A terrain arrives with roads and contours and no labels. This '
                 'is how it learns what its towns are called.',
         steps=(
-            '**On an OCAP terrain:** open the map, go to *Terrain and '
-            'background* \u2192 **Place names from OCAP**, and press **Import '
-            'place names**. It reads the server the map points at.',
+            '**On an OCAP terrain:** open the map, open the **🛰️ OCAP** menu \u2192 '
+            '**Place names from OCAP**, and press **Import place names**. It reads '
+            'the server the map points at.',
             '**On a terrain uploaded here:** the archive\u2019s own '
             '`locations` files are read on upload, if it has them.',
             'Either way it is once per **terrain** — every map drawn on it '
             'gains the names.',
-            'Too many? The editor\u2019s background panel has a switch per '
-            'group and a size slider.',
+            'Too many? **Map settings** in the editor\u2019s side panel has a switch '
+            'per group and a size slider.',
             '**If it finds nothing**, it is that one terrain that carries no '
             'location data \u2014 other terrains on the same server can still '
             'import fine. The same panel then has a script and a paste box: '
@@ -982,11 +991,11 @@ _MAPS: tuple[Topic, ...] = (
         title='Share, copy or post a map',
         group='maps',
         audience=UNIT_LEADER,
-        where='Web — the map’s **Share** and **Post** panels',
+        where='Web — the map’s **Share** and **Post** menus',
         summary='Give people a link that needs no login, copy a plan to start '
                 'the next one, or announce it in a channel.',
         steps=(
-            '**Share**: open the **Share** panel and pick **view** or **edit**. '
+            '**Share**: open the **Share** menu and pick **view** or **edit**. '
             'You get a `/m/…` link that works without signing in.',
             '**Post**: pick a channel and press **Post**. The bot sends an '
             'embed with the link and the counts.',
@@ -1014,14 +1023,14 @@ _MAPS: tuple[Topic, ...] = (
         title='Get the plan into Arma 3',
         group='maps',
         audience=UNIT_LEADER,
-        where='Web — the map’s **Arma** panel',
+        where='Web — the map’s **To Arma** menu',
         summary='Paste the plan into a running mission as markers, with no mod '
                 'on either side.',
         steps=(
             'Make sure the map sits on a terrain, or that its Arma corners are '
             'filled in — the export needs to know where the sheet is in the '
             'world.',
-            'Open the **Arma** panel and copy one of the two scripts.',
+            'Open the **🎯 To Arma** menu in the map’s bar and copy one of the two scripts.',
             'In the mission, open the **debug console** as a logged-in admin '
             'and paste it.',
             'Press **LOCAL EXEC**. `createMarker` is global, so one machine '
@@ -1065,13 +1074,13 @@ _MAPS: tuple[Topic, ...] = (
         title='Bring markers back from Arma 3',
         group='maps',
         audience=UNIT_LEADER,
-        where='Web — the map’s **Import from Arma 3** panel',
+        where='Web — the map’s **From Arma** menu',
         summary='Copy the markers a mission’s players drew onto the map, so a plan '
                 'finished in game can be kept and briefed.',
         steps=(
             'Check the map’s Arma corners match the mission’s terrain — the '
             'markers are placed by them.',
-            'Copy the script in the **Import from Arma 3** panel, run it in the '
+            'Copy the script in the **📥 From Arma** menu, run it in the '
             'mission’s debug console with **LOCAL EXEC**: it copies every marker '
             'to your clipboard.',
             'Paste into **What it copied**, leave **Only markers players drew** '

@@ -1195,11 +1195,17 @@ def _parse_layers(raw) -> list:
         if not key or key in seen:
             continue
         seen.add(key)
-        layers.append({
+        layer = {
             'id': key,
             'name': _text(entry.get('name'), MAX_LAYER_NAME) or key,
             'visible': bool(entry.get('visible', True)),
-        })
+        }
+        # Locked: drawn, but nothing on it can be picked up in the editor —
+        # the terrain overlay or the enemy picture nobody should nudge while
+        # drawing the plan over it. Only written when set.
+        if entry.get('locked'):
+            layer['locked'] = True
+        layers.append(layer)
     return layers or [dict(DEFAULT_LAYER)]
 
 

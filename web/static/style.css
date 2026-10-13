@@ -1331,3 +1331,105 @@ details.panel > summary .cpstatus { margin-left: 8px; font-size: 13px; font-weig
 @media (max-width: 600px) { .dcmsg { padding-left: 60px; } .dcavatar { left: 10px; width: 36px; height: 36px; } }
 .dcinline .dc-spoiler:hover { background: rgba(255,255,255,.1); color: inherit; }
 .dcinline .dc-spoiler:hover * { visibility: visible; }
+
+/* -- the map editor's layout ------------------------------------------------ *
+   One bar (the page's menus, then saving), a rail of tools down the left, the
+   map filling the middle, and a side panel that shows what the tool in hand
+   will draw or what is selected. The map takes the height of the window, and
+   "Whole window" hands it the rest. */
+.tmeditor { overflow: visible; }
+.tmeditor .tmbar {
+  position: relative; flex-wrap: nowrap; padding: 8px 10px; gap: 10px;
+  border-radius: 12px 12px 0 0;
+}
+.tmmenus { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; min-width: 0; }
+.tmmenu > summary {
+  list-style: none; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); cursor: pointer; font-size: 14px; white-space: nowrap; user-select: none;
+}
+.tmmenu > summary::-webkit-details-marker { display: none; }
+.tmmenu > summary:hover { border-color: var(--muted); }
+.tmmenu[open] > summary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tmmenupanel {
+  position: absolute; top: calc(100% + 4px); left: 10px; z-index: 30;
+  width: min(580px, calc(100vw - 40px)); max-height: min(72vh, 760px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38); padding: 14px 16px;
+}
+.tmmenutitle { margin: 0 0 10px; font-size: 16px; }
+.tmmenutitle .note { font-weight: 400; }
+.tmeditor .tmdo { flex-wrap: nowrap; min-width: 0; }
+.tmeditor .tmdo .button { white-space: nowrap; }
+.tmeditor .tmdo .tmstatus { min-width: 0; flex: 1 1 auto; }
+.tmauto { font-size: 13px; color: var(--muted); display: flex; gap: 5px; align-items: center; white-space: nowrap; }
+
+.tmeditor .tmstage {
+  grid-template-columns: 76px minmax(0, 1fr) 292px;
+  height: max(520px, calc(100vh - 150px));
+}
+.tmrail {
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; overflow-y: auto;
+  border-right: 1px solid var(--line); background: var(--panel-2);
+}
+.tmrail .tmtool {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 2px 6px; font-size: 11px; line-height: 1.1;
+}
+.tmrail .tmicon { font-size: 18px; line-height: 1; }
+.tmeditor .tmcanvas { overflow: hidden; }
+.tmeditor svg.tacmap { height: 100%; max-height: none; }
+.tmeditor .tmside { max-height: none; height: 100%; box-sizing: border-box; }
+
+.tmzoom {
+  position: absolute; right: 10px; bottom: 10px; z-index: 2;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.tmzoom button {
+  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line);
+  background: rgba(16, 20, 26, 0.82); color: #e6eaf0; font-size: 17px; line-height: 1; cursor: pointer;
+}
+.tmzoom button:hover { border-color: var(--muted); }
+
+/* The tool's options, stacked in the side panel. */
+.tmside .tmpick { display: grid; gap: 8px; }
+.tmside .tmpick h3 { margin: 0; }
+.tmside .tmpick label {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--muted);
+}
+.tmside .tmpick label.tmcheck { justify-content: flex-start; }
+.tmside .tmpick select { max-width: 172px; min-width: 0; }
+.tmside .tmpick [hidden], .tmside .tmpick[hidden] { display: none; }
+.tmrail.tmtools { align-items: stretch; flex-wrap: nowrap; }
+.tmmenutitle .note { border: 0; background: none; padding: 0; font-size: 13px; font-weight: 400;
+  color: var(--muted); }
+.tmtoolhint { margin: 0; font-size: 12.5px; color: var(--muted); }
+.tmtoolhint:empty { display: none; }
+.tmhelp > summary { cursor: pointer; font-weight: 600; color: var(--text); }
+
+/* Whole window: the editor over everything else on the page. */
+.tmapp.tm-focus {
+  position: fixed; inset: 0; z-index: 100; margin: 0; border-radius: 0; border: 0;
+  display: flex; flex-direction: column;
+}
+.tmapp.tm-focus .tmbar { border-radius: 0; }
+.tmapp.tm-focus .tmstage { flex: 1; height: auto; min-height: 0; }
+body.tm-focused { overflow: hidden; }
+
+/* Layers: order and lock. */
+.tmlayerctl { display: inline-flex; gap: 1px; }
+.tmlayer .tmlayerbtn:disabled { opacity: .3; cursor: default; }
+.tmlayer .tmlayerbtn {
+  border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 13px;
+}
+.tmlayer .tmlayerbtn:hover { color: var(--text); }
+.tmlayer .tmlayerbtn.on { color: var(--warn); }
+
+@media (max-width: 900px) {
+  .tmeditor .tmbar, .tmeditor .tmdo { flex-wrap: wrap; }
+  .tmeditor .tmstage { grid-template-columns: 1fr; height: auto; }
+  .tmrail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .tmrail .tmtool { min-width: 58px; }
+  .tmeditor .tmcanvas { height: 70vh; }
+  .tmeditor .tmside { height: auto; border-left: 0; border-top: 1px solid var(--line); }
+}

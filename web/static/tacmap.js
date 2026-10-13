@@ -1223,6 +1223,7 @@
       row.appendChild(shown);
 
       var kind = plannerLayer(entry.id);
+      if (editable) row.appendChild(layerControls(entry, index));
       if (editable && kind) {
         var fixed = document.createElement('span');
         fixed.className = 'tmlayerfixed';
@@ -1277,6 +1278,58 @@
       }
       layerList.appendChild(row);
     });
+  }
+
+  // Up, down and lock, in front of the layer's name. Order is drawing
+  // order: a layer lower in the list is drawn over the ones above it.
+  function layerControls(entry, index) {
+    var box = document.createElement('span');
+    box.className = 'tmlayerctl';
+    var list = layers();
+    [['↑', -1, 'Draw this layer under the one above'],
+     ['↓', 1, 'Draw this layer over the one below']].forEach(function (spec) {
+      var target = index + spec[1];
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tmlayerbtn';
+      button.textContent = spec[0];
+      button.title = spec[2];
+      button.disabled = target < 0 || target >= list.length;
+      button.addEventListener('click', function () {
+        snapshot();
+        var moved = list.splice(index, 1)[0];
+        list.splice(target, 0, moved);
+        touched();
+        refreshLayers();
+        render();
+      });
+      box.appendChild(button);
+    });
+    var lock = document.createElement('button');
+    lock.type = 'button';
+    lock.className = 'tmlayerbtn' + (entry.locked ? ' on' : '');
+    lock.textContent = entry.locked ? '🔒' : '🔓';
+    lock.title = entry.locked ? 'Locked — nothing on it can be picked up. Click to unlock.'
+      : 'Lock: keep everything on this layer from being picked up or moved';
+    lock.addEventListener('click', function () {
+      if (entry.locked) delete entry.locked;
+      else entry.locked = true;
+      // Whatever is selected on a layer that just locked is let go.
+      var keep = selection().filter(function (i) { return !isLocked(state.doc.items[i]); });
+      state.selected = keep.length ? keep[keep.length - 1] : -1;
+      state.extra = keep.slice(0, -1);
+      touched();
+      drawLayers();
+      render();
+      fillInspector();
+    });
+    box.appendChild(lock);
+    return box;
+  }
+
+  function isLocked(item) {
+    if (!item) return false;
+    return layers().some(function (entry) { return entry.id === item.layer && entry.locked; });
   }
 
   function removeLayer(index, withItems) {
@@ -1351,6 +1404,37 @@
     state.dirty = true;
     state.edits = (state.edits || 0) + 1;
     say('Unsaved changes', 'warn');
+    scheduleAutosave();
+  }
+
+  // Autosave: a moment after the last change, unless something is being
+  // drawn or dragged right now, or the last save ran into somebody else's —
+  // then it waits for the person to choose. Remembered per browser; on by
+  // default.
+  var autosaveBox = document.getElementById('tmautosave');
+  var autosaveTimer = null;
+  state.autosave = true;
+  try { state.autosave = window.localStorage.getItem('tmautosave') !== '0'; } catch (e) { /* none */ }
+  if (autosaveBox) {
+    autosaveBox.checked = state.autosave;
+    autosaveBox.addEventListener('change', function () {
+      state.autosave = autosaveBox.checked;
+      try { window.localStorage.setItem('tmautosave', state.autosave ? '1' : '0'); } catch (e) { /* none */ }
+      if (state.autosave && state.dirty) scheduleAutosave();
+    });
+  }
+
+  function scheduleAutosave() {
+    if (!autosaveBox || !state.autosave || state.blocked) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(function autosaveTick() {
+      if (!state.dirty || state.blocked) return;
+      if (state.draft || state.drag || state.handle || state.box || state.marquee) {
+        autosaveTimer = setTimeout(autosaveTick, 800);
+        return;
+      }
+      save();
+    }, 1500);
   }
 
   function selected() {
@@ -1526,6 +1610,7 @@
       return;
     }
 
+    if (group && isLocked(state.doc.items[Number(group.dataset.i)])) group = null;
     if (group) {
       var index = Number(group.dataset.i);
       if (event.shiftKey) {
@@ -1857,6 +1942,36 @@
       field.hidden = field.dataset.for.split(' ').indexOf(tool) < 0;
     });
     svg.classList.toggle('tm-drawing', tool !== 'select');
+    showToolPanel();
+  }
+
+  // The side panel's first box: what the tool in hand does and draws. With
+  // the Select tool and something selected, the inspector is what matters,
+  // so this steps aside.
+  var TOOL_HINTS = {
+    select: 'Click to select, Shift+click for several, drag to move. Ctrl+click ' +
+      'or Ctrl+drag draws a line from here too.',
+    unit: 'Click to place the symbol.',
+    point: 'Click to place the marker — every Arma map marker is in the list.',
+    line: 'Click each corner, double-click or Enter to finish — or drag freehand.',
+    phase: 'Click each corner; the line is named at both ends.',
+    area: 'Click each corner, Enter to close it — or drag freehand.',
+    rect: 'Drag corner to corner; Shift for a square.',
+    ellipse: 'Drag corner to corner; Shift for a circle.',
+    ao: 'Draw the area of operations; everything outside it is greyed out.',
+    text: 'Click to place a label.',
+    measure: 'Drag to measure a distance and bearing. Nothing is drawn.'
+  };
+
+  function showToolPanel() {
+    var panel = document.getElementById('tmtoolpanel');
+    if (!panel) return;
+    var button = app.querySelector('.tmtool[data-tool="' + state.tool + '"]');
+    var title = document.getElementById('tmtooltitle');
+    var hint = document.getElementById('tmtoolhint');
+    if (title && button) title.textContent = button.title.replace(/\s*\(\w\)$/, '');
+    if (hint) hint.textContent = TOOL_HINTS[state.tool] || '';
+    panel.hidden = state.tool === 'select' && selection().length > 0;
   }
 
   Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
@@ -2119,6 +2234,7 @@
   }), 'middle');
 
   function fillInspector() {
+    showToolPanel();
     var item = selected();
     var many = selection().length > 1;
     inspector.hidden = !item || many;
@@ -2337,7 +2453,7 @@
     var hidden = hiddenLayers();
     var picked = selection();
     state.doc.items.forEach(function (item, index) {
-      if (hidden[item.layer] || picked.indexOf(index) >= 0) return;
+      if (hidden[item.layer] || picked.indexOf(index) >= 0 || isLocked(item)) return;
       // Inside means wholly inside: every corner of a line, the centre of
       // anything else.
       var inside = itemAnchors(item).every(function (p) {
@@ -2564,6 +2680,69 @@
     settings[key].addEventListener('change', settingsChanged);
   });
 
+  /* -- the bar's menus, the whole window, zoom ------------------------------- */
+
+  // The menus are <details>, so they open without any of this; this only
+  // keeps one open at a time and closes it on a click anywhere else.
+  var menus = Array.prototype.slice.call(document.querySelectorAll('.tmmenu'));
+  menus.forEach(function (menu) {
+    menu.addEventListener('toggle', function () {
+      if (!menu.open) return;
+      menus.forEach(function (other) { if (other !== menu) other.open = false; });
+    });
+  });
+  document.addEventListener('pointerdown', function (event) {
+    menus.forEach(function (menu) {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    });
+  });
+
+  var focusButton = document.getElementById('tmfocus');
+  // The page column is centred with a transform, which makes it the box a
+  // fixed element is placed in — so for the whole window the editor moves
+  // to the body, and back to where it was afterwards.
+  var focusHome = null;
+  function setFocus(on) {
+    if (on && !focusHome) {
+      focusHome = document.createComment('tmapp');
+      app.parentNode.insertBefore(focusHome, app);
+      document.body.appendChild(app);
+    } else if (!on && focusHome) {
+      focusHome.parentNode.insertBefore(app, focusHome);
+      focusHome.remove();
+      focusHome = null;
+    }
+    app.classList.toggle('tm-focus', on);
+    document.body.classList.toggle('tm-focused', on);
+    if (focusButton) focusButton.textContent = on ? '✕ Exit' : '⤢ Whole window';
+    try { window.localStorage.setItem('tmfocus', on ? '1' : '0'); } catch (e) { /* none */ }
+  }
+  if (focusButton) {
+    focusButton.addEventListener('click', function () {
+      setFocus(!app.classList.contains('tm-focus'));
+    });
+    try { if (window.localStorage.getItem('tmfocus') === '1') setFocus(true); } catch (e) { /* none */ }
+  }
+
+  function zoomBy(factor) {
+    var cx = view.x + view.w / 2;
+    var cy = view.y + view.h / 2;
+    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20), state.doc.width * 3);
+    var scale = width / view.w;
+    view.w = width;
+    view.h = view.h * scale;
+    view.x = cx - view.w / 2;
+    view.y = cy - view.h / 2;
+    applyView();
+    drawSelection();
+  }
+  [['tmzoomin', 1 / 1.4], ['tmzoomout', 1.4]].forEach(function (pair) {
+    var button = document.getElementById(pair[0]);
+    if (button) button.addEventListener('click', function () { zoomBy(pair[1]); });
+  });
+  var fitButton = document.getElementById('tmzoomfit');
+  if (fitButton) fitButton.addEventListener('click', function () { resetView(); drawSelection(); });
+
   /* -- saving --------------------------------------------------------------- */
 
   var saving = false;
@@ -2574,6 +2753,8 @@
     ? null : Number(app.dataset.rev);
 
   function conflict(message) {
+    // Autosave stops here: the person has to choose.
+    state.blocked = true;
     say(message + ' ', 'err');
     var reload = document.createElement('button');
     reload.type = 'button';
@@ -2618,6 +2799,7 @@
         return;
       }
       if (typeof answer.rev === 'number') rev = answer.rev;
+      state.blocked = false;
       var editedSince = (state.edits || 0) !== editsAtSend;
       if (editedSince) {
         // Something was drawn while the save was out. Replacing the
@@ -2625,6 +2807,7 @@
         // on screen and leave it unsaved: the next save brings the planner's
         // changes back in (an AO outline finds its way home by its name).
         say('Saved — and you have changed it since. Save again to keep that.', 'warn');
+        scheduleAutosave();
         return;
       }
       state.dirty = false;
@@ -2737,7 +2920,9 @@
         event.preventDefault();
         var all = [];
         var hidden = hiddenLayers();
-        state.doc.items.forEach(function (item, index) { if (!hidden[item.layer]) all.push(index); });
+        state.doc.items.forEach(function (item, index) {
+          if (!hidden[item.layer] && !isLocked(item)) all.push(index);
+        });
         state.selected = all.length ? all[all.length - 1] : -1;
         state.extra = all.slice(0, -1);
         render();
@@ -2775,6 +2960,10 @@
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
     if (event.key === 'Escape') {
+      if (state.selected < 0 && app.classList.contains('tm-focus')) {
+        setFocus(false);
+        return;
+      }
       state.draft = null;
       overlay.innerHTML = '';
       say('');

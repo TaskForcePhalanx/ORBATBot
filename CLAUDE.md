@@ -102,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(630 cases), and every one of them covers a module that imports nothing beyond
+(632 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -3076,6 +3076,35 @@ means:
 
 Lines and areas are `POLYLINE` markers and the map's own editing is built
 around icon markers, so those may stay fixed while the symbols move.
+
+### The editor's layout
+
+One bar, a rail, the map, a side panel (`_tacmap_canvas.html`, `.tmeditor`):
+
+- **The bar** carries the page's menus on the left — terrain, OCAP, share,
+  post, to and from Arma, name/copy/delete — and saving on the right. The
+  menus are the old panels under the map, now `<details class="tmmenu">`
+  dropdowns: `tacmap_edit.html` builds them into `map_menus` with
+  `{% set %}` and the canvas renders that in its bar, so the share-link page
+  (which sets none) has a bar with saving only. Being `<details>` they open
+  without JavaScript and `panel=` still opens the one a form came back to;
+  `tacmap.js` only keeps one open and closes it on a click elsewhere.
+- **The rail** holds the tools; **the side panel** shows what the tool in
+  hand draws (`#tmtoolpanel`, the old toolbar pickers) — stepping aside while
+  something is selected with Select, when the inspector matters — then the
+  layers, Map settings, Arma coordinates and Keys.
+- **The map takes the window's height**; **Whole window** (`tm-focus`) makes
+  the editor fixed over the page. `.widepage` is centred with a transform,
+  which traps a fixed element, so `setFocus()` moves the editor to `<body>`
+  and back. Esc leaves it when nothing is selected. **+ − ⤢** zoom and fit.
+- **Autosave**, on by default and remembered per browser, saves 1.5 s after
+  the last change, waits while something is being drawn or dragged, and stops
+  after a refused save (`state.blocked`) until the person chooses.
+- **Layers** can be reordered (↑ ↓ — order is drawing order) and **locked**
+  (`locked: true`, written only when set): drawn, but nothing on them can be
+  selected, boxed, Ctrl+A'd or dragged.
+- Below 900 px the rail runs across the top and the side panel goes under
+  the map.
 
 ### Editing, measuring and moving several things at once
 

@@ -2173,3 +2173,11 @@ def test_a_flag_is_its_own_colours_in_both_places():
     assert svg.count('<use href="#tmm-flag_uk"') == 1 and 'stroke-width="15"' not in svg
     assert tacmap.arma_colour(item) == 'Default'
     assert '<g id="tmm-flag_uk">' in tacmap.defs()
+
+
+def test_a_locked_layer_stays_locked_and_others_carry_nothing_new():
+    doc = tacmap.parse({'layers': [{'id': 'plan', 'name': 'Plan', 'visible': True},
+                                   {'id': 'enemy', 'name': 'Enemy', 'visible': True,
+                                    'locked': True}], 'items': []}).doc
+    assert doc['layers'][1]['locked'] is True
+    assert 'locked' not in doc['layers'][0]
