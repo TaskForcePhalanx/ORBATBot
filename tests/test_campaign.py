@@ -891,6 +891,23 @@ def test_an_outline_whose_layer_was_deleted_goes_home_rather_than_doubling():
     assert placed['items'][1]['layer'] == 'cpao4' and notes == []
 
 
+def test_deleting_an_ao_layer_in_the_editor_never_doubles_it():
+    aos = [{'id': 3, 'name': 'North'}]
+    before = _ao_doc(_box('cpao3', 'North'), layers=['cpao3'])
+    # An editor from before this fix moved the outline to the first layer:
+    # it goes home, rather than becoming a second North beside a fresh layer.
+    moved = _ao_doc(_box('plan', 'North'))
+    changes = cp.campaign_map_changes(moved, aos, before)
+    assert changes['new'] == [] and changes['reattach'] == {0: 3}
+    placed, _ = cp.place_ao_items(moved, {0: (3, 'North')})
+    synced, _ = cp.sync_campaign_map(placed, aos)
+    assert [l['id'] for l in synced['layers']] == ['plan', 'cpao3']
+    assert sum(1 for i in synced['items'] if tacmap.is_ao(i)) == 1
+    # The editor now takes the outline with the layer: that is deleting the AO.
+    gone = cp.campaign_map_changes(_ao_doc(), aos, before)
+    assert gone['missing'] == [3] and gone['new'] == []
+
+
 def test_a_deleted_outline_is_reported_missing():
     changes = cp.campaign_map_changes(_ao_doc(layers=['cpao3']), [{'id': 3, 'name': 'North'}])
     assert changes['missing'] == [3]

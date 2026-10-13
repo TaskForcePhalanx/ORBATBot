@@ -104,15 +104,40 @@ async def places_for(guild_id, doc: dict) -> list:
     return places
 
 
-async def save(record, raw_doc: str, member_name: str = None) -> list:
-    """Store what the editor sent. Returns the notes worth telling the person."""
+class Conflict(ValueError):
+    """Somebody else saved the map after this editor opened it."""
+
+
+async def save(record, raw_doc: str, member_name: str = None,
+               base_rev=None, force: bool = False) -> tuple[list, int]:
+    """Store what the editor sent. Returns the notes worth telling the person
+    and the map's revision now.
+
+    `base_rev` is the revision the editor opened on (or last saved). A save
+    from an editor that is behind is refused with `Conflict` rather than
+    putting the older plan back over somebody else's work — unless `force`,
+    which is the person choosing to do exactly that. An editor from before
+    revisions existed sends none, and saves as it always did."""
     checked = tacmap.parse(raw_doc)
     if not checked.ok:
         raise ValueError(' '.join(checked.errors))
-    await database.save_tac_map_doc(
-        record['id'], tacmap.dumps(checked.doc), member_name
-    )
-    return checked.warnings
+    body = tacmap.dumps(checked.doc)
+    if base_rev is None or force:
+        await database.save_tac_map_doc(record['id'], body, member_name)
+        fresh = await database.get_tac_map(record['id'])
+        return checked.warnings, fresh['doc_rev']
+    try:
+        base = int(base_rev)
+    except (TypeError, ValueError):
+        raise ValueError('That save did not say which version of the map it was made on.')
+    rev = await database.save_tac_map_doc_if(record['id'], body, member_name, base)
+    if rev is None:
+        fresh = await database.get_tac_map(record['id'])
+        who = (fresh and fresh['updated_by_name']) or 'Somebody'
+        raise Conflict(
+            f'{who} saved this map after you opened it. Reload to see their version '
+            '(your unsaved changes here are lost), or save yours over theirs.')
+    return checked.warnings, rev
 
 
 # Long enough for a home server on a slow line, short enough that a page does

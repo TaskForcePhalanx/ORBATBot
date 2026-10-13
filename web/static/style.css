@@ -731,6 +731,12 @@ table.rawslots tr:last-child td { border-bottom: 0; }
 .tmtool.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .tmstatus { font-size: 13px; color: var(--muted); min-width: 120px; }
+/* One line, always: a hint that wraps when it changes moves the whole map
+   down under the pointer between two clicks of a line being plotted. The
+   full text is in the title. A refusal may wrap — it carries buttons, and
+   nobody is mid-click when it appears. */
+.tmstatus { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52ch; }
+.tmstatus.err { white-space: normal; }
 .tmstatus.ok { color: var(--ok); }
 .tmstatus.warn { color: var(--warn); }
 .tmstatus.err { color: var(--err); }
@@ -904,6 +910,9 @@ svg.tacmap.tm-drawing { cursor: crosshair; }
    gets the name and a way to remove one. */
 .tmlayerlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .tmlayer { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+/* A layer the campaign planner names: read here, renamed there. */
+.tmlayer .tmlayerfixed { flex: 1; min-width: 0; padding: 4px 6px; cursor: help; }
+.tmlayer .tmlayerfixed::before { content: '🔗 '; opacity: 0.7; }
 .tmlayer .tmlayername {
   flex: 1;
   min-width: 0;

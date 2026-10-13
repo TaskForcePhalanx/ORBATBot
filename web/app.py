@@ -1026,6 +1026,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             'arma_channel': channel,
             'arma_channels': tacmap_lib.ARMA_CHANNELS,
             'save_url': f"/g/{context['guild'].id}/maps/{record['id']}/save",
+            'map_rev': str(record['doc_rev']),
             'share_modes': tacmap_service.SHARE_MODES,
             # The canonical origin, not the one this request came in on: a
             # share link is made to be copied somewhere else, and it has to
@@ -1086,10 +1087,14 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         try:
             payload = await map_json(request)
             auth.check_csrf(context['session'], payload.get('csrf'))
-            notes = await tacmap_service.save(
+            notes, rev = await tacmap_service.save(
                 context['record'], payload.get('doc'),
                 context['member'].display_name,
+                base_rev=payload.get('rev'), force=bool(payload.get('force')),
             )
+        except tacmap_service.Conflict as e:
+            return JSONResponse({'ok': False, 'conflict': True, 'error': str(e)},
+                                status_code=409)
         except ValueError as e:
             return JSONResponse({'ok': False, 'error': str(e)}, status_code=400)
         # A campaign map's AOs are the planner's: drawing one there makes it.
@@ -1098,8 +1103,10 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         if planner:
             notes = notes + planner['notes']
             if planner.get('doc'):
-                return JSONResponse({'ok': True, 'notes': notes, 'doc': planner['doc']})
-        return JSONResponse({'ok': True, 'notes': notes})
+                fresh = await database.get_tac_map(context['record']['id'])
+                return JSONResponse({'ok': True, 'notes': notes, 'doc': planner['doc'],
+                                     'rev': fresh['doc_rev']})
+        return JSONResponse({'ok': True, 'notes': notes, 'rev': rev})
 
     @app.get('/g/{guild_id}/maps/{map_id}/arma.sqf', response_class=PlainTextResponse)
     async def map_sqf(request: Request, guild_id: str, map_id: int,
@@ -1408,6 +1415,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             'summary': tacmap_lib.summarise(doc),
             'editable': record['share_mode'] == 'edit',
             'save_url': f'/m/{token}/save',
+            'map_rev': str(record['doc_rev']),
         })
 
     @app.post('/m/{token}/save')
@@ -1420,12 +1428,16 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             )
         try:
             payload = await map_json(request)
-            notes = await tacmap_service.save(
-                record, payload.get('doc'), 'someone with the link'
+            notes, rev = await tacmap_service.save(
+                record, payload.get('doc'), 'someone with the link',
+                base_rev=payload.get('rev'), force=bool(payload.get('force')),
             )
+        except tacmap_service.Conflict as e:
+            return JSONResponse({'ok': False, 'conflict': True, 'error': str(e)},
+                                status_code=409)
         except ValueError as e:
             return JSONResponse({'ok': False, 'error': str(e)}, status_code=400)
-        return JSONResponse({'ok': True, 'notes': notes})
+        return JSONResponse({'ok': True, 'notes': notes, 'rev': rev})
 
     # -- embeds -------------------------------------------------------------
 

@@ -51,6 +51,8 @@
     // is what made every friendly plan come out one flat blue.
     color: '',
     style: 'solid',
+    // How thick a new line is, in screen pixels.
+    weight: catalog.defaultWeight,
     // How a new rectangle or ellipse is filled.
     fill: catalog.defaultFill,
     // What the AO tool draws: freehand, a rectangle or an ellipse.
@@ -363,63 +365,74 @@
     return parts.join('');
   }
 
-  function arrowHead(points, size) {
-    // Mirrors arrow_head() in utils/tacmap.py — a polygon rather than a marker,
-    // because a marker cannot take the colour of the line it sits on.
-    var from = points[points.length - 2];
-    var to = points[points.length - 1];
+  // Mirrors arrow_head() in utils/tacmap.py — a polygon rather than a marker,
+  // because a marker cannot take the colour of the line it sits on. Sized
+  // from the line's thickness, so a 1px line gets a fine head.
+  function arrowHead(points, weight, atStart) {
+    var from = atStart ? points[1] : points[points.length - 2];
+    var to = atStart ? points[0] : points[points.length - 1];
     var length = Math.hypot(to[0] - from[0], to[1] - from[1]);
     if (!length) return null;
     var ax = (to[0] - from[0]) / length;
     var ay = (to[1] - from[1]) / length;
-    var back = 13 * size;
-    var wide = 5.5 * size;
+    var back = 8 + 3 * weight;
+    var wide = 3 + 1.5 * weight;
+    var tip = weight / 2;
     return [
-      [round(to[0] + ax * 2 * size), round(to[1] + ay * 2 * size)],
+      [round(to[0] + ax * tip), round(to[1] + ay * tip)],
       [round(to[0] - ax * back - ay * wide), round(to[1] - ay * back + ax * wide)],
       [round(to[0] - ax * back + ay * wide), round(to[1] - ay * back - ax * wide)]
     ];
   }
 
+  function weightOf(item) {
+    return item.weight || catalog.defaultWeight;
+  }
+
+  // Mirrors dash_pattern() and _stroke(): so many screen pixels at every
+  // zoom, as Arma's own map lines are — the thinnest is a true 1px line —
+  // and drawn once, with no backing pass under it.
+  function dashPattern(style, weight) {
+    if (style === 'dashed') return [3 * weight + 6, 2 * weight + 4];
+    if (style === 'dotted') return [0.01, 2 * weight + 3];
+    return null;
+  }
+
+  function strokeAttrs(colour, weight, style) {
+    var dash = dashPattern(style, weight);
+    return 'stroke="' + colour + '" stroke-width="' + weight +
+      '" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"' +
+      (dash ? ' stroke-dasharray="' + dash[0] + ' ' + dash[1] + '"' : '');
+  }
+
+  var ARROW_ENDS = { end: [false], start: [true], both: [true, false] };
+
   function shapeSVG(item) {
     var colour = itemColour(item);
-    var backing = inkBacking(colour);
     var points = item.points.map(function (point) {
       return round(point[0]) + ',' + round(point[1]);
     }).join(' ');
-    var drawn = lineSize(item.size);
-    var width = round(4 * drawn);
-    // Mirrors _shape_svg(): wider than the ink and always solid, so the gaps
-    // of a dashed line are backed too.
-    var backWidth = round(width + 2.6 * drawn);
-    var dash = item.style === 'dashed'
-      ? ' stroke-dasharray="' + round(14 * drawn) + ' ' + round(9 * drawn) + '"' : '';
+    var weight = weightOf(item);
+    var stroke = strokeAttrs(colour, weight, item.style);
     if (item.kind === 'area') {
       var centre = item.points.reduce(function (sum, point) {
         return [sum[0] + point[0] / item.points.length, sum[1] + point[1] / item.points.length];
       }, [0, 0]);
-      return '<polygon points="' + points + '" fill="none" stroke="' + backing +
-        '" stroke-width="' + backWidth + '" stroke-linejoin="round"/>' +
-        '<polygon points="' + points + '" ' +
+      return '<polygon points="' + points + '" ' +
         (item.ao ? 'fill="none"' : 'fill="' + colour + '" fill-opacity="0.22"') +
-        ' stroke="' + colour + '" stroke-width="' + width +
-        '"' + dash + ' stroke-linejoin="round"/>' +
+        ' ' + stroke + '/>' +
         (item.ao ? aoTabSVG(item) : label(item.label, centre[0], centre[1], item.size));
     }
-    var parts = ['<polyline points="' + points + '" fill="none" stroke="' + backing +
-      '" stroke-width="' + backWidth +
-      '" stroke-linecap="round" stroke-linejoin="round"/>',
-      '<polyline points="' + points + '" fill="none" stroke="' + colour +
-      '" stroke-width="' + width + '"' + dash +
-      ' stroke-linecap="round" stroke-linejoin="round"/>'];
-    if (item.arrow) {
-      var head = arrowHead(item.points, drawn);
+    var parts = ['<polyline points="' + points + '" fill="none" ' + stroke + '/>'];
+    var ends = item.arrow === true ? [false] : (ARROW_ENDS[item.arrow] || []);
+    ends.forEach(function (atStart) {
+      var head = arrowHead(item.points, weight, atStart);
       if (head) {
         parts.push('<polygon points="' + head.map(function (corner) {
           return corner[0] + ',' + corner[1];
         }).join(' ') + '" fill="' + colour + '"/>');
       }
-    }
+    });
     if (item.label) {
       var middle = item.points[Math.floor(item.points.length / 2)];
       parts.push(label(item.label, middle[0], middle[1] - 10 * item.size, item.size));
@@ -475,12 +488,8 @@
   // hatching and the outline turn together.
   function figureSVG(item) {
     var colour = itemColour(item);
-    var backing = inkBacking(colour);
     var drawn = lineSize(item.size);
-    var width = round(4 * drawn);
-    var backWidth = round(width + 2.6 * drawn);
-    var dash = item.style === 'dashed'
-      ? ' stroke-dasharray="' + round(14 * drawn) + ' ' + round(9 * drawn) + '"' : '';
+    var weight = weightOf(item);
     var a = round(item.w / 2);
     var b = round(item.h / 2);
     var outline = figureOutline(item, a, b);
@@ -488,21 +497,17 @@
     var fillKind = item.ao ? 'none' : item.fill;
     var fill = fillKind === 'light'
       ? 'fill="' + colour + '" fill-opacity="0.22"' : 'fill="none"';
-    var parts = [outline + ' fill="none" stroke="' + backing + '" stroke-width="' +
-      backWidth + '" stroke-linejoin="round"/>'];
+    var parts = [];
     if (fillKind === 'hatch') {
       var path = hatchSegments(item.shape, 2 * a, 2 * b, catalog.hatchGap * drawn)
         .map(function (s) { return 'M' + s[0] + ',' + s[1] + 'L' + s[2] + ',' + s[3]; })
         .join('');
       if (path) {
-        parts.push('<path d="' + path + '" stroke="' + backing + '" stroke-width="' +
-          round(3.4 * drawn) + '" stroke-opacity="0.55"/>');
         parts.push('<path d="' + path + '" stroke="' + colour + '" stroke-width="' +
-          round(1.6 * drawn) + '"/>');
+          Math.max(1, weight / 2) + '" vector-effect="non-scaling-stroke"/>');
       }
     }
-    parts.push(outline + ' ' + fill + ' stroke="' + colour + '" stroke-width="' + width +
-      '"' + dash + ' stroke-linejoin="round"/>');
+    parts.push(outline + ' ' + fill + ' ' + strokeAttrs(colour, weight, item.style) + '/>');
     return figureTurn(item) + parts.join('') + '</g>' +
       (item.ao ? aoTabSVG(item) : label(item.label, item.x, item.y, item.size));
   }
@@ -670,7 +675,8 @@
     ).map(function (point) { return round(point[0]) + ',' + round(point[1]); }).join(' ');
     var tag = state.draft.kind === 'area' ? 'polygon' : 'polyline';
     return '<' + tag + ' points="' + points + '" fill="none" stroke="' + paint.fill +
-      '" stroke-width="4" stroke-dasharray="10 8" stroke-linecap="round"/>';
+      '" stroke-width="2" stroke-dasharray="8 5" vector-effect="non-scaling-stroke"' +
+      ' stroke-linecap="round" pointer-events="none"/>';
   }
 
   function layers() {
@@ -900,6 +906,38 @@
   var layerPanel = document.getElementById('tmlayers');
   var layerList = document.getElementById('tmlayerlist');
 
+  // The campaign planner keeps two kinds of layer in step with itself: one
+  // per AO on a campaign map (cpao<id>) and one per phase on an AO map
+  // (cpp<id>). Renaming one here was overwritten by the next sync, and
+  // deleting one either came back on the next save or — for an AO — came
+  // back twice, which is the duplicated layer. So their names are the
+  // planner's, an AO layer's delete deletes the AO, and a phase layer has
+  // none.
+  function plannerLayer(id) {
+    if (/^cpao\d+$/.test(id)) return 'ao';
+    if (/^cpp\d+$/.test(id)) return 'phase';
+    return null;
+  }
+
+  // The layer new things are drawn on has to be one the map still has.
+  function keepLayerChoice() {
+    var list = layers();
+    if (!list.some(function (entry) { return entry.id === state.layer; })) {
+      state.layer = list[0].id;
+    }
+  }
+
+  // Everything the layer list feeds, redrawn from the document — after a
+  // delete, an undo, or a save that came back changed. The panel's rows hold
+  // the layer objects they were drawn from, so a panel left standing after
+  // the document was replaced edits layers that are no longer saved, and its
+  // delete buttons count from a list that no longer exists.
+  function refreshLayers() {
+    keepLayerChoice();
+    drawLayers();
+    fillLayerPickers();
+  }
+
   function drawLayers() {
     if (!layerPanel) return;
     // One layer and no way to add another is nothing worth a panel — and with
@@ -923,7 +961,34 @@
       });
       row.appendChild(shown);
 
-      if (editable) {
+      var kind = plannerLayer(entry.id);
+      if (editable && kind) {
+        var fixed = document.createElement('span');
+        fixed.className = 'tmlayerfixed';
+        fixed.textContent = entry.name;
+        fixed.title = kind === 'ao'
+          ? 'This AO\'s layer belongs to the campaign planner. Rename the AO by ' +
+            'relabelling its outline, or on the campaign page.'
+          : 'This phase\'s layer belongs to the campaign planner. It is named after ' +
+            'the phase, and goes when nothing is drawn on it and the phase is no ' +
+            'longer fought in this AO.';
+        row.appendChild(fixed);
+        if (kind === 'ao' && layers().length > 1) {
+          var dropAO = document.createElement('button');
+          dropAO.type = 'button';
+          dropAO.className = 'linkish';
+          dropAO.textContent = '✕';
+          dropAO.title = 'Delete this AO from the campaign, with its outline';
+          dropAO.addEventListener('click', function () {
+            if (!window.confirm('Delete the ' + entry.name + ' AO? It goes from the ' +
+                                'campaign when you save, with everything on this layer.')) {
+              return;
+            }
+            removeLayer(index, true);
+          });
+          row.appendChild(dropAO);
+        }
+      } else if (editable) {
         var name = document.createElement('input');
         name.className = 'tmlayername';
         name.value = entry.name;
@@ -931,7 +996,7 @@
         name.addEventListener('input', function () {
           entry.name = name.value;
           touched();
-          fillInspector();
+          fillLayerPickers();
         });
         row.appendChild(name);
 
@@ -953,21 +1018,31 @@
     });
   }
 
-  function removeLayer(index) {
+  function removeLayer(index, withItems) {
     var list = layers();
     if (list.length < 2) return;
     var going = list[index];
     var keep = list[index === 0 ? 1 : 0].id;
     snapshot();
-    // Never take the items with it: a layer is a switch, not a folder anybody
-    // meant to throw work into.
-    state.doc.items.forEach(function (item) {
-      if (item.layer === going.id) item.layer = keep;
-    });
+    if (withItems) {
+      // An AO's layer: deleting it is deleting the AO, outline and all.
+      // Moving its outline to the first layer instead is what the planner
+      // read as a brand new AO of the same name.
+      state.doc.items = state.doc.items.filter(function (item) {
+        return item.layer !== going.id;
+      });
+    } else {
+      // Never take the items with it: a layer is a switch, not a folder
+      // anybody meant to throw work into.
+      state.doc.items.forEach(function (item) {
+        if (item.layer === going.id) item.layer = keep;
+      });
+    }
     list.splice(index, 1);
+    state.selected = -1;
     touched();
+    refreshLayers();
     render();
-    drawLayers();
     fillInspector();
   }
 
@@ -1002,6 +1077,7 @@
 
   function say(text, kind) {
     status.textContent = text || '';
+    status.title = text || '';
     status.className = 'tmstatus' + (kind ? ' ' + kind : '');
   }
 
@@ -1012,6 +1088,7 @@
 
   function touched() {
     state.dirty = true;
+    state.edits = (state.edits || 0) + 1;
     say('Unsaved changes', 'warn');
   }
 
@@ -1103,9 +1180,39 @@
     }
 
     var drawing = state.tool === 'line' || state.tool === 'area' || state.tool === 'ao';
+    if (state.draft && state.draft.chain) {
+      // Plotting point by point, as on Arma's map with Ctrl held: every
+      // click fixes the next corner, and a drag from here carries the same
+      // line on freehand.
+      event.preventDefault();
+      // A second click on the same spot, quickly, is a double-click: it
+      // finishes the line. Worked out here rather than from the browser's
+      // dblclick, which does not fire when the draft redraws under the
+      // pointer between the two clicks.
+      var lastClick = state.draft.lastClick;
+      var now = Date.now();
+      if (lastClick && now - lastClick.t < 450 &&
+          Math.abs(event.clientX - lastClick.x) + Math.abs(event.clientY - lastClick.y) < 6) {
+        finishDraft();
+        return;
+      }
+      state.draft.lastClick = { t: now, x: event.clientX, y: event.clientY };
+      var corner = snapCorner(state.draft, point, event.shiftKey);
+      if (state.draft.points.length < catalog.limits.points) state.draft.points.push(corner);
+      state.draft.press = { x: event.clientX, y: event.clientY, moved: false };
+      state.draft.cursor = null;
+      overlay.innerHTML = draftSVG();
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
     if (event.ctrlKey || event.metaKey || drawing) {
       event.preventDefault();
       state.draft = {
+        // Which way it is being drawn: chain = a corner per click. Settled
+        // on the first let-go — a press that never moved is a click.
+        chain: false,
+        byCtrl: !!(event.ctrlKey || event.metaKey),
+        press: { x: event.clientX, y: event.clientY, moved: false },
         kind: state.tool === 'area' || state.tool === 'ao' ? 'area' : 'line',
         ao: state.tool === 'ao',
         points: [[round(point.x), round(point.y)]],
@@ -1115,7 +1222,7 @@
         anchor: null
       };
       overlay.innerHTML = draftSVG();
-      say('Drawing — hold Shift for a straight line, let go to finish');
+      say('Drawing — click for corners or drag freehand; Shift keeps it straight');
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1159,10 +1266,22 @@
       render();
       return;
     }
+    if (state.draft && !state.draft.press) {
+      // Between clicks: a rubber band from the last corner to the pointer,
+      // so you see the segment before you fix it.
+      state.draft.cursor = snapCorner(state.draft, at(event), event.shiftKey);
+      overlay.innerHTML = draftSVG();
+      return;
+    }
     if (state.draft) {
       var here = at(event);
       var draft = state.draft;
       var points = draft.points;
+      if (!draft.press.moved &&
+          Math.abs(event.clientX - draft.press.x) + Math.abs(event.clientY - draft.press.y) < 5) {
+        return;
+      }
+      draft.press.moved = true;
 
       // Shift straightens the segment being drawn: from the last point that
       // was fixed before Shift went down, to wherever the pointer is now.
@@ -1239,6 +1358,22 @@
       return;
     }
     if (state.draft) {
+      var press = state.draft.press;
+      state.draft.press = null;
+      if (!press.moved && !state.draft.chain) {
+        // A press that never moved is a click: plot corner by corner from
+        // here, until Enter, a double-click — or letting go of Ctrl, if Ctrl
+        // is what started it.
+        state.draft.chain = true;
+        say(state.draft.byCtrl
+          ? 'Plotting — Ctrl+click each corner, let go of Ctrl to finish'
+          : 'Plotting — click each corner; double-click or Enter to finish, Esc to cancel');
+        return;
+      }
+      if (state.draft.chain) {
+        overlay.innerHTML = draftSVG();
+        return;
+      }
       finishDraft();
       return;
     }
@@ -1270,7 +1405,7 @@
       kind: 'shape', shape: shape.shape, side: state.side, layer: state.layer,
       label: '', note: '', size: catalog.defaultSize, color: state.color,
       x: shape.x, y: shape.y, w: shape.w, h: shape.h, rotation: 0,
-      fill: state.fill, style: state.style
+      fill: state.fill, style: state.style, weight: state.weight
     };
     if (box.ao) makeAO(item);
     add(item);
@@ -1301,6 +1436,19 @@
     say('Name the AO — on a campaign map it becomes an AO in the planner when you save');
   }
 
+  // A corner while plotting: where the pointer is, or with Shift held the
+  // nearest 15° from the last corner — Arma's map has no snapping, and a
+  // boundary drawn by hand is only as straight as the hand.
+  function snapCorner(draft, point, straight) {
+    var last = draft.points[draft.points.length - 1];
+    if (!straight || !last) return [round(point.x), round(point.y)];
+    var dx = point.x - last[0];
+    var dy = point.y - last[1];
+    var length = Math.hypot(dx, dy);
+    var angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12);
+    return [round(last[0] + Math.cos(angle) * length), round(last[1] + Math.sin(angle) * length)];
+  }
+
   function finishDraft() {
     var draft = state.draft;
     state.draft = null;
@@ -1313,11 +1461,11 @@
     var item = {
       kind: draft.kind, side: state.side, layer: state.layer, label: '', note: '',
       size: catalog.defaultSize, color: state.color, points: draft.points,
-      style: state.style,
+      style: state.style, weight: state.weight,
       // Never automatically: an arrow says "this way", and most lines on a
       // plan are boundaries and phase lines that say no such thing. The
       // inspector puts one on the lines that mean it.
-      arrow: false
+      arrow: ''
     };
     if (draft.ao) makeAO(item);
     add(item);
@@ -1460,6 +1608,8 @@
       return;
     }
     var base = slug(name) || 'layer';
+    // A layer somebody adds must never be mistaken for one of the planner's.
+    if (plannerLayer(base)) base = 'l-' + base;
     var id = base;
     var suffix = 2;
     while (list.some(function (entry) { return entry.id === id; })) {
@@ -1511,10 +1661,23 @@
     }), state.fill);
     fillPick.addEventListener('change', function () { state.fill = fillPick.value; });
   }
+  var styleOptions = catalog.lineStyles.map(function (key) {
+    return { value: key, label: catalog.lineStyleLabels[key] || key };
+  });
+  var weightOptions = catalog.lineWeights.map(function (value) {
+    return { value: String(value), label: value + ' px' };
+  });
   var stylePick = document.getElementById('tmstyle');
   if (stylePick) {
-    stylePick.value = state.style;
+    fillOptions(stylePick, styleOptions, state.style);
     stylePick.addEventListener('change', function () { state.style = stylePick.value; });
+  }
+  var weightPick = document.getElementById('tmweight');
+  if (weightPick) {
+    fillOptions(weightPick, weightOptions, String(state.weight));
+    weightPick.addEventListener('change', function () {
+      state.weight = Number(weightPick.value) || catalog.defaultWeight;
+    });
   }
 
   /* -- the inspector -------------------------------------------------------- */
@@ -1538,6 +1701,7 @@
     size: document.getElementById('tmf-size'),
     style: document.getElementById('tmf-style'),
     arrow: document.getElementById('tmf-arrow'),
+    weight: document.getElementById('tmf-weight'),
     layer: document.getElementById('tmf-layer'),
     color: document.getElementById('tmf-color'),
     figure: document.getElementById('tmf-figure'),
@@ -1558,6 +1722,11 @@
   fillOptions(fields.mobility, mobilityOptions, '');
   fillOptions(fields.dimension, dimensionOptions, catalog.defaultDimension);
   fillOptions(fields.status, statusOptions, catalog.defaultStatus);
+  fillOptions(fields.style, styleOptions, 'solid');
+  fillOptions(fields.weight, weightOptions, String(catalog.defaultWeight));
+  fillOptions(fields.arrow, catalog.arrows.map(function (entry) {
+    return { value: entry.key, label: entry.label };
+  }), '');
 
   function fillInspector() {
     var item = selected();
@@ -1583,7 +1752,14 @@
     fields.rotation.value = item.rotation || 0;
     fields.size.value = item.size;
     fields.style.value = item.style || 'solid';
-    fields.arrow.checked = !!item.arrow;
+    fields.arrow.value = item.arrow === true ? 'end' : (item.arrow || '');
+    var weight = String(weightOf(item));
+    // A weight off the list (a hand-made document) still shows what it is.
+    if (!fields.weight.querySelector('option[value="' + weight + '"]')) {
+      fields.weight.insertAdjacentHTML('beforeend',
+        '<option value="' + weight + '">' + weight + ' px</option>');
+    }
+    fields.weight.value = weight;
     fields.layer.value = item.layer;
     fields.color.value = item.color || colours[item.side].fill;
     fields.figure.value = item.shape || 'rect';
@@ -1642,7 +1818,8 @@
   editField(fields.rotation, function (item) { item.rotation = Number(fields.rotation.value); });
   editField(fields.size, function (item) { item.size = Number(fields.size.value); });
   editField(fields.style, function (item) { item.style = fields.style.value; });
-  editField(fields.arrow, function (item) { item.arrow = fields.arrow.checked; });
+  editField(fields.arrow, function (item) { item.arrow = fields.arrow.value; });
+  editField(fields.weight, function (item) { item.weight = Number(fields.weight.value); });
   editField(fields.layer, function (item) { item.layer = fields.layer.value; });
   editField(fields.color, function (item) { item.color = fields.color.value; });
   editField(fields.figure, function (item) { item.shape = fields.figure.value; });
@@ -1837,15 +2014,42 @@
   /* -- saving --------------------------------------------------------------- */
 
   var saving = false;
+  // The revision of the map this editor is drawing on. A save says which one
+  // it was made on, and the server refuses it when somebody else has saved
+  // since — rather than quietly putting the older plan back over theirs.
+  var rev = app.dataset.rev === '' || app.dataset.rev === undefined
+    ? null : Number(app.dataset.rev);
 
-  function save() {
+  function conflict(message) {
+    say(message + ' ', 'err');
+    var reload = document.createElement('button');
+    reload.type = 'button';
+    reload.className = 'linkish';
+    reload.textContent = 'Reload theirs';
+    reload.addEventListener('click', function () {
+      state.dirty = false;
+      window.location.reload();
+    });
+    var mine = document.createElement('button');
+    mine.type = 'button';
+    mine.className = 'linkish';
+    mine.textContent = 'Save mine over it';
+    mine.addEventListener('click', function () { save(true); });
+    status.appendChild(reload);
+    status.appendChild(document.createTextNode(' · '));
+    status.appendChild(mine);
+  }
+
+  function save(force) {
     if (saving) return;
     saving = true;
+    var editsAtSend = state.edits || 0;
     say('Saving…');
     fetch(app.dataset.save, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ csrf: app.dataset.csrf, doc: state.doc })
+      body: JSON.stringify({ csrf: app.dataset.csrf, doc: state.doc, rev: rev,
+                             force: force === true })
     }).then(function (response) {
       return response.json().catch(function () {
         // A refusal comes back as an HTML page — a stale session or a CSRF
@@ -1856,7 +2060,18 @@
     }).then(function (answer) {
       saving = false;
       if (!answer.ok) {
-        say(answer.error || 'That did not save.', 'err');
+        if (answer.conflict) conflict(answer.error);
+        else say(answer.error || 'That did not save.', 'err');
+        return;
+      }
+      if (typeof answer.rev === 'number') rev = answer.rev;
+      var editedSince = (state.edits || 0) !== editsAtSend;
+      if (editedSince) {
+        // Something was drawn while the save was out. Replacing the
+        // document with the server's would throw that away, so keep what is
+        // on screen and leave it unsaved: the next save brings the planner's
+        // changes back in (an AO outline finds its way home by its name).
+        say('Saved — and you have changed it since. Save again to keep that.', 'warn');
         return;
       }
       state.dirty = false;
@@ -1865,8 +2080,7 @@
         // the planner's, on a layer of its own.
         state.doc = answer.doc;
         state.selected = -1;
-        drawLayers();
-        fillLayerPickers();
+        refreshLayers();
         render();
         fillInspector();
       }
@@ -1877,7 +2091,7 @@
     });
   }
 
-  document.getElementById('tmsave').addEventListener('click', save);
+  document.getElementById('tmsave').addEventListener('click', function () { save(); });
   document.getElementById('tmundo').addEventListener('click', undo);
 
   function undo() {
@@ -1889,6 +2103,7 @@
     state.doc = JSON.parse(previous);
     state.selected = -1;
     touched();
+    refreshLayers();
     render();
     fillInspector();
   }
@@ -1912,6 +2127,11 @@
   // boundary actually uses, so it is the one that has to work.
   document.addEventListener('keyup', function (event) {
     if (event.key === 'Shift' && state.draft) state.draft.anchor = null;
+    // Letting go of Ctrl ends a line plotted with Ctrl+click, as in Arma.
+    if ((event.key === 'Control' || event.key === 'Meta') && state.draft &&
+        state.draft.chain && state.draft.byCtrl && !state.draft.press) {
+      finishDraft();
+    }
   });
 
   document.addEventListener('keydown', function (event) {
@@ -1926,6 +2146,15 @@
       save();
       return;
     }
+    // A draft finishes or is thrown away even while one of the toolbar's
+    // dropdowns has the focus — that is where it is after picking a style.
+    if (state.draft && tag === 'select' && (event.key === 'Enter' || event.key === 'Escape')) {
+      event.preventDefault();
+      if (event.key === 'Enter' && state.draft.chain) finishDraft();
+      else { state.draft = null; overlay.innerHTML = ''; say(''); }
+      event.target.blur();
+      return;
+    }
     if (typing) return;
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
@@ -1938,6 +2167,11 @@
       overlay.innerHTML = '';
       say('');
       drawSelection();
+      return;
+    }
+    if (event.key === 'Enter' && state.draft && state.draft.chain) {
+      event.preventDefault();
+      finishDraft();
       return;
     }
     if (event.key === 'Escape' && state.draft) {

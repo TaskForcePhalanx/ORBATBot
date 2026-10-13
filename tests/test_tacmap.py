@@ -565,31 +565,34 @@ def test_a_stored_item_with_no_size_still_draws_at_one():
     assert doc['items'][0]['size'] == 1.0
 
 
-def test_a_line_at_the_smallest_size_is_still_a_line():
-    """Width, dashes and arrow head stop shrinking at MIN_LINE_SIZE.
-
-    4 x DEFAULT_SIZE is 0.6 units on a 1000-unit sheet — under a device pixel,
-    so a line drawn at the new default would have been invisible. This is the
-    same floor `label_size()` puts under a name, for the same reason.
-    """
-    assert tacmap.line_size(tacmap.DEFAULT_SIZE) == tacmap.MIN_LINE_SIZE
-    assert tacmap.line_size(2.0) == 2.0        # above the floor, untouched
-
+def test_a_line_is_as_many_screen_pixels_thick_as_it_says():
+    """A line keeps its width at every zoom, the way Arma's map lines do — so
+    the thinnest is a true 1px line, not a size-scaled smear."""
     doc = tacmap.parse(_doc(items=[{
-        'kind': 'line', 'size': tacmap.DEFAULT_SIZE, 'style': 'dashed',
+        'kind': 'line', 'size': tacmap.DEFAULT_SIZE, 'style': 'dashed', 'weight': 1,
         'points': [[10, 10], [200, 200]],
     }])).doc
     svg = tacmap.render(doc)
-    width = float(re.search(r'stroke-width="([\d.]+)"[^>]*stroke-dasharray', svg).group(1))
-    assert width == round(4 * tacmap.MIN_LINE_SIZE, 2)
+    assert re.search(r'stroke-width="1" vector-effect="non-scaling-stroke"', svg)
+    assert doc['items'][0]['weight'] == 1
 
 
-def test_the_floor_does_not_grow_a_line_anybody_drew():
-    """A line already saved above the floor draws exactly as it always did."""
-    doc = tacmap.parse(_doc(items=[{
-        'kind': 'line', 'size': 1.0, 'points': [[10, 10], [200, 200]],
-    }])).doc
-    assert 'stroke-width="4.0"' in tacmap.render(doc)
+def test_a_line_from_before_weights_keeps_about_its_thickness():
+    """A line saved before it had a weight was as thick as its size made it."""
+    old = tacmap.parse(_doc(items=[{'kind': 'line', 'size': 1.0,
+                                    'points': [[10, 10], [200, 200]]}])).doc
+    small = tacmap.parse(_doc(items=[{'kind': 'line', 'size': tacmap.DEFAULT_SIZE,
+                                      'points': [[10, 10], [200, 200]]}])).doc
+    assert old['items'][0]['weight'] == 4 and small['items'][0]['weight'] == 2
+
+
+def test_an_ops_trace_draws_lines_as_thick_as_the_page_does():
+    """resvg ignores non-scaling strokes, so a picture of a known size gets
+    its widths in sheet units per pixel instead."""
+    doc = tacmap.parse(_doc(items=[{'kind': 'line', 'weight': 2,
+                                    'points': [[10, 10], [200, 200]]}])).doc
+    svg = tacmap.render(doc, view=(0, 0, 500, 500), size=(1000, 1000))
+    assert 'stroke-width="1"' in svg
 
 
 def test_the_editor_is_told_both_floors():
@@ -1118,10 +1121,14 @@ def test_a_symbol_still_cannot_take_a_colour_of_its_own():
 def test_a_line_carries_no_arrow_unless_it_was_asked_for():
     """An arrow says "this way", and most lines on a plan say no such thing."""
     item = _parse_one({'kind': 'line', 'points': [[1, 1], [2, 2]]})
-    assert item['arrow'] is False
+    assert item['arrow'] == ''
     assert '<polygon' not in tacmap.item_svg(item)
+    # A line saved when the arrow was a plain tick had it at the end.
     pointed = _parse_one({'kind': 'line', 'points': [[1, 1], [2, 2]], 'arrow': True})
-    assert '<polygon' in tacmap.item_svg(pointed)
+    assert pointed['arrow'] == 'end'
+    assert tacmap.item_svg(pointed).count('<polygon') == 1
+    both = _parse_one({'kind': 'line', 'points': [[1, 1], [9, 9]], 'arrow': 'both'})
+    assert tacmap.item_svg(both).count('<polygon') == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1706,23 +1713,17 @@ def test_a_free_label_stays_white_in_both_places():
     assert tacmap.arma_colour(item) == 'ColorWhite'
 
 
-def test_a_dashed_line_is_backed_by_a_solid_pass():
-    # A dashed backing under a dashed line leaves the gaps unbacked, which is
-    # exactly where dark ink over dark terrain disappears.
+def test_a_line_has_no_outline():
+    """Drawn once, in its own colour — the backing pass is gone."""
     doc = _layered(items=[{'kind': 'line', 'style': 'dashed',
                            'points': [[1, 1], [9, 9]]}])
     svg = tacmap.item_svg(doc['items'][0])
-    backing, ink = svg.split('<polyline')[1:3]
-    assert 'stroke-dasharray' not in backing
-    assert 'stroke-dasharray' in ink
+    assert svg.count('<polyline') == 1 and 'stroke-dasharray' in svg
 
 
-def test_the_backing_is_wider_than_the_ink():
-    import re
-    doc = _layered(items=[{'kind': 'line', 'points': [[1, 1], [9, 9]]}])
-    widths = [float(w) for w in re.findall(
-        r'<polyline[^>]*stroke-width="([\d.]+)"', tacmap.item_svg(doc['items'][0]))]
-    assert len(widths) == 2 and widths[0] > widths[1]
+def test_dotted_lines_are_round_dots_as_wide_as_the_line():
+    assert tacmap.dash_pattern('dotted', 3)[0] < 0.1
+    assert tacmap.dash_pattern('solid', 3) is None
 
 
 # -- shapes: rectangles and ellipses -----------------------------------------
@@ -1789,10 +1790,10 @@ def test_hatching_stays_inside_the_shape():
     assert tacmap.hatch_segments('rect', 0, 100, 10) == []
 
 
-def test_hatching_is_backed_so_black_shows_on_a_dark_sheet():
+def test_hatching_is_drawn_once_in_the_shapes_colour():
     svg = tacmap.item_svg(_parse_one(shape()))
     paths = re.findall(r'<path d="[^"]+" stroke="([^"]+)"', svg)
-    assert paths == [tacmap.ink_backing(tacmap.DEFAULT_INK), tacmap.DEFAULT_INK]
+    assert paths == [tacmap.DEFAULT_INK]
 
 
 def test_shape_corners_turn_with_the_shape():
@@ -1965,3 +1966,62 @@ def test_the_first_six_ao_colours_stay_distinct_in_arma():
     names = [tacmap.arma_colour({'kind': 'shape', 'color': c, 'side': 'friendly'})
              for c in tacmap.AO_COLOURS[:6]]
     assert len(set(names)) == 6
+
+
+# -- dashed lines and arrows in Arma ----------------------------------------
+#
+# Arma draws every line marker solid and at one width (checked in game: brush
+# and size change nothing on a polyline), so a dashed line goes across as its
+# dashes, one short line marker each.
+
+def _arma_doc(*items):
+    doc = tacmap.parse(_doc(items=list(items))).doc
+    doc['arma'] = {'terrain': '', 'left': 0, 'bottom': 0, 'right': 1000, 'top': 1000}
+    return doc
+
+
+def test_dash_runs_cut_a_line_into_its_dashes():
+    runs = tacmap.dash_runs([(0, 0), (100, 0)], 'dashed')
+    on, off = tacmap.EXPORT_DASH['dashed']
+    assert len(runs) == 5
+    assert runs[0] == [(0, 0), (on, 0)]
+    assert runs[1][0] == (on + off, 0)
+    # Round a corner, a dash bends with the line rather than cutting it.
+    bent = tacmap.dash_runs([(0, 0), (10, 0), (10, 10)], 'dashed')
+    assert bent[0] == [(0, 0), (10, 0), (10, 4.0)]
+    assert tacmap.dash_runs([(0, 0), (5, 5)], 'solid') == [[(0, 0), (5, 5)]]
+
+
+def test_a_long_dashed_line_never_costs_more_than_the_cap():
+    runs = tacmap.dash_runs([(0, 0), (100000, 0)], 'dotted')
+    assert len(runs) <= tacmap.MAX_DASHES + 1
+
+
+def test_a_dashed_line_exports_as_many_line_markers():
+    doc = _arma_doc({'kind': 'line', 'style': 'dashed', 'points': [[0, 500], [100, 500]]})
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    assert sqf.count('setMarkerShape "POLYLINE"') == 5
+    assert sqf.count('createMarker') == 5
+
+
+def test_arrows_go_on_whichever_ends_were_asked_for():
+    doc = _arma_doc({'kind': 'line', 'arrow': 'both', 'points': [[0, 500], [100, 500]]})
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    assert sqf.count('"mil_arrow"') == 2
+    assert 'setMarkerDir 90' in sqf and 'setMarkerDir 270' in sqf
+
+
+def test_a_dashed_shape_keeps_its_fill_and_dashes_its_outline():
+    doc = _arma_doc(shape(style='dashed', fill='light', rotation=0))
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    assert sqf.count('POLYLINE') > 4
+    assert '_m setMarkerShape "RECTANGLE";' in sqf
+    outline_only = tacmap.to_sqf(_arma_doc(shape(style='dashed', fill='none')), prefix='tm7')
+    assert 'RECTANGLE' not in outline_only
+
+
+def test_every_dash_is_remembered_by_an_editable_export():
+    doc = _arma_doc({'kind': 'line', 'style': 'dotted', 'arrow': 'end',
+                     'points': [[0, 500], [100, 500]]})
+    sqf = tacmap.to_sqf(doc, prefix='tm7', editable=True)
+    assert sqf.count('createMarker') == sqf.count('_n pushBack _m;')

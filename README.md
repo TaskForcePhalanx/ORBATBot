@@ -640,10 +640,11 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 1. Go to **Maps**, name the new map, and press **Create**.
 2. Pick a symbol from the palette and click the sheet to place it.
 3. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
-4. **Drag** with the Line or Area tool to draw — or hold **Ctrl** and drag from any tool, which is the gesture Arma’s own map uses.
-5. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
-6. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
-7. Press **Save**. Everyone looking at the map sees the saved version.
+4. Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for freehand. The Line and Area tools do the same without Ctrl; double-click or press **Enter** to finish. **Shift** keeps a segment straight and snaps it to 15°.
+5. Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 pixels — it stays that thin at every zoom) and its arrow heads (end, start or both) in the toolbar or the inspector.
+6. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
+7. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
+8. Press **Save**. Everyone looking at the map sees the saved version.
 
 > The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
 >
@@ -653,7 +654,9 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 >
 > Whatever colour you pick is the colour it comes out in Arma, on the nearest marker colour the game ships. Cyan and purple are the two Arma has no match for.
 >
-> Two people drawing at once will overwrite each other’s save. Agree who has the pen.
+> If somebody else saved the map after you opened it, your save is stopped and you choose: reload theirs, or save yours over it.
+>
+> On a campaign map, an AO’s layer is the planner’s: its name follows the AO, and deleting it deletes the AO when you save. A phase’s layer on an AO map cannot be deleted here.
 
 See also: [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Share, copy or post a map](#share-copy-or-post-a-map)
 
@@ -761,7 +764,9 @@ Paste the plan into a running mission as markers, with no mod on either side.
 >
 > AOs come across as their borders. The grey mask around them does not: Arma cannot draw a cover with holes in it from a pasted script.
 >
-> Dashed is lost — Arma has no dashed marker. The debug console has to be enabled in the mission’s `description.ext`.
+> Arma has no dashed line and draws every line at one width, so a dashed or dotted line arrives as its dashes — one short line marker each, at most 150 per line — and thickness stays on the website. Arrow heads arrive as Arma arrow markers at whichever ends have one.
+>
+> The debug console has to be enabled in the mission’s `description.ext`.
 
 ### Campaign planner
 

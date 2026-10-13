@@ -414,6 +414,11 @@ async def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_tac_map_token
                 ON tac_maps (share_token) WHERE share_token IS NOT NULL
         ''')
+        # Bumped by every write of the document, so a save made from an editor
+        # opened before somebody else's save is refused rather than quietly
+        # putting the older plan back over theirs.
+        await db.execute(
+            'ALTER TABLE tac_maps ADD COLUMN IF NOT EXISTS doc_rev INTEGER NOT NULL DEFAULT 0')
         # A terrain uploaded as a tile archive, and served back by this bot —
         # see utils/tiles.py. The tiles live here rather than on disk because
         # the container's filesystem does not survive a redeploy, and a map
@@ -3618,9 +3623,27 @@ async def save_tac_map_doc(map_id: int, doc: str, updated_by_name: str = None):
         await db.execute(
             '''UPDATE tac_maps
                   SET doc = $2, updated_by_name = COALESCE($3, updated_by_name),
-                      updated_at = CURRENT_TIMESTAMP
+                      updated_at = CURRENT_TIMESTAMP, doc_rev = doc_rev + 1
                 WHERE id = $1''',
             map_id, doc, updated_by_name,
+        )
+
+
+async def save_tac_map_doc_if(map_id: int, doc: str, updated_by_name: str,
+                              base_rev: int):
+    """Store the document only if nobody has written it since `base_rev` —
+    the revision the editor opened on. Returns the new revision, or None when
+    somebody else saved first. One statement, so two saves racing each other
+    cannot both pass the check."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetchval(
+            '''UPDATE tac_maps
+                  SET doc = $2, updated_by_name = COALESCE($3, updated_by_name),
+                      updated_at = CURRENT_TIMESTAMP, doc_rev = doc_rev + 1
+                WHERE id = $1 AND doc_rev = $4
+            RETURNING doc_rev''',
+            map_id, doc, updated_by_name, base_rev,
         )
 
 
