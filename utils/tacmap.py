@@ -33,6 +33,7 @@ sheet, and nothing here knows about pixels or zoom levels.
 """
 
 import gzip
+import hashlib
 import html as _html
 import json
 import math
@@ -613,6 +614,15 @@ DEFAULT_EXTENT = {'terrain': '', 'left': 0.0, 'bottom': 0.0,
 # rather than nothing. See the place-names section at the foot of this module.
 DEFAULT_PLACES = {'show': True, 'groups': [], 'scale': 1.0}
 
+# The grey cover over everything outside the AOs, the way Arma's own map greys
+# out what a mission is not about. An AO is any area or shape flagged `ao`:
+# it cuts a clear hole in the cover and is drawn with a plain border. Off until
+# somebody turns it on, or draws an AO.
+DEFAULT_MASK = {'on': False, 'opacity': 0.55}
+MASK_COLOUR = '#565c63'
+MIN_MASK_OPACITY = 0.15
+MAX_MASK_OPACITY = 0.9
+
 # Which side a frame is, in Arma's terms: the marker-type prefix and the colour
 # used for everything that is not an icon.
 # Arma has four NATO marker prefixes and five marker colours we use, so the
@@ -733,6 +743,7 @@ def blank_doc(width: int = DEFAULT_WIDTH, height: int = DEFAULT_HEIGHT) -> dict:
         # export reads it, and only the person exporting can know it — which
         # image of which terrain this is, and whether it is the whole map.
         'arma': dict(DEFAULT_EXTENT),
+        'mask': dict(DEFAULT_MASK),
         'layers': [dict(DEFAULT_LAYER)],
         'items': [],
     }
@@ -899,6 +910,14 @@ def parse(raw) -> ParseResult:
                        for name in ('left', 'bottom', 'right', 'top')}
         doc['arma'] = {'terrain': _text(arma.get('terrain'), 60), **corners}
 
+    mask = raw.get('mask')
+    if isinstance(mask, dict):
+        doc['mask'] = {
+            'on': bool(mask.get('on')),
+            'opacity': round(_clamp(_number(mask.get('opacity'), DEFAULT_MASK['opacity']),
+                                    MIN_MASK_OPACITY, MAX_MASK_OPACITY), 2),
+        }
+
     doc['layers'] = _parse_layers(raw.get('layers'))
 
     items = raw.get('items')
@@ -1014,6 +1033,10 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         item['style'] = raw.get('style') if raw.get('style') in LINE_STYLES else 'solid'
         if kind == 'line':
             item['arrow'] = bool(raw.get('arrow'))
+
+    if kind in ('area', 'shape'):
+        # An AO: clear in the mask, drawn as a border with no fill.
+        item['ao'] = bool(raw.get('ao'))
 
     if kind == 'shape':
         item['shape'] = raw.get('shape') if raw.get('shape') in SHAPES else DEFAULT_SHAPE
@@ -1183,6 +1206,7 @@ def catalog() -> dict:
                   for key, value in SHAPE_FILLS.items()],
         'defaultFill': DEFAULT_FILL,
         'minShape': MIN_SHAPE,
+        'maskColour': MASK_COLOUR,
         'hatchGap': HATCH_GAP,
         'lineColours': [{'value': value, 'label': label}
                         for value, label in LINE_COLOURS],
@@ -1350,6 +1374,45 @@ def item_svg(item: dict) -> str:
     if kind == 'shape':
         return _figure_svg(item)
     return _shape_svg(item)
+
+
+def is_ao(item: dict) -> bool:
+    return item['kind'] in ('area', 'shape') and bool(item.get('ao'))
+
+
+def _hole_svg(item: dict) -> str:
+    """An AO's outline as a hole in the mask: filled black in the mask, so
+    whatever is under it shows through. Overlapping AOs merge, because a mask
+    adds holes rather than toggling them the way an even-odd path would."""
+    if item['kind'] == 'shape':
+        a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
+        inner = (f'<ellipse cx="0" cy="0" rx="{a}" ry="{b}"/>' if item['shape'] == 'ellipse'
+                 else f'<rect x="{-a}" y="{-b}" width="{round(2 * a, 2)}" '
+                      f'height="{round(2 * b, 2)}"/>')
+        return (f'<g transform="translate({item["x"]} {item["y"]}) '
+                f'rotate({item.get("rotation") or 0})">{inner}</g>')
+    points = ' '.join(f'{x},{y}' for x, y in item['points'])
+    return f'<polygon points="{points}"/>'
+
+
+def mask_svg(doc: dict) -> str:
+    """The grey cover with every visible AO cut out of it, or nothing.
+
+    Drawn over the terrain and under the plan, so symbols stay readable over
+    the grey. The mask id is taken from what is in it, so two maps on one page
+    — or a stale one in the browser — cannot borrow each other's holes."""
+    mask = doc.get('mask') or DEFAULT_MASK
+    if not mask.get('on'):
+        return ''
+    holes = ''.join(_hole_svg(item) for item in ordered_items(doc) if is_ao(item))
+    pad = max(doc['width'], doc['height'])
+    box = (f'x="{-pad}" y="{-pad}" width="{doc["width"] + 2 * pad}" '
+           f'height="{doc["height"] + 2 * pad}"')
+    key = 'tm-aomask-' + hashlib.sha1((holes + str(mask)).encode()).hexdigest()[:10]
+    return (f'<defs><mask id="{key}" maskUnits="userSpaceOnUse" {box}>'
+            f'<rect {box} fill="#fff"/><g fill="#000">{holes}</g></mask></defs>'
+            f'<rect {box} fill="{MASK_COLOUR}" fill-opacity="{mask["opacity"]}" '
+            f'mask="url(#{key})" pointer-events="none"/>')
 
 
 def _unit_svg(item: dict) -> str:
@@ -1568,10 +1631,11 @@ def _shape_svg(item: dict) -> str:
     dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
         if item['style'] == 'dashed' else ''
     if item['kind'] == 'area':
+        fill = 'fill="none"' if item.get('ao') else f'fill="{colour}" fill-opacity="0.22"'
         shape = (
             f'<polygon points="{path}" fill="none" stroke="{backing}" '
             f'stroke-width="{back_width}" stroke-linejoin="round"/>'
-            f'<polygon points="{path}" fill="{colour}" fill-opacity="0.22" '
+            f'<polygon points="{path}" {fill} '
             f'stroke="{colour}" stroke-width="{width}"{dash} '
             f'stroke-linejoin="round"/>'
         )
@@ -1660,6 +1724,8 @@ def _figure_svg(item: dict) -> str:
     dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
         if item['style'] == 'dashed' else ''
     a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
+    if item.get('ao'):
+        item = {**item, 'fill': 'none'}     # an AO is the clear ground itself
     if item['shape'] == 'ellipse':
         outline = f'<ellipse cx="0" cy="0" rx="{a}" ry="{b}"'
     else:
@@ -1808,6 +1874,7 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
         f'{defs()}<g id="tm-back">'
         f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
         f'{_grid_svg(doc)}{names}</g>'
+        f'<g id="tm-mask">{mask_svg(doc)}</g>'
         f'<g class="tm-items">{body}</g></svg>'
     )
 
@@ -2137,6 +2204,11 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
     # off again once it is drawn.
     items = ordered_items(doc)
     lines = [f'// {title or "Tactical map"} — {summarise(doc)}']
+    if (doc.get('mask') or {}).get('on'):
+        # A grey cover with holes cut in it is not something a marker can be,
+        # and Arma's own cover-map effect takes one rectangle. The AO borders
+        # come across; the grey stays on the website.
+        lines.append('// The grey mask outside the AOs is not exported — the AO borders are.')
     if editable:
         channel_name = dict(ARMA_CHANNELS)[channel]
         lines += [
@@ -2201,7 +2273,8 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
             # Both turn clockwise: the sheet's y grows downward, Arma's
             # bearing is clockwise from north.
             lines.append(f'_m setMarkerDir {round((item.get("rotation") or 0) % 360, 1)};')
-            lines.append(f'_m setMarkerBrush "{SHAPE_FILLS[item["fill"]]["brush"]}";')
+            brush = 'Border' if item.get('ao') else SHAPE_FILLS[item['fill']]['brush']
+            lines.append(f'_m setMarkerBrush "{brush}";')
             lines.append(f'_m setMarkerColor "{colour}";')
             if text:
                 lines.append(f'_m setMarkerText {_sqf_string(text)};')

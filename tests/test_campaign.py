@@ -627,7 +627,9 @@ def test_campaign_map_gets_a_layer_and_outline_per_ao():
                                                            {'id': 4, 'name': 'South'}])
     assert _layer_ids(doc) == ['plan', 'cpao3', 'cpao4'] and notes == []
     outlines = [i for i in doc['items'] if i['layer'] == 'cpao3']
-    assert len(outlines) == 1 and outlines[0]['kind'] == 'area' and outlines[0]['label'] == 'North'
+    assert len(outlines) == 1 and outlines[0]['label'] == 'North'
+    assert outlines[0]['kind'] == 'shape' and outlines[0]['ao']     # a clear hole in the mask
+    assert doc['mask']['on']
     assert tacmap.parse(doc).ok                       # what we write is a valid map
 
 
@@ -836,3 +838,89 @@ def test_trace_view_crops_around_a_turned_shape():
     x, y, w, h = cp.trace_view(doc, 'cpp1')
     # Turned upright, the long side runs 350 to 650 down the sheet.
     assert y <= 350 and y + h >= 650
+
+
+# -- AOs drawn on the campaign map --------------------------------------------
+
+def _ao_doc(*items, layers=()):
+    doc = tacmap.blank_doc()
+    doc['layers'] += [{'id': l, 'name': l, 'visible': True} for l in layers]
+    doc['items'] = list(items)
+    return doc
+
+
+def _box(layer, label, **extra):
+    return {'kind': 'shape', 'shape': 'rect', 'layer': layer, 'label': label, 'ao': True,
+            'x': 100, 'y': 100, 'w': 50, 'h': 50, 'rotation': 0, 'size': 1.0, **extra}
+
+
+def test_an_old_campaign_map_gets_its_outlines_masked_once():
+    old = _ao_doc({'kind': 'area', 'layer': 'cpao3', 'label': 'North',
+                   'points': [[0, 0], [9, 0], [9, 9]]}, layers=['cpao3'])
+    doc, _ = cp.sync_campaign_map(old, [{'id': 3, 'name': 'North'}])
+    assert doc['items'][0]['ao'] is True and doc['mask']['on']
+    assert len(doc['items']) == 1                       # no second outline added
+    doc['mask']['on'] = False                           # a person switched it off …
+    again, _ = cp.sync_campaign_map(doc, [{'id': 3, 'name': 'North'}])
+    assert not again['mask']['on']                      # … and it stays off
+
+
+def test_an_ao_that_lost_its_outline_gets_a_box_back():
+    doc, _ = cp.sync_campaign_map(_ao_doc(layers=['cpao3']), [{'id': 3, 'name': 'North'}])
+    boxes = [i for i in doc['items'] if i['layer'] == 'cpao3']
+    assert len(boxes) == 1 and boxes[0]['ao'] and boxes[0]['label'] == 'North'
+
+
+def test_drawing_an_ao_makes_one_and_relabelling_renames_it():
+    aos = [{'id': 3, 'name': 'North'}]
+    doc = _ao_doc(_box('cpao3', 'Northern Hills'), _box('plan', 'Bridge'), _box('plan', ''),
+                  {'kind': 'shape', 'layer': 'plan', 'label': 'not an AO', 'x': 1, 'y': 1,
+                   'w': 9, 'h': 9}, layers=['cpao3'])
+    changes = cp.campaign_map_changes(doc, aos)
+    assert changes['new'] == [(1, 'Bridge'), (2, 'AO 3')]
+    assert changes['renamed'] == {3: 'Northern Hills'}
+    assert changes['missing'] == [] and changes['reattach'] == {}
+
+
+def test_an_outline_whose_layer_was_deleted_goes_home_rather_than_doubling():
+    aos = [{'id': 3, 'name': 'North'}, {'id': 4, 'name': 'South'}]
+    doc = _ao_doc(_box('cpao3', 'North'), _box('plan', 'south'), layers=['cpao3', 'cpao4'])
+    changes = cp.campaign_map_changes(doc, aos)
+    assert changes['reattach'] == {1: 4} and changes['new'] == [] and changes['missing'] == []
+    placed, notes = cp.place_ao_items(doc, {1: (4, 'South')})
+    assert placed['items'][1]['layer'] == 'cpao4' and notes == []
+
+
+def test_a_deleted_outline_is_reported_missing():
+    changes = cp.campaign_map_changes(_ao_doc(layers=['cpao3']), [{'id': 3, 'name': 'North'}])
+    assert changes['missing'] == [3]
+
+
+def test_a_new_ao_gets_a_layer_until_the_map_is_full():
+    doc = _ao_doc(_box('plan', 'A'), _box('plan', 'B'),
+                  layers=[f'x{n}' for n in range(tacmap.MAX_LAYERS - 2)])
+    placed, notes = cp.place_ao_items(doc, {0: (7, 'A'), 1: (8, 'B')})
+    assert placed['items'][0]['layer'] == 'cpao7' and len(placed['layers']) == tacmap.MAX_LAYERS
+    assert placed['items'][1]['layer'] == 'plan' and 'No room' in notes[0]
+
+
+def test_an_ao_map_starts_masked_outside_its_ao():
+    camp, _ = cp.sync_campaign_map(tacmap.blank_doc(), [{'id': 3, 'name': 'North'}])
+    doc = cp.ao_map_doc(camp, 3, 'North')
+    assert doc['mask']['on']
+    assert [i['ao'] for i in doc['items'] if i['layer'] == 'cpao3'] == [True]
+    assert 'tm-aomask-' in tacmap.render(doc)
+
+
+def test_only_what_somebody_drew_counts_as_work_on_an_ao_map():
+    assert cp.is_planner_outline({'kind': 'shape', 'layer': 'cpao3', 'ao': False})
+    assert cp.is_planner_outline({'kind': 'shape', 'layer': 'plan', 'ao': True})
+    assert not cp.is_planner_outline({'kind': 'unit', 'layer': 'plan'})
+
+
+def test_an_old_outline_or_an_ao_with_no_room_is_never_read_as_deleted():
+    legacy = _ao_doc({'kind': 'area', 'layer': 'cpao3', 'label': 'North',
+                      'points': [[0, 0], [9, 0], [9, 9]]}, layers=['cpao3'])
+    aos = [{'id': 3, 'name': 'North'}, {'id': 4, 'name': 'Never placed'}]
+    changes = cp.campaign_map_changes(legacy, aos)
+    assert changes['missing'] == [] and changes['new'] == []

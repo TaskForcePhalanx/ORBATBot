@@ -1073,6 +1073,13 @@ def create_app(bot, config: WebConfig) -> FastAPI:
             )
         except ValueError as e:
             return JSONResponse({'ok': False, 'error': str(e)}, status_code=400)
+        # A campaign map's AOs are the planner's: drawing one there makes it.
+        planner = await campaign_service.after_map_save(
+            context['guild'], context['record'], context['member'])
+        if planner:
+            notes = notes + planner['notes']
+            if planner.get('doc'):
+                return JSONResponse({'ok': True, 'notes': notes, 'doc': planner['doc']})
         return JSONResponse({'ok': True, 'notes': notes})
 
     @app.get('/g/{guild_id}/maps/{map_id}/arma.sqf', response_class=PlainTextResponse)

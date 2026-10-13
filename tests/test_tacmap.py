@@ -1829,3 +1829,65 @@ def test_the_editor_is_told_what_shapes_there_are():
     assert [f['key'] for f in catalog['fills']] == list(tacmap.SHAPE_FILLS)
     assert catalog['minShape'] == tacmap.MIN_SHAPE
     assert tacmap.summarise({'items': [shape(), shape()]}) == '2 shapes'
+
+
+# -- the grey mask and AOs ----------------------------------------------------
+
+def ao_box(**overrides):
+    return shape(ao=True, fill='hatch', **overrides)
+
+
+def test_the_mask_is_off_until_asked_for_and_kept_in_range():
+    assert tacmap.blank_doc()['mask'] == {'on': False, 'opacity': 0.55}
+    doc = tacmap.parse({**tacmap.blank_doc(), 'mask': {'on': 1, 'opacity': 7}}).doc
+    assert doc['mask'] == {'on': True, 'opacity': tacmap.MAX_MASK_OPACITY}
+
+
+def test_ao_is_kept_on_areas_and_shapes_only():
+    assert _parse_one(ao_box())['ao'] is True
+    area = {'kind': 'area', 'ao': True, 'points': [[0, 0], [10, 0], [10, 10]]}
+    assert _parse_one(area)['ao'] is True
+    assert 'ao' not in _parse_one(unit(ao=True))
+
+
+def test_an_ao_is_a_border_with_nothing_in_it():
+    svg = tacmap.item_svg(_parse_one(ao_box()))
+    assert '<path' not in svg and 'fill-opacity' not in svg      # its hatch is ignored
+    area = tacmap.item_svg(_parse_one({'kind': 'area', 'ao': True,
+                                       'points': [[0, 0], [10, 0], [10, 10]]}))
+    assert 'fill-opacity' not in area
+
+
+def test_the_mask_cuts_out_every_visible_ao():
+    doc = tacmap.parse({**tacmap.blank_doc(), 'mask': {'on': True},
+                        'layers': [{'id': 'plan', 'name': 'Plan', 'visible': True},
+                                   {'id': 'off', 'name': 'Off', 'visible': False}],
+                        'items': [ao_box(), ao_box(x=100, layer='off'), shape(x=700)]}).doc
+    svg = tacmap.mask_svg(doc)
+    assert svg.count('<rect x="-100.0"') == 1          # one hole: the visible AO only
+    assert 'mask="url(#tm-aomask-' in svg and 'pointer-events="none"' in svg
+    assert tacmap.mask_svg({**doc, 'mask': {'on': False, 'opacity': 0.5}}) == ''
+
+
+def test_the_mask_sits_between_the_terrain_and_the_plan():
+    doc = tacmap.parse({**tacmap.blank_doc(), 'mask': {'on': True},
+                        'items': [ao_box(), unit()]}).doc
+    svg = tacmap.render(doc)
+    assert svg.index('id="tm-back"') < svg.index('id="tm-mask"') < svg.index('class="tm-items"')
+
+
+def test_two_masks_on_one_page_do_not_share_an_id():
+    one = tacmap.parse({**tacmap.blank_doc(), 'mask': {'on': True}, 'items': [ao_box()]}).doc
+    two = tacmap.parse({**tacmap.blank_doc(), 'mask': {'on': True},
+                        'items': [ao_box(x=100)]}).doc
+    ids = [re.search(r'mask id="([^"]+)"', tacmap.mask_svg(d)).group(1) for d in (one, two)]
+    assert ids[0] != ids[1]
+    assert ids[0] == re.search(r'mask id="([^"]+)"', tacmap.mask_svg(one)).group(1)
+
+
+def test_an_ao_exports_as_a_border_and_the_mask_is_said_to_stay_behind():
+    doc = tacmap.parse({**tacmap.blank_doc(), 'mask': {'on': True},
+                        'items': [ao_box()]}).doc
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    assert '_m setMarkerBrush "Border";' in sqf
+    assert 'grey mask outside the AOs is not exported' in sqf

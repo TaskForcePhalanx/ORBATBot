@@ -101,7 +101,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(575 cases), and every one of them covers a module that imports nothing beyond
+(591 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -110,12 +110,12 @@ all:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
+| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
-| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO map starts from, which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
+| `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO drawn, relabelled or deleted on the campaign map does to the planner's AOs, what an AO map starts from (masked outside its AO), which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -1296,11 +1296,31 @@ their **layers** in step with its AOs and phases.
   `cpao<ao id>` and a phase's graphics on the AO-map layer `cpp<phase id>`
   (`ao_layer_id()`, `phase_layer_id()`). Every other layer — the base *Plan*,
   an enemy picture somebody adds — is the planner's to leave alone.
-- **`sync_campaign_map()`**: a new AO gets a layer and a dashed placeholder
-  outline to drag onto its ground; a rename renames the layer, and the
-  outline's label when it still read the old name; a deleted AO's layer goes
-  with what is on it (the outline was the planner's). Run on AO add, rename and
-  delete, and when the map is opened.
+- **A campaign map is masked, and its AOs are drawn on it.** It is made with
+  the grey mask on (see *The grey mask* under the tactical maps), and each AO is
+  an AO item (`ao: true`) on its layer — a clear hole with a black border.
+- **`sync_campaign_map()`**: a new AO gets a layer and a clear box to move onto
+  its ground; an AO whose layer has lost its outline gets a box back; a rename
+  renames the layer, and the outline's label when it still read the old name; a
+  deleted AO's layer goes with what is on it (the outline was the planner's). A
+  map from before the mask has its first area or shape per AO layer made the AO
+  and the mask switched on once. Run on AO add, rename and delete, and when the
+  map is opened.
+- **Drawing on the map changes the planner** (`campaign_map_changes()`, applied
+  by `web/campaigns.reconcile_campaign_map()`). After a campaign map is saved in
+  the editor by somebody who may plan (`after_map_save()`, called by the save
+  route), an AO drawn off any AO layer becomes a new AO named by its label and
+  moves onto a layer of its own (`place_ao_items()`); a relabelled outline
+  renames its AO; a deleted outline deletes its AO — **unless phases are fought
+  in it or its own map has drawings** (`is_planner_outline()` tells the copied
+  outline from work), when the AO is kept and the very outline that was deleted
+  is put back from the map as it stood before the save. An outline whose layer
+  was deleted in the editor lands on the first layer; if its label names an AO
+  that lost its outline it goes home instead of becoming a twin. The save route
+  answers with the map as it now is, and the editor swaps it in, because new
+  AOs sit on new layers. A save by somebody who may not plan, or through a share
+  link, changes no AO: opening the map from the planner (`open_campaign_map()`)
+  reconciles it then.
 - **`sync_phase_layers()`**: one layer per phase fought in the AO, across the
   campaign's missions in order, named `Mission · P2 Title`
   (`phase_layer_name()`, fitted to 40 characters), after every other layer so
@@ -1310,7 +1330,8 @@ their **layers** in step with its AOs and phases.
   missions are reordered or deleted, an AO is renamed, and the map is opened.
 - **`ao_map_doc()`**: a new AO map starts on the campaign map's terrain,
   corners and place-name settings, with the AO's outline copied in on its own
-  layer as a frame to plan inside.
+  layer and the mask on — everything outside the AO greyed out, the plan on its
+  ground. Its ops traces carry the same look.
 - **12 layers per map** (`tacmap.MAX_LAYERS`). Both syncs stop there and say
   which AO or phase did not fit.
 - **A sync rewrites the stored document**, so somebody with that map open in
@@ -3001,6 +3022,31 @@ Four things are deliberate:
 `Shift` while dragging one out makes it a square or a circle; a drag that ends
 smaller than `MIN_SHAPE` is a slipped click and adds nothing, the same as a
 stroke that goes nowhere.
+
+### The grey mask, and AOs as holes in it
+
+`doc['mask']` (`{on, opacity}`, `DEFAULT_MASK`, off) lays a grey cover over the
+whole sheet, the way a covered Arma map greys out what a mission is not about.
+**An AO is any area or shape with `ao: true`**: it is cut out of the cover and
+drawn as a border with nothing in it (`is_ao()`). The **AO** tool in the editor
+draws one as a rectangle, an ellipse or freehand, names it `AO n` and drops the
+cursor into its label, and turns the mask on if it was off; the inspector's
+*AO* tick turns any area or shape into one and back.
+
+- **A `<mask>`, not an even-odd path** (`mask_svg()`): two AOs that overlap
+  must merge into one clear area, and an even-odd fill turns the overlap grey
+  again. Only AOs on **visible** layers cut holes, like everything else a layer
+  switch decides.
+- **Between the terrain and the plan**, in its own `#tm-mask` group, so
+  symbols stay readable over the grey and the editor can redraw it on every
+  move without touching either neighbour.
+- **The mask's id is a hash of what is in it**, because the campaign page puts
+  a map on a page that may hold another, and `url(#id)` resolves to the first
+  match in the document. The editor's live mask has an id of its own.
+- **It does not go to Arma.** A cover with holes cut in it is not a marker, and
+  Arma's own cover-map effect takes one rectangle; the export says so in a
+  comment and brings the AO borders (an AO shape always exports with the
+  `Border` brush).
 
 ### Posting is a link, not a picture
 

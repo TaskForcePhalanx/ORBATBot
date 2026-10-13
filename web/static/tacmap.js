@@ -53,6 +53,8 @@
     style: 'solid',
     // How a new rectangle or ellipse is filled.
     fill: catalog.defaultFill,
+    // What the AO tool draws: freehand, a rectangle or an ellipse.
+    aoForm: 'rect',
     hq: false,
     // A rectangle or ellipse being dragged out, and a selected one being
     // resized or turned by its handles.
@@ -104,6 +106,14 @@
 
   var layer = svg.querySelector('.tm-items');
   var back = svg.querySelector('#tm-back');
+  // The grey cover outside the AOs. The server renders it between the sheet
+  // and the plan; a page from before it existed gets the group added here.
+  var maskLayer = svg.querySelector('#tm-mask');
+  if (!maskLayer) {
+    maskLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    maskLayer.setAttribute('id', 'tm-mask');
+    layer.parentNode.insertBefore(maskLayer, layer);
+  }
   var overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   overlay.setAttribute('class', 'tm-overlay');
   svg.appendChild(overlay);
@@ -320,8 +330,9 @@
       }, [0, 0]);
       return '<polygon points="' + points + '" fill="none" stroke="' + backing +
         '" stroke-width="' + backWidth + '" stroke-linejoin="round"/>' +
-        '<polygon points="' + points + '" fill="' + colour +
-        '" fill-opacity="0.22" stroke="' + colour + '" stroke-width="' + width +
+        '<polygon points="' + points + '" ' +
+        (item.ao ? 'fill="none"' : 'fill="' + colour + '" fill-opacity="0.22"') +
+        ' stroke="' + colour + '" stroke-width="' + width +
         '"' + dash + ' stroke-linejoin="round"/>' +
         label(item.label, centre[0], centre[1], item.size);
     }
@@ -403,11 +414,13 @@
     var a = round(item.w / 2);
     var b = round(item.h / 2);
     var outline = figureOutline(item, a, b);
-    var fill = item.fill === 'light'
+    // An AO is the clear ground itself: a border and nothing in it.
+    var fillKind = item.ao ? 'none' : item.fill;
+    var fill = fillKind === 'light'
       ? 'fill="' + colour + '" fill-opacity="0.22"' : 'fill="none"';
     var parts = [outline + ' fill="none" stroke="' + backing + '" stroke-width="' +
       backWidth + '" stroke-linejoin="round"/>'];
-    if (item.fill === 'hatch') {
+    if (fillKind === 'hatch') {
       var path = hatchSegments(item.shape, 2 * a, 2 * b, catalog.hatchGap * drawn)
         .map(function (s) { return 'M' + s[0] + ',' + s[1] + 'L' + s[2] + ',' + s[3]; })
         .join('');
@@ -626,7 +639,34 @@
     });
   }
 
+  // Mirrors mask_svg() in utils/tacmap.py: grey over the whole sheet, every
+  // visible AO cut out of it. A <mask> rather than an even-odd path, so two
+  // AOs that overlap merge instead of the overlap turning grey again.
+  function maskSVG() {
+    var mask = state.doc.mask;
+    if (!mask || !mask.on) return '';
+    var holes = drawOrder().map(function (index) {
+      var item = state.doc.items[index];
+      if (!item.ao || (item.kind !== 'area' && item.kind !== 'shape')) return '';
+      if (item.kind === 'shape') {
+        return figureTurn(item) + figureOutline(item, round(item.w / 2), round(item.h / 2)) +
+          '/></g>';
+      }
+      return '<polygon points="' + item.points.map(function (point) {
+        return point[0] + ',' + point[1];
+      }).join(' ') + '"/>';
+    }).join('');
+    var pad = Math.max(state.doc.width, state.doc.height);
+    var box = 'x="' + (-pad) + '" y="' + (-pad) + '" width="' + (state.doc.width + 2 * pad) +
+      '" height="' + (state.doc.height + 2 * pad) + '"';
+    return '<defs><mask id="tm-aomask-live" maskUnits="userSpaceOnUse" ' + box + '>' +
+      '<rect ' + box + ' fill="#fff"/><g fill="#000">' + holes + '</g></mask></defs>' +
+      '<rect ' + box + ' fill="' + catalog.maskColour + '" fill-opacity="' + mask.opacity +
+      '" mask="url(#tm-aomask-live)" pointer-events="none"/>';
+  }
+
   function render() {
+    maskLayer.innerHTML = maskSVG();
     layer.innerHTML = drawOrder().map(function (index) {
       var item = state.doc.items[index];
       return '<g class="tm-item" data-i="' + index + '">' + itemSVG(item) + hitSVG(item) + '</g>';
@@ -980,21 +1020,24 @@
       return;
     }
 
-    if (state.tool === 'rect' || state.tool === 'ellipse') {
+    var aoBox = state.tool === 'ao' && state.aoForm !== 'free';
+    if (state.tool === 'rect' || state.tool === 'ellipse' || aoBox) {
       event.preventDefault();
-      state.box = { shape: state.tool, from: [point.x, point.y], to: [point.x, point.y],
-                    square: event.shiftKey };
+      var form = aoBox ? state.aoForm : state.tool;
+      state.box = { shape: form, from: [point.x, point.y], to: [point.x, point.y],
+                    square: event.shiftKey, ao: state.tool === 'ao' };
       say('Drawing — hold Shift for a ' +
-          (state.tool === 'rect' ? 'square' : 'circle') + ', let go to finish');
+          (form === 'rect' ? 'square' : 'circle') + ', let go to finish');
       svg.setPointerCapture(event.pointerId);
       return;
     }
 
-    var drawing = state.tool === 'line' || state.tool === 'area';
+    var drawing = state.tool === 'line' || state.tool === 'area' || state.tool === 'ao';
     if (event.ctrlKey || event.metaKey || drawing) {
       event.preventDefault();
       state.draft = {
-        kind: state.tool === 'area' ? 'area' : 'line',
+        kind: state.tool === 'area' || state.tool === 'ao' ? 'area' : 'line',
+        ao: state.tool === 'ao',
         points: [[round(point.x), round(point.y)]],
         cursor: null,
         // Where the straight segment starts, while Shift is held. null when
@@ -1143,7 +1186,8 @@
   });
 
   function finishBox() {
-    var shape = boxGeometry(state.box);
+    var box = state.box;
+    var shape = boxGeometry(box);
     state.box = null;
     say('');
     overlay.innerHTML = '';
@@ -1152,12 +1196,39 @@
       drawSelection();
       return;
     }
-    add({
+    var item = {
       kind: 'shape', shape: shape.shape, side: state.side, layer: state.layer,
       label: '', note: '', size: catalog.defaultSize, color: state.color,
       x: shape.x, y: shape.y, w: shape.w, h: shape.h, rotation: 0,
       fill: state.fill, style: state.style
-    });
+    };
+    if (box.ao) makeAO(item);
+    add(item);
+    if (box.ao) nameAO();
+  }
+
+  // An AO is a plain black border with a name, cut out of the grey: drawing
+  // the first one turns the mask on, which is the point of drawing one.
+  function makeAO(item) {
+    var count = state.doc.items.filter(function (entry) { return entry.ao; }).length;
+    item.ao = true;
+    item.color = '';
+    item.style = 'solid';
+    item.fill = 'none';
+    item.size = 1;
+    item.label = 'AO ' + (count + 1);
+    if (!state.doc.mask || !state.doc.mask.on) {
+      state.doc.mask = { on: true, opacity: (state.doc.mask && state.doc.mask.opacity) || 0.55 };
+      if (settings.mask) settings.mask.checked = true;
+    }
+  }
+
+  // Straight into its name: the label field, selected, so typing replaces it.
+  function nameAO() {
+    if (!fields.label) return;
+    fields.label.focus();
+    fields.label.select();
+    say('Name the AO — on a campaign map it becomes an AO in the planner when you save');
   }
 
   function finishDraft() {
@@ -1169,7 +1240,7 @@
     // A stroke that went nowhere is a slipped finger, not an error worth
     // a message: there is no deliberate way to draw a two-point line any more.
     if (draft.points.length < (draft.kind === 'area' ? 3 : 2)) return;
-    add({
+    var item = {
       kind: draft.kind, side: state.side, layer: state.layer, label: '', note: '',
       size: catalog.defaultSize, color: state.color, points: draft.points,
       style: state.style,
@@ -1177,7 +1248,10 @@
       // plan are boundaries and phase lines that say no such thing. The
       // inspector puts one on the lines that mean it.
       arrow: false
-    });
+    };
+    if (draft.ao) makeAO(item);
+    add(item);
+    if (draft.ao) nameAO();
   }
 
   /* -- toolbar -------------------------------------------------------------- */
@@ -1355,6 +1429,11 @@
       function () { return state.color; },
       function (value) { state.color = value; });
   }
+  var aoPick = document.getElementById('tmaoform');
+  if (aoPick) {
+    aoPick.value = state.aoForm;
+    aoPick.addEventListener('change', function () { state.aoForm = aoPick.value; });
+  }
   var fillPick = document.getElementById('tmfill');
   if (fillPick) {
     fillOptions(fillPick, catalog.fills.map(function (entry) {
@@ -1392,7 +1471,8 @@
     layer: document.getElementById('tmf-layer'),
     color: document.getElementById('tmf-color'),
     figure: document.getElementById('tmf-figure'),
-    fill: document.getElementById('tmf-fill')
+    fill: document.getElementById('tmf-fill'),
+    ao: document.getElementById('tmf-ao')
   };
   fillOptions(fields.figure, catalog.shapes.map(function (entry) {
     return { value: entry.key, label: entry.label };
@@ -1438,6 +1518,7 @@
     fields.color.value = item.color || colours[item.side].fill;
     fields.figure.value = item.shape || 'rect';
     fields.fill.value = item.fill || catalog.defaultFill;
+    fields.ao.checked = !!item.ao;
     if (inspectorColours) markSwatches(inspectorColours, item.color);
   }
 
@@ -1496,6 +1577,13 @@
   editField(fields.color, function (item) { item.color = fields.color.value; });
   editField(fields.figure, function (item) { item.shape = fields.figure.value; });
   editField(fields.fill, function (item) { item.fill = fields.fill.value; });
+  editField(fields.ao, function (item) {
+    item.ao = fields.ao.checked;
+    if (item.ao && (!state.doc.mask || !state.doc.mask.on)) {
+      state.doc.mask = { on: true, opacity: (state.doc.mask && state.doc.mask.opacity) || 0.55 };
+      if (settings.mask) settings.mask.checked = true;
+    }
+  });
   var inspectorColours = document.getElementById('tmf-colours');
   if (inspectorColours) {
     swatchRow(inspectorColours,
@@ -1547,8 +1635,13 @@
     left: document.getElementById('tmf-left'),
     right: document.getElementById('tmf-right'),
     bottom: document.getElementById('tmf-bottom'),
-    top: document.getElementById('tmf-top')
+    top: document.getElementById('tmf-top'),
+    mask: document.getElementById('tmf-mask'),
+    maskOpacity: document.getElementById('tmf-maskop')
   };
+  if (!state.doc.mask) state.doc.mask = { on: false, opacity: 0.55 };
+  settings.mask.checked = !!state.doc.mask.on;
+  settings.maskOpacity.value = state.doc.mask.opacity;
   var tiled = state.doc.background.kind === 'tiles';
   settings.bg.value = tiled ? '' : (state.doc.background.url || '');
   settings.zoom.value = state.doc.background.zoom;
@@ -1637,6 +1730,8 @@
       Number(settings.zoom.value) || 0, state.doc.background.max_zoom));
     state.doc.background.opacity = Number(settings.opacity.value);
     state.doc.grid.show = settings.grid.checked;
+    state.doc.mask = { on: settings.mask.checked,
+                       opacity: Number(settings.maskOpacity.value) || 0.55 };
     state.doc.places.show = settings.places.checked;
     state.doc.places.scale = Number(settings.placeScale.value) || 1;
     var boxes = Array.prototype.slice.call(
@@ -1692,6 +1787,16 @@
         return;
       }
       state.dirty = false;
+      if (answer.doc) {
+        // A campaign map comes back changed: an AO drawn on it is now one of
+        // the planner's, on a layer of its own.
+        state.doc = answer.doc;
+        state.selected = -1;
+        drawLayers();
+        fillLayerPickers();
+        render();
+        fillInspector();
+      }
       say((answer.notes && answer.notes.length) ? answer.notes.join(' ') : 'Saved', 'ok');
     }).catch(function () {
       saving = false;
@@ -1724,7 +1829,7 @@
   /* -- keyboard ------------------------------------------------------------- */
 
   var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text',
-                    r: 'rect', e: 'ellipse' };
+                    r: 'rect', e: 'ellipse', o: 'ao' };
 
   // Letting go of Shift fixes the straight segment where it is. Clearing the
   // anchor on the next freehand move is not enough: tapping Shift again
