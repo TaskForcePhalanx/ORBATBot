@@ -557,6 +557,18 @@ def drop_times(mission: dict, settings: dict, guild_tz: str | None = None) -> di
     return {key: to_utc(day, settings['drop_time'], guild_tz) for key, day in dates.items()}
 
 
+def days_left_label(left: int, locked: bool = False) -> str:
+    """How long a step has until it locks, as the tab above it says it:
+    "5 days left", "Due today", "2 days overdue" — or "Locked" once done."""
+    if locked:
+        return 'Locked'
+    if left == 0:
+        return 'Due today'
+    if left > 0:
+        return f'{left} day{"s" if left != 1 else ""} left'
+    return f'{-left} day{"s" if left != -1 else ""} overdue'
+
+
 def schedule(mission: dict, settings: dict, today: date,
              guild_tz: str | None = None) -> list[dict]:
     """Every lock and drop of a mission, in date order, each with a status.
@@ -591,7 +603,8 @@ def schedule(mission: dict, settings: dict, today: date,
         items.append({'kind': 'gate', 'key': step.key, 'step': step.key,
                       'label': f'{step.title} locked', 'date': gate,
                       'd': step.gate, 'done': done, 'total': total,
-                      'status': status})
+                      'status': status, 'left': left,
+                      'left_label': days_left_label(left, done == total)})
 
     for drop in DROPS:
         day = dates[drop.key]

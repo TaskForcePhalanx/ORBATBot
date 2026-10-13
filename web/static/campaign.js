@@ -181,6 +181,24 @@
   function drawGates() {
     var gates = {};
     state.schedule.forEach(function (item) { if (item.kind === 'gate') gates[item.key] = item; });
+    // Each tab says when its step locks and how long is left, so the
+    // deadline is in sight from whichever step is open.
+    app.querySelectorAll('[data-due]').forEach(function (node) {
+      var gate = gates[node.dataset.due];
+      if (node.dataset.due === 'aar') {
+        node.textContent = Object.keys(gates).length ? 'After the op' : '';
+        node.className = 'cpstepdue';
+        return;
+      }
+      if (!gate) {
+        node.textContent = '';
+        node.className = 'cpstepdue';
+        return;
+      }
+      node.textContent = gate.date_label + ' · ' + gate.left_label;
+      node.title = 'Locks ' + gate.date_label + ' (' + gate.d_label + ')';
+      node.className = 'cpstepdue ' + (gate.status[0] === 'ok' ? '' : gate.status[0]);
+    });
     app.querySelectorAll('[data-gate]').forEach(function (node) {
       var gate = gates[node.dataset.gate];
       if (node.dataset.gate === 'aar') {
@@ -188,7 +206,8 @@
         return;
       }
       node.textContent = gate
-        ? 'Lock by ' + gate.date_label + ' (' + gate.d_label + ') · ' + gate.status[1]
+        ? 'Lock by ' + gate.date_label + ' (' + gate.d_label + ') · ' + gate.left_label +
+          (gate.status[0] === 'ok' ? '' : ' · ' + gate.done + '/' + gate.total + ' ready')
         : 'Set an op date to see when this locks';
       node.className = 'cpstatus ' + (gate ? gate.status[0] : '');
     });

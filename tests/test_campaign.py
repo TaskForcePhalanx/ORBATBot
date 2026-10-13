@@ -976,3 +976,12 @@ def test_the_campaign_page_key_lists_each_visible_ao_with_its_colour():
     doc['layers'][2]['visible'] = False
     assert [e['name'] for e in cp.ao_legend(doc)] == ['North']
     assert cp.ao_legend(None) == []
+
+
+def test_each_step_says_how_long_it_has_left():
+    assert cp.days_left_label(5) == '5 days left'
+    assert cp.days_left_label(1) == '1 day left'
+    assert cp.days_left_label(0) == 'Due today'
+    assert cp.days_left_label(-1) == '1 day overdue'
+    assert cp.days_left_label(-3) == '3 days overdue'
+    assert cp.days_left_label(-3, locked=True) == 'Locked'

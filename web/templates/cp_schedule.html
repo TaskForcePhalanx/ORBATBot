@@ -48,7 +48,8 @@
               {% if item.kind == 'gate' %}🔒 {% elif item.kind == 'drop' %}📣 {% else %}🎖️ {% endif %}{{ item.label }}
               {% if item.note %}<span class="muted"> — {{ item.note }}</span>{% endif %}
             </td>
-            <td><span class="cpstatus {{ item.status[0] }}">{{ item.status[1] }}</span></td>
+            <td><span class="cpstatus {{ item.status[0] }}">{{ item.status[1] }}</span>
+              {% if item.kind == 'gate' and item.status[0] != 'ok' %}<span class="muted"> · {{ item.left_label }}</span>{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>

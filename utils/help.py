@@ -1690,7 +1690,8 @@ _CAMPAIGNS: tuple[Topic, ...] = (
             'Open a mission from its campaign. The wizard starts on the first step '
             'that is not locked yet.',
             'Fill in the step. Fields marked * are needed to lock it; the step\'s '
-            'chip turns into 🔒 when they are all filled.',
+            'chip turns into 🔒 when they are all filled. Each step\'s tab shows the '
+            'date it should lock by and how many days are left — red once it is overdue.',
             'Watch the panel on the right: the **drop preview** is exactly what the '
             'bot will post, and **Checks** flags mistakes as you go. Press **Preview in '
             'Discord** to see the drop formatted the way readers will see it — headings, '

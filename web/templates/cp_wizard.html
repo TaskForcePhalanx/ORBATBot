@@ -97,6 +97,8 @@
           <span class="cpstepnum">{{ step.number }}</span>
           <span class="cpsteptitle">{{ step.title }}</span>
           <span class="cpstepcount" data-count="{{ step.key }}"></span>
+          {# When this step locks and how long is left — filled by campaign.js. #}
+          <span class="cpstepdue" data-due="{{ step.key }}"></span>
         </button>
       {% endfor %}
     </nav>
