@@ -261,4 +261,4 @@
    the terrain, and never saved back with it. #}
 <script type="application/json" id="tmplaces">{{ places_json|default('[]', true)|safe }}</script>
 <script type="application/json" id="tmcatalog">{{ catalog_json|safe }}</script>
-<script src="/static/tacmap.js" defer></script>
+<script src="{{ static_url('tacmap.js') }}" defer></script>

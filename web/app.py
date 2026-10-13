@@ -5,6 +5,7 @@ Discord message, register a persistent view or read a member's roles directly �
 no polling, no second deployment, no outbox table. `web/server.py` starts it.
 """
 
+import hashlib
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -75,9 +76,27 @@ def _logo_url() -> str:
     return ''
 
 
-def _static_version(name: str) -> int:
+def _static_version(name: str) -> str:
+    """A short hash of a static file's contents, for its `?v=`. The contents,
+    not the modification time: a build can reset every file's mtime to the
+    same value, and then a changed stylesheet keeps the old address and the
+    browser keeps the old copy — which is how a new feature arrived unstyled."""
     path = _HERE / 'static' / name
-    return int(path.stat().st_mtime) if path.exists() else 0
+    if not path.exists():
+        return '0'
+    return hashlib.sha1(path.read_bytes()).hexdigest()[:10]
+
+
+_STATIC_VERSIONS: dict[str, str] = {}
+
+
+def static_url(name: str) -> str:
+    """`/static/<name>?v=<hash>` — every stylesheet and script goes through
+    this, so a deploy that changes one is never served from a stale cache.
+    Hashed once per file per process; a deploy is a new process."""
+    if name not in _STATIC_VERSIONS:
+        _STATIC_VERSIONS[name] = _static_version(name)
+    return f'/static/{name}?v={_STATIC_VERSIONS[name]}'
 
 
 def _help_for(page: str) -> str:
@@ -110,8 +129,8 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         # `web/nav.py` gave it and gets the URL of its how-to, or '' when it
         # has none — which `tests/test_help.py` is there to prevent.
         help_for=_help_for,
-        # Cache-busting for the planner's script, the same trick as the logo.
-        campaign_js_version=_static_version('campaign.js'),
+        # Cache-busting for every stylesheet and script — see static_url().
+        static_url=static_url,
     )
     # The little Markdown the how-tos are written in. It escapes first, so the
     # result is safe to mark safe — see `utils/help.inline_html`.

@@ -1966,6 +1966,14 @@ alone instead of a broken image. The URL carries the file's mtime so a replaced
 logo isn't served from a browser cache. Both are Jinja globals; they don't vary
 per request.
 
+**Every stylesheet and script is linked through `static_url()`**, which adds
+`?v=` and a short hash of the file's **contents**. The stylesheet was once
+linked bare while `campaign.js` carried a version, so a deploy shipped the new
+script with browsers still holding the old stylesheet — and the Discord preview
+arrived as an unstyled page. Contents rather than mtime, because a build may
+reset every file's mtime to one value. Anything added to `web/static/` and
+linked from a template goes through it too.
+
 ### The approval queue (`web/slots.py`)
 
 `/g/{guild}/slots` — the **Slot Approvals** tab — lists the live operation's

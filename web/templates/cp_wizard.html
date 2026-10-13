@@ -168,5 +168,5 @@
     <script type="application/json" id="cp-roles">{{ roles|tojson }}</script>
   </div>
 </div>
-<script src="/static/campaign.js?v={{ campaign_js_version }}" defer></script>
+<script src="{{ static_url('campaign.js') }}" defer></script>
 {% endblock %}
