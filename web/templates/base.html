@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ brand }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="{{ static_url('style.css') }}">
   {% if logo_url %}
     <link rel="icon" href="{{ logo_url }}">
     <link rel="apple-touch-icon" href="{{ logo_url }}">
