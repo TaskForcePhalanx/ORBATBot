@@ -635,19 +635,20 @@ _Drawing the plan on the terrain, sharing it, and getting it into the mission._
 
 **Who:** Unit Leader or Admin · **Where:** Web — **🎖️ Operations → Maps**
 
-Put unit symbols, movement lines and objectives on the terrain.
+Put unit symbols, movement lines, objectives and boxes on the terrain.
 
 1. Go to **Maps**, name the new map, and press **Create**.
 2. Pick a symbol from the palette and click the sheet to place it.
 3. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
 4. **Drag** with the Line or Area tool to draw — or hold **Ctrl** and drag from any tool, which is the gesture Arma’s own map uses.
-5. Press **Save**. Everyone looking at the map sees the saved version.
+5. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
+6. Press **Save**. Everyone looking at the map sees the saved version.
 
 > The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
 >
 > Lines get an arrow head only when you ask for one — most lines on a plan are boundaries and phase lines, which point nowhere.
 >
-> Lines, areas and markers are black until you colour them, and take whatever you pick from the swatches. Symbols do not: their colour is what says which side they are.
+> Lines, areas, shapes and markers are black until you colour them, and take whatever you pick from the swatches. Symbols do not: their colour is what says which side they are.
 >
 > Whatever colour you pick is the colour it comes out in Arma, on the nearest marker colour the game ships. Cyan and purple are the two Arma has no match for.
 >
@@ -754,6 +755,8 @@ Paste the plan into a running mission as markers, with no mod on either side.
 > Running it again **replaces** the markers from the last run rather than laying a second set over them. Two maps can never delete each other’s.
 >
 > Symbol sizes and mobility have no counterpart in Arma, so they are written into the marker text: `1-1 Alpha / A Coy (planned Plt twd)`.
+>
+> Rectangles and ellipses arrive as Arma’s own area markers, filled and turned the way they are drawn. Arma shows no text on an area marker, so their labels stay on the website’s map.
 >
 > Dashed is lost — Arma has no dashed marker. The debug console has to be enabled in the mission’s `description.ext`.
 

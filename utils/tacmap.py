@@ -89,12 +89,12 @@ MIN_LINE_SIZE = 0.4
 # the number lives here with the rest of the geometry.
 MIN_HIT = 14
 
-KINDS = ('unit', 'point', 'line', 'area', 'text')
+KINDS = ('unit', 'point', 'line', 'area', 'shape', 'text')
 
 # What gets drawn over what. A symbol under an area was the one thing people
 # lost on a busy sheet, so the order is fixed by kind rather than left to
 # whatever was added last; `sort_order` only breaks ties within a kind.
-KIND_ORDER = {'area': 0, 'line': 1, 'text': 2, 'point': 3, 'unit': 4}
+KIND_ORDER = {'area': 0, 'shape': 0, 'line': 1, 'text': 2, 'point': 3, 'unit': 4}
 
 # APP-6, drawn the way the planning tools and the pocket cards this hobby
 # already uses draw it: a pale frame with the pictogram in dark line work on
@@ -473,6 +473,34 @@ MARKERS = {
 DEFAULT_MARKER = 'dot'
 
 LINE_STYLES = ('solid', 'dashed')
+
+# A shape is a rectangle or an ellipse with a centre, a size and a rotation —
+# an objective box, a sector, a no-fire zone. It is its own kind rather than an
+# area with four points because that is what Arma has: RECTANGLE and ELLIPSE
+# markers are the only ones the game will fill and turn, so a shape arrives in
+# the mission filled and rotated where a freehand area can only be an outline.
+SHAPES = {
+    'rect': {'label': 'Rectangle', 'arma': 'RECTANGLE'},
+    'ellipse': {'label': 'Ellipse', 'arma': 'ELLIPSE'},
+}
+DEFAULT_SHAPE = 'rect'
+
+# How a shape is filled, and the Arma brush that says the same thing.
+# `Solid` is the game's see-through fill, `FDiagonal` its hatching.
+SHAPE_FILLS = {
+    'none': {'label': 'Outline only', 'brush': 'Border'},
+    'light': {'label': 'Light fill', 'brush': 'Solid'},
+    'hatch': {'label': 'Hatched', 'brush': 'FDiagonal'},
+}
+DEFAULT_FILL = 'light'
+
+# The smallest a shape may be, in sheet units: anything less is a click that
+# slipped, and a shape nobody can see cannot be selected to be removed.
+MIN_SHAPE = 4
+
+# The gap between hatch lines at size 1, in sheet units. It scales with the
+# shape's line size so a thick outline gets coarse hatching and a fine one fine.
+HATCH_GAP = 14
 
 # What a line, an area or a task marker can be painted, beyond `DEFAULT_INK`.
 #
@@ -919,7 +947,7 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         'size': round(_clamp(_number(raw.get('size'), 1.0), MIN_SIZE, MAX_SIZE), 2),
     }
 
-    if kind in ('unit', 'point', 'text'):
+    if kind in ('unit', 'point', 'text', 'shape'):
         point = _parse_point(raw.get('x'), raw.get('y'), doc)
         if point is None:
             result.warnings.append(f'Item {index} has no position and was dropped.')
@@ -966,7 +994,7 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         status = raw.get('status')
         item['status'] = status if status in STATUSES else DEFAULT_STATUS
 
-    if kind in ('line', 'area', 'text', 'point'):
+    if kind in ('line', 'area', 'text', 'point', 'shape'):
         # The side says whose a symbol is and must keep saying it, but a line
         # is a route or a boundary — those are told apart by colour on every
         # paper map there has ever been. A task marker is the same kind of
@@ -986,6 +1014,18 @@ def _parse_item(raw, doc: dict, result: ParseResult, index: int):
         item['style'] = raw.get('style') if raw.get('style') in LINE_STYLES else 'solid'
         if kind == 'line':
             item['arrow'] = bool(raw.get('arrow'))
+
+    if kind == 'shape':
+        item['shape'] = raw.get('shape') if raw.get('shape') in SHAPES else DEFAULT_SHAPE
+        item['fill'] = raw.get('fill') if raw.get('fill') in SHAPE_FILLS else DEFAULT_FILL
+        item['style'] = raw.get('style') if raw.get('style') in LINE_STYLES else 'solid'
+        # Never bigger than half as much again as the sheet: a broken client
+        # cannot cover the map in one shape nobody can find the edge of.
+        item['w'] = round(_clamp(_number(raw.get('w'), 80.0), MIN_SHAPE,
+                                 doc['width'] * 1.5), 2)
+        item['h'] = round(_clamp(_number(raw.get('h'), 60.0), MIN_SHAPE,
+                                 doc['height'] * 1.5), 2)
+        item['rotation'] = round(_clamp(_number(raw.get('rotation'), 0.0), -360, 360), 1)
     return item
 
 
@@ -1085,7 +1125,7 @@ def summarise(doc: dict) -> str:
     for item in doc.get('items') or []:
         counts[item['kind']] = counts.get(item['kind'], 0) + 1
     names = {'unit': 'unit', 'point': 'marker', 'line': 'line', 'area': 'area',
-             'text': 'label'}
+             'shape': 'shape', 'text': 'label'}
     parts = [
         f"{counts[kind]} {names[kind]}{'' if counts[kind] == 1 else 's'}"
         for kind in KINDS if counts.get(kind)
@@ -1138,6 +1178,12 @@ def catalog() -> dict:
         'points': [{'glyph': glyph, 'label': label} for glyph, label in POINT_PRESETS],
         'terrains': [{'name': name, 'size': size} for name, size in ARMA_TERRAINS],
         'lineStyles': list(LINE_STYLES),
+        'shapes': [{'key': key, 'label': value['label']} for key, value in SHAPES.items()],
+        'fills': [{'key': key, 'label': value['label']}
+                  for key, value in SHAPE_FILLS.items()],
+        'defaultFill': DEFAULT_FILL,
+        'minShape': MIN_SHAPE,
+        'hatchGap': HATCH_GAP,
         'lineColours': [{'value': value, 'label': label}
                         for value, label in LINE_COLOURS],
         'defaultInk': DEFAULT_INK,
@@ -1301,6 +1347,8 @@ def item_svg(item: dict) -> str:
         return _point_svg(item)
     if kind == 'text':
         return _text_svg(item)
+    if kind == 'shape':
+        return _figure_svg(item)
     return _shape_svg(item)
 
 
@@ -1548,6 +1596,94 @@ def _shape_svg(item: dict) -> str:
         parts.append(_label_svg(item['label'], middle[0], middle[1] - 10 * item['size'],
                                 item['size']))
     return ''.join(parts)
+
+
+def hatch_segments(shape: str, w: float, h: float, gap: float) -> list:
+    """The hatch lines of a shape, in its own unrotated frame centred on 0,0.
+
+    Worked out as geometry rather than with an SVG `<pattern>`: a pattern
+    cannot take the colour of the shape it fills, and a clip path needs an id
+    per item, which the browser and this module would have to agree on. These
+    are plain segments, cut to the rectangle or the ellipse, so the two
+    renderers draw exactly the same lines. Diagonal, at 45°.
+    """
+    a, b = w / 2, h / 2
+    if a <= 0 or b <= 0 or gap <= 0:
+        return []
+    segments = []
+    reach = a + b
+    # Lines y = x + c, from one corner of the bounding box to the other,
+    # spaced `gap` apart measured across the lines rather than along an axis.
+    step = gap * math.sqrt(2)
+    count = int(reach // step)
+    for k in range(-count, count + 1):
+        c = k * step
+        if shape == 'ellipse':
+            # x²/a² + (x + c)²/b² = 1
+            qa = 1 / (a * a) + 1 / (b * b)
+            qb = 2 * c / (b * b)
+            qc = c * c / (b * b) - 1
+            disc = qb * qb - 4 * qa * qc
+            if disc <= 0:
+                continue
+            root = math.sqrt(disc)
+            x1, x2 = (-qb - root) / (2 * qa), (-qb + root) / (2 * qa)
+        else:
+            x1, x2 = max(-a, -b - c), min(a, b - c)
+            if x2 <= x1:
+                continue
+        segments.append((round(x1, 2), round(x1 + c, 2), round(x2, 2), round(x2 + c, 2)))
+    return segments
+
+
+def shape_corners(item: dict) -> list:
+    """The four corners of a shape's box, turned by its rotation, on the
+    sheet. An ellipse fits inside them — what anything needing its extent
+    (the ops trace's crop) should use."""
+    a, b = item['w'] / 2, item['h'] / 2
+    turn = math.radians(item.get('rotation') or 0)
+    cos, sin = math.cos(turn), math.sin(turn)
+    return [(round(item['x'] + dx * cos - dy * sin, 2),
+             round(item['y'] + dx * sin + dy * cos, 2))
+            for dx, dy in ((-a, -b), (a, -b), (a, b), (-a, b))]
+
+
+def _figure_svg(item: dict) -> str:
+    """A rectangle or an ellipse: drawn in its own frame, centred on 0,0, and
+    turned into place — so the hatching and the outline turn with it. The
+    outline is backed the same way a line is, wider and always solid."""
+    colour = item_colour(item)
+    backing = ink_backing(colour)
+    drawn = line_size(item['size'])
+    width = round(4 * drawn, 2)
+    back_width = round(width + 2.6 * drawn, 2)
+    dash = f' stroke-dasharray="{round(14 * drawn, 1)} {round(9 * drawn, 1)}"' \
+        if item['style'] == 'dashed' else ''
+    a, b = round(item['w'] / 2, 2), round(item['h'] / 2, 2)
+    if item['shape'] == 'ellipse':
+        outline = f'<ellipse cx="0" cy="0" rx="{a}" ry="{b}"'
+    else:
+        outline = f'<rect x="{-a}" y="{-b}" width="{round(2 * a, 2)}" height="{round(2 * b, 2)}"'
+    fill = (f'fill="{colour}" fill-opacity="0.22"' if item['fill'] == 'light'
+            else 'fill="none"')
+    parts = [f'{outline} fill="none" stroke="{backing}" stroke-width="{back_width}" '
+             'stroke-linejoin="round"/>']
+    if item['fill'] == 'hatch':
+        lines = ''.join(f'M{x1},{y1}L{x2},{y2}' for x1, y1, x2, y2
+                        in hatch_segments(item['shape'], 2 * a, 2 * b, HATCH_GAP * drawn))
+        if lines:
+            # Backed like the outline: black hatching over a dark sheet is
+            # otherwise invisible, which is the default ink on the default sheet.
+            parts.append(f'<path d="{lines}" stroke="{backing}" '
+                         f'stroke-width="{round(3.4 * drawn, 2)}" stroke-opacity="0.55"/>')
+            parts.append(f'<path d="{lines}" stroke="{colour}" '
+                         f'stroke-width="{round(1.6 * drawn, 2)}"/>')
+    parts.append(f'{outline} {fill} stroke="{colour}" stroke-width="{width}"{dash} '
+                 'stroke-linejoin="round"/>')
+    turn = item.get('rotation') or 0
+    return (f'<g transform="translate({item["x"]} {item["y"]}) rotate({turn})">'
+            + ''.join(parts) + '</g>'
+            + _label_svg(item['label'], item['x'], item['y'], item['size']))
 
 
 def tile_url(background: dict, zoom: int, column: int, row: int) -> str:
@@ -2050,6 +2186,28 @@ def to_sqf(doc: dict, *, prefix: str, title: str = '',
         colour = arma_colour(item)
         name = marker_name(index)
         text = _marker_text(item)
+
+        if item['kind'] == 'shape':
+            centre = to_world(doc, item['x'], item['y'])
+            # setMarkerSize takes the half-width and half-height, in metres.
+            arma = doc.get('arma') or DEFAULT_EXTENT
+            across = abs(arma['right'] - arma['left']) / doc['width']
+            down = abs(arma['top'] - arma['bottom']) / doc['height']
+            half_w = round(item['w'] / 2 * across, 2)
+            half_h = round(item['h'] / 2 * down, 2)
+            lines.append(f'_m = createMarker [{name}, [{centre[0]}, {centre[1]}]];')
+            lines.append(f'_m setMarkerShape "{SHAPES[item["shape"]]["arma"]}";')
+            lines.append(f'_m setMarkerSize [{half_w}, {half_h}];')
+            # Both turn clockwise: the sheet's y grows downward, Arma's
+            # bearing is clockwise from north.
+            lines.append(f'_m setMarkerDir {round((item.get("rotation") or 0) % 360, 1)};')
+            lines.append(f'_m setMarkerBrush "{SHAPE_FILLS[item["fill"]]["brush"]}";')
+            lines.append(f'_m setMarkerColor "{colour}";')
+            if text:
+                lines.append(f'_m setMarkerText {_sqf_string(text)};')
+            if editable:
+                lines.append('_n pushBack _m;')
+            continue
 
         if item['kind'] in ('line', 'area'):
             points = [to_world(doc, x, y) for x, y in item['points']]

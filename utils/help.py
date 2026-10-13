@@ -807,7 +807,7 @@ _MAPS: tuple[Topic, ...] = (
         group='maps',
         audience=UNIT_LEADER,
         where='Web — **🎖️ Operations → Maps**',
-        summary='Put unit symbols, movement lines and objectives on the '
+        summary='Put unit symbols, movement lines, objectives and boxes on the '
                 'terrain.',
         steps=(
             'Go to **Maps**, name the new map, and press **Create**.',
@@ -816,6 +816,10 @@ _MAPS: tuple[Topic, ...] = (
             'mobility, parent unit, whether it is only planned, and its label.',
             '**Drag** with the Line or Area tool to draw — or hold **Ctrl** and '
             'drag from any tool, which is the gesture Arma’s own map uses.',
+            'For a box or a circle, drag corner to corner with **Rectangle** or '
+            '**Ellipse** — hold **Shift** for a square or a circle. Select it to '
+            'resize it by a corner, turn it by the round handle, and choose an '
+            'outline, a light fill or hatching.',
             'Press **Save**. Everyone looking at the map sees the saved '
             'version.',
         ),
@@ -825,7 +829,7 @@ _MAPS: tuple[Topic, ...] = (
             'in the air; **dashed** means it is planned rather than there.',
             'Lines get an arrow head only when you ask for one — most lines on '
             'a plan are boundaries and phase lines, which point nowhere.',
-            'Lines, areas and markers are black until you colour them, and '
+            'Lines, areas, shapes and markers are black until you colour them, and '
             'take whatever you pick from the swatches. Symbols do not: their '
             'colour is what says which side they are.',
             'Whatever colour you pick is the colour it comes out in Arma, on '
@@ -1007,6 +1011,9 @@ _MAPS: tuple[Topic, ...] = (
             'Symbol sizes and mobility have no counterpart in Arma, so they are '
             'written into the marker text: `1-1 Alpha / A Coy (planned Plt '
             'twd)`.',
+            'Rectangles and ellipses arrive as Arma’s own area markers, filled '
+            'and turned the way they are drawn. Arma shows no text on an area '
+            'marker, so their labels stay on the website’s map.',
             'Dashed is lost — Arma has no dashed marker. The debug console has '
             'to be enabled in the mission’s `description.ext`.',
         ),

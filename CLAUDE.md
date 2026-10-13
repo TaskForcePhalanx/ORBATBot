@@ -101,7 +101,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(563 cases), and every one of them covers a module that imports nothing beyond
+(575 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -110,7 +110,7 @@ all:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
+| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
@@ -2966,6 +2966,41 @@ means:
 
 Lines and areas are `POLYLINE` markers and the map's own editing is built
 around icon markers, so those may stay fixed while the symbols move.
+
+### Rectangles and ellipses are their own kind
+
+`kind: 'shape'` holds a centre, a width and height, a rotation, a `shape`
+(`rect` / `ellipse`, `SHAPES`) and a `fill` (`none` / `light` / `hatch`,
+`SHAPE_FILLS`). It is not an area with four corners, for one reason: **Arma's
+RECTANGLE and ELLIPSE markers are the only ones the game fills and turns**, so
+a shape exports as one of those — `setMarkerSize` (half-sizes in metres, from
+the sheet's corners), `setMarkerDir` and `setMarkerBrush` (`Border`, `Solid`,
+`FDiagonal`) — where an area can only be a polyline outline. Arma shows no text
+on an area marker, so a shape's label stays on the website's map; the help and
+the inspector say so.
+
+Four things are deliberate:
+
+- **Drawn in its own frame, centred on 0,0, and turned into place** with one
+  `transform`, so the outline and the hatching turn together and the handles in
+  `tacmap.js` work in that same frame: a corner handle keeps the opposite
+  corner fixed *along the shape's own sides*, and the round handle above it
+  sets the rotation (Shift snaps to 15°).
+- **Hatching is geometry, not a `<pattern>`** (`hatch_segments()`): a pattern
+  cannot take the colour of the shape it fills, and a clip path needs an id per
+  item that both renderers would have to agree on. The lines are cut to the
+  rectangle or the ellipse analytically, so the server and the browser draw the
+  same segments — checked to the hundredth when it was written. The hatching is
+  backed like the outline, or the default black ink vanishes on the dark sheet.
+- **A shape is drawn at the areas' level** (`KIND_ORDER`), under lines and
+  symbols, for the same reason areas are.
+- **`shape_corners()` is a shape's extent** — the campaign planner's ops-trace
+  crop (`_item_bounds()`) uses it, because a shape has an `x` and would
+  otherwise be measured like a unit.
+
+`Shift` while dragging one out makes it a square or a circle; a drag that ends
+smaller than `MIN_SHAPE` is a slipped click and adds nothing, the same as a
+stroke that goes nowhere.
 
 ### Posting is a link, not a picture
 

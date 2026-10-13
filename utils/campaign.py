@@ -1926,6 +1926,11 @@ def trace_doc(doc: dict, layer_id: str) -> dict:
 
 
 def _item_bounds(item: dict) -> tuple | None:
+    if item.get('kind') == 'shape':
+        corners = tacmap.shape_corners(item)
+        xs = [p[0] for p in corners]
+        ys = [p[1] for p in corners]
+        return min(xs), min(ys), max(xs), max(ys)
     if item.get('points'):
         xs = [p[0] for p in item['points']]
         ys = [p[1] for p in item['points']]

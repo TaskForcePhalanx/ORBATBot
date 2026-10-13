@@ -17,6 +17,8 @@
         <button type="button" class="tmtool" data-tool="point">📍 Marker</button>
         <button type="button" class="tmtool" data-tool="line">➟ Line</button>
         <button type="button" class="tmtool" data-tool="area">⬟ Area</button>
+        <button type="button" class="tmtool" data-tool="rect">▭ Rectangle</button>
+        <button type="button" class="tmtool" data-tool="ellipse">◯ Ellipse</button>
         <button type="button" class="tmtool" data-tool="text">🔤 Text</button>
       </div>
       {# The gesture is the one Arma's own map uses, so it is what people try
@@ -25,7 +27,9 @@
         by holding <kbd>Ctrl</kbd> from any tool. Hold <kbd>Shift</kbd> while
         you drag for a <strong>straight</strong> segment — let go of it and
         freehand carries on, hold it again for the next corner.
-        <kbd>Esc</kbd> throws the stroke away.</p>
+        <kbd>Esc</kbd> throws the stroke away. Rectangles and ellipses are
+        dragged corner to corner — <kbd>Shift</kbd> makes a square or a circle —
+        and resized or turned by their handles once selected.</p>
       <div class="tmpick">
         <label>Side <select id="tmside"></select></label>
         <label>Layer <select id="tmlayerpick"></select></label>
@@ -38,11 +42,12 @@
         <label data-for="point">Text <select id="tmglyph"></select></label>
         {# Shown under Select too: a ctrl-drag draws from there, and the
            colour it would use has to be on screen to be chosen. #}
-        <label data-for="select line area">Line <select id="tmstyle">
+        <label data-for="rect ellipse">Fill <select id="tmfill"></select></label>
+        <label data-for="select line area rect ellipse">Line <select id="tmstyle">
           <option value="solid">Solid</option>
           <option value="dashed">Dashed</option>
         </select></label>
-        <span class="tmswatches" data-for="select line area point" id="tmcolours"
+        <span class="tmswatches" data-for="select line area point rect ellipse" id="tmcolours"
               role="group" aria-label="Colour"></span>
       </div>
       <div class="tmdo">
@@ -64,7 +69,7 @@
           <h3>Selected</h3>
           <label class="field"><span>Label</span>
             <input id="tmf-label" maxlength="48"></label>
-          <label class="field" data-for="unit point line area"><span>Note</span>
+          <label class="field" data-for="unit point line area shape"><span>Note</span>
             <textarea id="tmf-note" rows="2" maxlength="240"></textarea></label>
           <label class="field"><span>Layer</span>
             <select id="tmf-layer"></select></label>
@@ -102,11 +107,17 @@
             <input id="tmf-text" maxlength="5" placeholder="SF">
             <span class="hint">Written in an empty frame, or beside one that
               already has a pictogram in it.</span></label>
-          <label class="field" data-for="unit"><span>Rotation</span>
+          <label class="field" data-for="shape"><span>Shape</span>
+            <select id="tmf-figure"></select></label>
+          <label class="field" data-for="shape"><span>Fill</span>
+            <select id="tmf-fill"></select>
+            <span class="hint">In Arma a shape keeps its fill and its turn. The
+              game shows no text on a shape, so its label stays on this map.</span></label>
+          <label class="field" data-for="unit shape"><span>Rotation</span>
             <input type="range" id="tmf-rotation" min="-180" max="180" step="5"></label>
           <label class="field"><span>Size</span>
             <input type="range" id="tmf-size" min="0.15" max="4" step="0.05"></label>
-          <div class="field" data-for="line area text point"><span>Colour</span>
+          <div class="field" data-for="line area shape text point"><span>Colour</span>
             <div class="tmswatches" id="tmf-colours" role="group"
                  aria-label="Colour"></div>
             <div class="tmcolour">
@@ -114,7 +125,7 @@
               <span class="hint">…or any other colour.</span>
             </div>
           </div>
-          <label class="field" data-for="line area"><span>Line</span>
+          <label class="field" data-for="line area shape"><span>Line</span>
             <select id="tmf-style">
               <option value="solid">Solid</option>
               <option value="dashed">Dashed</option>
@@ -213,9 +224,13 @@
           <h3>Keys</h3>
           <ul>
             <li><kbd>V</kbd> select · <kbd>U</kbd> unit · <kbd>M</kbd> marker ·
-              <kbd>L</kbd> line · <kbd>A</kbd> area · <kbd>T</kbd> text</li>
-            <li>Line and area: click each corner, <kbd>Enter</kbd> finishes,
-              <kbd>Esc</kbd> cancels</li>
+              <kbd>L</kbd> line · <kbd>A</kbd> area · <kbd>R</kbd> rectangle ·
+              <kbd>E</kbd> ellipse · <kbd>T</kbd> text</li>
+            <li>Line and area: drag to draw, <kbd>Shift</kbd> for a straight
+              segment, <kbd>Esc</kbd> cancels</li>
+            <li>Rectangle and ellipse: drag corner to corner, <kbd>Shift</kbd> for a
+              square or circle; drag a corner handle to resize, the round one to
+              turn (<kbd>Shift</kbd> snaps to 15°)</li>
             <li><kbd>Del</kbd> removes the selection · <kbd>Ctrl</kbd>+<kbd>Z</kbd>
               undoes · <kbd>Ctrl</kbd>+<kbd>S</kbd> saves</li>
             <li>Scroll to zoom, drag the background to pan</li>

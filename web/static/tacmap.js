@@ -51,7 +51,13 @@
     // is what made every friendly plan come out one flat blue.
     color: '',
     style: 'solid',
+    // How a new rectangle or ellipse is filled.
+    fill: catalog.defaultFill,
     hq: false,
+    // A rectangle or ellipse being dragged out, and a selected one being
+    // resized or turned by its handles.
+    box: null,
+    handle: null,
     selected: -1,
     draft: null,
     drag: null,
@@ -340,7 +346,86 @@
     return parts.join('');
   }
 
+  // Mirrors hatch_segments() in utils/tacmap.py: diagonal lines cut to the
+  // rectangle or the ellipse as geometry, so both renderers draw the same ones
+  // and the hatching takes the shape's own colour.
+  function hatchSegments(shape, w, h, gap) {
+    var a = w / 2;
+    var b = h / 2;
+    if (a <= 0 || b <= 0 || gap <= 0) return [];
+    var out = [];
+    var step = gap * Math.SQRT2;
+    var count = Math.floor((a + b) / step);
+    for (var k = -count; k <= count; k++) {
+      var c = k * step;
+      var x1, x2;
+      if (shape === 'ellipse') {
+        var qa = 1 / (a * a) + 1 / (b * b);
+        var qb = 2 * c / (b * b);
+        var qc = c * c / (b * b) - 1;
+        var disc = qb * qb - 4 * qa * qc;
+        if (disc <= 0) continue;
+        var root = Math.sqrt(disc);
+        x1 = (-qb - root) / (2 * qa);
+        x2 = (-qb + root) / (2 * qa);
+      } else {
+        x1 = Math.max(-a, -b - c);
+        x2 = Math.min(a, b - c);
+        if (x2 <= x1) continue;
+      }
+      out.push([round(x1), round(x1 + c), round(x2), round(x2 + c)]);
+    }
+    return out;
+  }
+
+  function figureOutline(item, a, b) {
+    return item.shape === 'ellipse'
+      ? '<ellipse cx="0" cy="0" rx="' + a + '" ry="' + b + '"'
+      : '<rect x="' + (-a) + '" y="' + (-b) + '" width="' + round(2 * a) +
+        '" height="' + round(2 * b) + '"';
+  }
+
+  function figureTurn(item) {
+    return '<g transform="translate(' + item.x + ' ' + item.y + ') rotate(' +
+      (item.rotation || 0) + ')">';
+  }
+
+  // Mirrors _figure_svg(): drawn centred on 0,0 and turned into place, so the
+  // hatching and the outline turn together.
+  function figureSVG(item) {
+    var colour = itemColour(item);
+    var backing = inkBacking(colour);
+    var drawn = lineSize(item.size);
+    var width = round(4 * drawn);
+    var backWidth = round(width + 2.6 * drawn);
+    var dash = item.style === 'dashed'
+      ? ' stroke-dasharray="' + round(14 * drawn) + ' ' + round(9 * drawn) + '"' : '';
+    var a = round(item.w / 2);
+    var b = round(item.h / 2);
+    var outline = figureOutline(item, a, b);
+    var fill = item.fill === 'light'
+      ? 'fill="' + colour + '" fill-opacity="0.22"' : 'fill="none"';
+    var parts = [outline + ' fill="none" stroke="' + backing + '" stroke-width="' +
+      backWidth + '" stroke-linejoin="round"/>'];
+    if (item.fill === 'hatch') {
+      var path = hatchSegments(item.shape, 2 * a, 2 * b, catalog.hatchGap * drawn)
+        .map(function (s) { return 'M' + s[0] + ',' + s[1] + 'L' + s[2] + ',' + s[3]; })
+        .join('');
+      if (path) {
+        parts.push('<path d="' + path + '" stroke="' + backing + '" stroke-width="' +
+          round(3.4 * drawn) + '" stroke-opacity="0.55"/>');
+        parts.push('<path d="' + path + '" stroke="' + colour + '" stroke-width="' +
+          round(1.6 * drawn) + '"/>');
+      }
+    }
+    parts.push(outline + ' ' + fill + ' stroke="' + colour + '" stroke-width="' + width +
+      '"' + dash + ' stroke-linejoin="round"/>');
+    return figureTurn(item) + parts.join('') + '</g>' +
+      label(item.label, item.x, item.y, item.size);
+  }
+
   function itemSVG(item) {
+    if (item.kind === 'shape') return figureSVG(item);
     if (item.kind === 'unit') return unitSVG(item);
     if (item.kind === 'point') return pointSVG(item);
     if (item.kind === 'text') {
@@ -364,6 +449,14 @@
       return '<circle cx="' + round(item.x) + '" cy="' + round(item.y) + '" r="' +
         round(Math.max(box * item.size, catalog.minHit / 2)) +
         '" fill="#000" fill-opacity="0"/>';
+    }
+    if (item.kind === 'shape') {
+      // The outline, fat and invisible, the same as a line's. A light fill
+      // catches a click by itself; an outline or a hatching would otherwise
+      // only be grabbable on its hair-thin strokes.
+      return figureTurn(item) + figureOutline(item, round(item.w / 2), round(item.h / 2)) +
+        ' fill="none" stroke="#000" stroke-opacity="0" stroke-width="' +
+        round(Math.max(20 * item.size, catalog.minHit)) + '"/></g>';
     }
     if (item.kind !== 'line' && item.kind !== 'area') return '';
     var points = item.points.map(function (point) {
@@ -477,7 +570,16 @@
       lines.join('') + '</g>';
   }
 
+  function boxDraftSVG() {
+    var box = boxGeometry(state.box);
+    if (!box) return '';
+    var paint = colours[state.side];
+    return figureTurn(box) + figureOutline(box, round(box.w / 2), round(box.h / 2)) +
+      ' fill="none" stroke="' + paint.fill + '" stroke-width="4" stroke-dasharray="10 8"/></g>';
+  }
+
   function draftSVG() {
+    if (state.box) return boxDraftSVG();
     if (!state.draft || state.draft.points.length === 0) return '';
     var paint = colours[state.side];
     var points = state.draft.points.concat(
@@ -548,6 +650,98 @@
     ring.setAttribute('width', box.width + 12);
     ring.setAttribute('height', box.height + 12);
     overlay.appendChild(ring);
+    drawHandles();
+  }
+
+  /* -- a shape's handles ----------------------------------------------------- */
+
+  // Corners in the shape's own frame, in the order the handles are numbered.
+  var CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+  function turnPoint(item, dx, dy) {
+    var turn = (item.rotation || 0) * Math.PI / 180;
+    return [item.x + dx * Math.cos(turn) - dy * Math.sin(turn),
+            item.y + dx * Math.sin(turn) + dy * Math.cos(turn)];
+  }
+
+  function rotateHandleGap() { return view.w / 28; }
+
+  function drawHandles() {
+    Array.prototype.forEach.call(overlay.querySelectorAll('.tm-handle, .tm-stalk'),
+      function (node) { node.remove(); });
+    var item = selected();
+    if (!editable || !item || item.kind !== 'shape') return;
+    var a = item.w / 2;
+    var b = item.h / 2;
+    var r = round(view.w / 110);
+    var top = turnPoint(item, 0, -b);
+    var knob = turnPoint(item, 0, -b - rotateHandleGap());
+    var html = '<line class="tm-stalk" x1="' + round(top[0]) + '" y1="' + round(top[1]) +
+      '" x2="' + round(knob[0]) + '" y2="' + round(knob[1]) + '"/>';
+    CORNERS.forEach(function (corner, index) {
+      var spot = turnPoint(item, corner[0] * a, corner[1] * b);
+      html += '<rect class="tm-handle" data-h="' + index + '" x="' + round(spot[0] - r) +
+        '" y="' + round(spot[1] - r) + '" width="' + 2 * r + '" height="' + 2 * r + '"/>';
+    });
+    html += '<circle class="tm-handle tm-turn" data-h="turn" cx="' + round(knob[0]) +
+      '" cy="' + round(knob[1]) + '" r="' + round(r * 1.2) + '"/>';
+    overlay.insertAdjacentHTML('beforeend', html);
+  }
+
+  // What a box being dragged out is: the two corners give the size, Shift
+  // makes it a square or a circle. Drawn upright; the handles turn it after.
+  function boxGeometry(box) {
+    if (!box) return null;
+    var dx = box.to[0] - box.from[0];
+    var dy = box.to[1] - box.from[1];
+    if (box.square) {
+      var side = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = dx < 0 ? -side : side;
+      dy = dy < 0 ? -side : side;
+    }
+    return { kind: 'shape', shape: box.shape, x: round(box.from[0] + dx / 2),
+             y: round(box.from[1] + dy / 2), w: round(Math.abs(dx)),
+             h: round(Math.abs(dy)), rotation: 0 };
+  }
+
+  // Resizing keeps the opposite corner where it is, in the shape's own frame,
+  // so a turned box grows along its own sides rather than the sheet's.
+  function resizeTo(start, corner, here, square) {
+    var item = JSON.parse(start);
+    var a = item.w / 2;
+    var b = item.h / 2;
+    var sx = CORNERS[corner][0];
+    var sy = CORNERS[corner][1];
+    var fixed = turnPoint(item, -sx * a, -sy * b);
+    var turn = (item.rotation || 0) * Math.PI / 180;
+    var px = here.x - fixed[0];
+    var py = here.y - fixed[1];
+    var lx = px * Math.cos(turn) + py * Math.sin(turn);
+    var ly = -px * Math.sin(turn) + py * Math.cos(turn);
+    if (square) {
+      var side = Math.max(Math.abs(lx), Math.abs(ly));
+      lx = lx < 0 ? -side : side;
+      ly = ly < 0 ? -side : side;
+    }
+    var least = catalog.minShape;
+    if (Math.abs(lx) < least) lx = lx < 0 ? -least : least;
+    if (Math.abs(ly) < least) ly = ly < 0 ? -least : least;
+    item.w = round(Math.abs(lx));
+    item.h = round(Math.abs(ly));
+    var centre = turnPoint({ x: fixed[0], y: fixed[1], rotation: item.rotation }, lx / 2, ly / 2);
+    item.x = round(centre[0]);
+    item.y = round(centre[1]);
+    return item;
+  }
+
+  // The knob sits straight above the shape, so the angle is measured from
+  // there; Shift snaps to 15° for the boxes that should sit square to a road.
+  function turnTo(start, here, snap) {
+    var item = JSON.parse(start);
+    var angle = Math.atan2(here.x - item.x, -(here.y - item.y)) * 180 / Math.PI;
+    if (snap) angle = Math.round(angle / 15) * 15;
+    item.rotation = Math.round(angle * 10) / 10;
+    return item;
   }
 
   /* -- the sheet, zoom and pan --------------------------------------------- */
@@ -777,6 +971,25 @@
     // never have to leave what you are doing — and the Line and Area tools do
     // it without Ctrl. Clicking a line out corner by corner is gone: it was a
     // mode you had to finish before anything else worked.
+    var handle = event.target.closest ? event.target.closest('.tm-handle') : null;
+    if (handle && selected()) {
+      event.preventDefault();
+      state.handle = { index: state.selected, which: handle.dataset.h, moved: false,
+                       start: JSON.stringify(selected()) };
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (state.tool === 'rect' || state.tool === 'ellipse') {
+      event.preventDefault();
+      state.box = { shape: state.tool, from: [point.x, point.y], to: [point.x, point.y],
+                    square: event.shiftKey };
+      say('Drawing — hold Shift for a ' +
+          (state.tool === 'rect' ? 'square' : 'circle') + ', let go to finish');
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
     var drawing = state.tool === 'line' || state.tool === 'area';
     if (event.ctrlKey || event.metaKey || drawing) {
       event.preventDefault();
@@ -814,6 +1027,25 @@
   });
 
   svg.addEventListener('pointermove', function (event) {
+    if (state.box) {
+      var to = at(event);
+      state.box.to = [to.x, to.y];
+      state.box.square = event.shiftKey;
+      overlay.innerHTML = draftSVG();
+      return;
+    }
+    if (state.handle) {
+      var spot = at(event);
+      if (!state.handle.moved) {
+        state.handle.moved = true;
+        snapshot();
+      }
+      state.doc.items[state.handle.index] = state.handle.which === 'turn'
+        ? turnTo(state.handle.start, spot, event.shiftKey)
+        : resizeTo(state.handle.start, Number(state.handle.which), spot, event.shiftKey);
+      render();
+      return;
+    }
     if (state.draft) {
       var here = at(event);
       var draft = state.draft;
@@ -881,6 +1113,18 @@
   });
 
   svg.addEventListener('pointerup', function () {
+    if (state.box) {
+      finishBox();
+      return;
+    }
+    if (state.handle) {
+      if (state.handle.moved) {
+        touched();
+        fillInspector();
+      }
+      state.handle = null;
+      return;
+    }
     if (state.draft) {
       finishDraft();
       return;
@@ -894,7 +1138,27 @@
   // draft would hang around and the next click would extend it.
   svg.addEventListener('pointercancel', function () {
     if (state.draft) finishDraft();
+    if (state.box) finishBox();
+    state.handle = null;
   });
+
+  function finishBox() {
+    var shape = boxGeometry(state.box);
+    state.box = null;
+    say('');
+    overlay.innerHTML = '';
+    // A click that never became a drag is a slipped finger, as with a line.
+    if (!shape || shape.w < catalog.minShape || shape.h < catalog.minShape) {
+      drawSelection();
+      return;
+    }
+    add({
+      kind: 'shape', shape: shape.shape, side: state.side, layer: state.layer,
+      label: '', note: '', size: catalog.defaultSize, color: state.color,
+      x: shape.x, y: shape.y, w: shape.w, h: shape.h, rotation: 0,
+      fill: state.fill, style: state.style
+    });
+  }
 
   function finishDraft() {
     var draft = state.draft;
@@ -920,6 +1184,7 @@
 
   function setTool(tool) {
     if (state.draft) finishDraft();
+    state.box = null;
     state.tool = tool;
     Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
       button.classList.toggle('active', button.dataset.tool === tool);
@@ -1090,6 +1355,13 @@
       function () { return state.color; },
       function (value) { state.color = value; });
   }
+  var fillPick = document.getElementById('tmfill');
+  if (fillPick) {
+    fillOptions(fillPick, catalog.fills.map(function (entry) {
+      return { value: entry.key, label: entry.label };
+    }), state.fill);
+    fillPick.addEventListener('change', function () { state.fill = fillPick.value; });
+  }
   var stylePick = document.getElementById('tmstyle');
   if (stylePick) {
     stylePick.value = state.style;
@@ -1118,8 +1390,16 @@
     style: document.getElementById('tmf-style'),
     arrow: document.getElementById('tmf-arrow'),
     layer: document.getElementById('tmf-layer'),
-    color: document.getElementById('tmf-color')
+    color: document.getElementById('tmf-color'),
+    figure: document.getElementById('tmf-figure'),
+    fill: document.getElementById('tmf-fill')
   };
+  fillOptions(fields.figure, catalog.shapes.map(function (entry) {
+    return { value: entry.key, label: entry.label };
+  }), 'rect');
+  fillOptions(fields.fill, catalog.fills.map(function (entry) {
+    return { value: entry.key, label: entry.label };
+  }), catalog.defaultFill);
   fillOptions(fields.side, sideOptions, state.side);
   fillOptions(fields.symbol, symbolOptions, state.symbol);
   fillOptions(fields.marker, markerOptions, state.marker);
@@ -1156,6 +1436,8 @@
     fields.arrow.checked = !!item.arrow;
     fields.layer.value = item.layer;
     fields.color.value = item.color || colours[item.side].fill;
+    fields.figure.value = item.shape || 'rect';
+    fields.fill.value = item.fill || catalog.defaultFill;
     if (inspectorColours) markSwatches(inspectorColours, item.color);
   }
 
@@ -1212,6 +1494,8 @@
   editField(fields.arrow, function (item) { item.arrow = fields.arrow.checked; });
   editField(fields.layer, function (item) { item.layer = fields.layer.value; });
   editField(fields.color, function (item) { item.color = fields.color.value; });
+  editField(fields.figure, function (item) { item.shape = fields.figure.value; });
+  editField(fields.fill, function (item) { item.fill = fields.fill.value; });
   var inspectorColours = document.getElementById('tmf-colours');
   if (inspectorColours) {
     swatchRow(inspectorColours,
@@ -1439,7 +1723,8 @@
 
   /* -- keyboard ------------------------------------------------------------- */
 
-  var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text' };
+  var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text',
+                    r: 'rect', e: 'ellipse' };
 
   // Letting go of Shift fixes the straight segment where it is. Clearing the
   // anchor on the next freehand move is not enough: tapping Shift again
@@ -1468,6 +1753,13 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
       undo();
+      return;
+    }
+    if (event.key === 'Escape' && state.box) {
+      state.box = null;
+      overlay.innerHTML = '';
+      say('');
+      drawSelection();
       return;
     }
     if (event.key === 'Escape' && state.draft) {
