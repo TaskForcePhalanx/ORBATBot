@@ -781,6 +781,21 @@ svg.tacmap.tm-drawing { cursor: crosshair; }
   stroke-dasharray: 7 5;
   pointer-events: none;
 }
+/* A selected shape's handles: corners resize, the round one turns it. */
+.tm-handle {
+  fill: #ffffff;
+  stroke: #11161c;
+  stroke-width: 1.5;
+  cursor: nwse-resize;
+  pointer-events: all;
+}
+.tm-handle.tm-turn { cursor: grab; fill: #f2c832; }
+.tm-stalk {
+  stroke: #ffffff;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
 
 .tmside {
   border-left: 1px solid var(--line);

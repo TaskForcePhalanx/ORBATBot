@@ -1722,3 +1722,110 @@ def test_the_backing_is_wider_than_the_ink():
     widths = [float(w) for w in re.findall(
         r'<polyline[^>]*stroke-width="([\d.]+)"', tacmap.item_svg(doc['items'][0]))]
     assert len(widths) == 2 and widths[0] > widths[1]
+
+
+# -- shapes: rectangles and ellipses -----------------------------------------
+
+def shape(**overrides):
+    item = {'kind': 'shape', 'shape': 'rect', 'x': 500, 'y': 400, 'w': 200,
+            'h': 100, 'rotation': 30, 'fill': 'hatch', 'label': 'OBJ GOLD'}
+    item.update(overrides)
+    return item
+
+
+def test_a_shape_keeps_its_geometry_and_fill():
+    item = _parse_one(shape(shape='ellipse', color='#e03b3b', style='dashed'))
+    assert (item['shape'], item['fill'], item['style'], item['color']) == \
+        ('ellipse', 'hatch', 'dashed', '#e03b3b')
+    assert (item['x'], item['y'], item['w'], item['h'], item['rotation']) == \
+        (500, 400, 200, 100, 30)
+
+
+def test_a_shape_falls_back_to_what_it_can_draw():
+    item = _parse_one(shape(shape='triangle', fill='plaid', style='wavy', w=0.1,
+                            h=10 ** 9, rotation=9999))
+    assert (item['shape'], item['fill'], item['style']) == \
+        (tacmap.DEFAULT_SHAPE, tacmap.DEFAULT_FILL, 'solid')
+    assert item['w'] == tacmap.MIN_SHAPE
+    assert item['h'] == 1000 * 1.5          # never more than half as much again as the sheet
+    assert item['rotation'] == 360
+
+
+def test_a_shape_without_a_position_is_dropped():
+    result = tacmap.parse(_doc(items=[shape(x=None)]))
+    assert not result.doc['items'] and result.warnings
+
+
+def test_shapes_are_drawn_with_the_areas_under_everything_else():
+    assert tacmap.KIND_ORDER['shape'] == tacmap.KIND_ORDER['area']
+    doc = tacmap.parse(_doc(items=[unit(), shape()])).doc
+    assert [i['kind'] for i in tacmap.ordered_items(doc)] == ['shape', 'unit']
+
+
+def test_a_shape_is_drawn_in_its_own_frame_and_turned_into_place():
+    svg = tacmap.item_svg(_parse_one(shape()))
+    assert 'transform="translate(500.0 400.0) rotate(30.0)"' in svg
+    assert '<rect x="-100.0" y="-50.0" width="200.0" height="100.0"' in svg
+    assert 'OBJ GOLD' in svg
+    ellipse = tacmap.item_svg(_parse_one(shape(shape='ellipse', fill='light')))
+    assert '<ellipse cx="0" cy="0" rx="100.0" ry="50.0"' in ellipse
+    assert 'fill-opacity="0.22"' in ellipse
+    outline = tacmap.item_svg(_parse_one(shape(fill='none')))
+    assert 'fill-opacity' not in outline and '<path' not in outline
+
+
+def test_hatching_stays_inside_the_shape():
+    for kind in ('rect', 'ellipse'):
+        segments = tacmap.hatch_segments(kind, 200, 100, 10)
+        assert len(segments) > 5
+        for x1, y1, x2, y2 in segments:
+            for x, y in ((x1, y1), (x2, y2)):
+                if kind == 'rect':
+                    assert abs(x) <= 100.01 and abs(y) <= 50.01
+                else:
+                    assert abs((x / 100) ** 2 + (y / 50) ** 2 - 1) < 0.01
+            assert abs((y2 - y1) - (x2 - x1)) < 0.02         # 45°
+    assert tacmap.hatch_segments('rect', 0, 100, 10) == []
+
+
+def test_hatching_is_backed_so_black_shows_on_a_dark_sheet():
+    svg = tacmap.item_svg(_parse_one(shape()))
+    paths = re.findall(r'<path d="[^"]+" stroke="([^"]+)"', svg)
+    assert paths == [tacmap.ink_backing(tacmap.DEFAULT_INK), tacmap.DEFAULT_INK]
+
+
+def test_shape_corners_turn_with_the_shape():
+    corners = tacmap.shape_corners({'x': 0, 'y': 0, 'w': 200, 'h': 100, 'rotation': 90})
+    assert sorted(corners) == sorted([(50.0, -100.0), (50.0, 100.0),
+                                      (-50.0, 100.0), (-50.0, -100.0)])
+
+
+def test_a_shape_exports_as_an_arma_area_marker():
+    doc = tacmap.parse(_doc(items=[shape(color='#e03b3b')])).doc
+    doc['arma'] = {'terrain': '', 'left': 0, 'bottom': 0, 'right': 8192, 'top': 8192}
+    sqf = tacmap.to_sqf(doc, prefix='tm7')
+    assert '_m setMarkerShape "RECTANGLE";' in sqf
+    assert '_m setMarkerSize [819.2, 409.6];' in sqf   # half-sizes, in metres
+    assert '_m setMarkerDir 30.0;' in sqf
+    assert '_m setMarkerBrush "FDiagonal";' in sqf
+    assert '_m setMarkerColor "ColorRed";' in sqf
+    assert 'createMarker [_p + "1", [4096.0, 4915.2]]' in sqf
+
+
+def test_every_fill_has_an_arma_brush():
+    assert {value['brush'] for value in tacmap.SHAPE_FILLS.values()} == \
+        {'Border', 'Solid', 'FDiagonal'}
+    for fill in tacmap.SHAPE_FILLS:
+        doc = tacmap.parse(_doc(items=[shape(fill=fill, shape='ellipse')])).doc
+        sqf = tacmap.to_sqf(doc, prefix='tm7', editable=True)
+        assert f'setMarkerBrush "{tacmap.SHAPE_FILLS[fill]["brush"]}"' in sqf
+        assert '_m setMarkerShape "ELLIPSE";' in sqf
+        assert sqf.count('createMarker') == sqf.count('_n pushBack _m;')
+
+
+def test_the_editor_is_told_what_shapes_there_are():
+    catalog = tacmap.catalog()
+    assert [s['key'] for s in catalog['shapes']] == list(tacmap.SHAPES)
+    assert [f['key'] for f in catalog['fills']] == list(tacmap.SHAPE_FILLS)
+    assert catalog['minShape'] == tacmap.MIN_SHAPE
+    assert tacmap.summarise({'items': [shape(), shape()]}) == '2 shapes'

@@ -827,3 +827,12 @@ def test_a_campaign_is_finished_when_every_planned_mission_is_over():
                                     [done, done], today)
     assert not cp.campaign_finished({**campaign, 'status': 'archived'}, [done, done], today)
     assert not cp.campaign_finished({**campaign, 'status': 'complete'}, [done, done], today)
+
+
+def test_trace_view_crops_around_a_turned_shape():
+    doc = tacmap.blank_doc()
+    doc['items'] = [{'kind': 'shape', 'layer': 'cpp1', 'x': 500, 'y': 500,
+                     'w': 300, 'h': 40, 'rotation': 90, 'size': 1.0}]
+    x, y, w, h = cp.trace_view(doc, 'cpp1')
+    # Turned upright, the long side runs 350 to 650 down the sheet.
+    assert y <= 350 and y + h >= 650
