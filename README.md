@@ -168,7 +168,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Game roles** — [Pick your game roles](#pick-your-game-roles) · [Add and remove game roles](#add-and-remove-game-roles)
 
-**Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3)
+**Tactical maps** — [Draw the plan](#draw-the-plan) · [Use layers](#use-layers) · [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-plan) · [Put the town names on the map](#put-the-town-names-on-the-map) · [Share, copy or post a map](#share-copy-or-post-a-map) · [Get the plan into Arma 3](#get-the-plan-into-arma-3) · [Bring markers back from Arma 3](#bring-markers-back-from-arma-3)
 
 **Campaign planner** — [Set up the campaign planner](#set-up-the-campaign-planner) · [Plan a campaign](#plan-a-campaign) · [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Use and edit the objectives library](#use-and-edit-the-objectives-library) · [Give a mission its ORBAT](#give-a-mission-its-orbat) · [Download the briefing packs](#download-the-briefing-packs) · [Plan on the campaign and AO maps](#plan-on-the-campaign-and-ao-maps) · [Link the OCAP recording and use its numbers](#link-the-ocap-recording-and-use-its-numbers) · [Approve and post the drops](#approve-and-post-the-drops)
 
@@ -638,15 +638,22 @@ _Drawing the plan on the terrain, sharing it, and getting it into the mission._
 Put unit symbols, movement lines, objectives and boxes on the terrain.
 
 1. Go to **Maps**, name the new map, and press **Create**.
-2. Pick a symbol from the palette and click the sheet to place it.
-3. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
-4. Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for freehand. The Line and Area tools do the same without Ctrl; double-click or press **Enter** to finish. **Shift** keeps a segment straight and snaps it to 15°.
-5. Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 pixels — it stays that thin at every zoom) and its arrow heads (end, start or both) in the toolbar or the inspector.
-6. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
-7. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
-8. Press **Save**. Everyone looking at the map sees the saved version.
+2. The editor: tools down the left, the map in the middle, and on the right what the tool in hand will draw — or, with something selected, its details. Terrain, OCAP, sharing, posting, Arma and the map’s name are menus in the bar above. **⤢ Whole window** gives the map the screen (**Esc** to come back); **+ − ⤢** on the map zoom and fit it.
+3. Pick a symbol from the palette and click the sheet to place it.
+4. Select a symbol to open the inspector: side, what it is, size, mobility, parent unit, whether it is only planned, and its label.
+5. Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for freehand. The Line and Area tools do the same without Ctrl; double-click or press **Enter** to finish. **Shift** keeps a segment straight and snaps it to 15°.
+6. Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 pixels — it stays that thin at every zoom) and its arrow heads (end, start or both) in the toolbar or the inspector.
+7. The **Phase line** tool draws a line named at both ends — type the name after the *PL* it starts with. Any line can be named in the middle, at the end or at both ends from the inspector.
+8. Select a line or area to edit it: drag a corner to move it, drag the dot in the middle of a segment to add a corner, **Alt**+click or right-click a corner to delete it. Tick **Snap** and new or moved corners land on the nearest corner, symbol or marker.
+9. **Shift**+click adds to the selection and **Shift**+drag on empty ground selects by box; move them together by dragging any of them. **Ctrl**+**C** and **Ctrl**+**V** copy and paste — into another map too — and **Ctrl**+**D** duplicates.
+10. The corner of the map shows the six-figure grid reference under the pointer, and the length and bearing of what you are drawing. The **Measure** tool measures without drawing; the inspector shows a selected line’s length or an area’s size.
+11. For a box or a circle, drag corner to corner with **Rectangle** or **Ellipse** — hold **Shift** for a square or a circle. Select it to resize it by a corner, turn it by the round handle, and choose an outline, a light fill or hatching.
+12. The **AO** tool greys out the whole map and clears each area you draw with it, the way a covered Arma map does. Each AO gets a border colour no other AO uses and its name in a tab of that colour at its top-left corner.
+13. It saves by itself a moment after each change (**Autosave** in the bar; untick it to save only when you press **Save**). Everyone looking at the map sees the saved version.
 
 > The frame says whose it is: rectangle friendly, diamond hostile, square neutral, quatrefoil unknown. Open at the bottom means it is in the air; **dashed** means it is planned rather than there.
+>
+> The **Marker** tool has every marker vanilla Arma ships — military, hand-drawn, map locations, unit sizes, respawn points, Zeus and flags — grouped as in the game, and each exports as exactly that marker.
 >
 > Lines get an arrow head only when you ask for one — most lines on a plan are boundaries and phase lines, which point nowhere.
 >
@@ -676,17 +683,19 @@ Keep phase 1, phase 2 and the enemy picture apart, and show them one at a time.
 >
 > Deleting a layer moves its items to the first layer rather than taking them with it.
 >
+> The ↑ ↓ beside a layer change the drawing order — lower in the list is drawn on top. 🔒 locks a layer: it is still drawn, but nothing on it can be picked up or moved while you draw over it.
+>
 > A hidden layer is left out of the Arma export: markers you have switched off are not part of the plan being handed over.
 
 #### Put a real terrain behind the plan
 
-**Who:** Admin · **Where:** Web — **Terrains**, or the map editor’s background panels
+**Who:** Admin · **Where:** Web — **Terrains**, or the map editor’s **Terrain** and **OCAP** menus
 
 Draw on the actual terrain instead of a blank sheet.
 
 1. **Best: upload it.** Go to **Terrains** (linked from the Maps page) and upload the same tile archive you prepare for OCAP — a zip or 7z with the numbered folders `0/ 1/ 2/ …` in it.
-2. Then open a map and use **🗻 Put it on a terrain** to pick it.
-3. **Or point at a running OCAP server**: in the editor, press **List the terrains**, pick one, and import it.
+2. Then open a map and use the **🗻 Terrain** menu in its bar to pick it.
+3. **Or point at a running OCAP server**: in the editor’s **🛰️ OCAP** menu, press **List the terrains**, pick one, and import it.
 4. Either way the terrain’s Arma coordinates come along, which is what makes the export land in the right place.
 
 > Prefer the upload for anything shared outside the unit. A share link is for people who do not sign in here, and expecting them to reach your OCAP instance as well is how a link ends up showing an empty sheet.
@@ -701,14 +710,14 @@ See also: [Draw the plan](#draw-the-plan)
 
 #### Put the town names on the map
 
-**Who:** Admin · **Where:** Web — the map’s background panel, or **Terrains**
+**Who:** Admin · **Where:** Web — the map’s **OCAP** menu, or **Terrains**
 
 A terrain arrives with roads and contours and no labels. This is how it learns what its towns are called.
 
-1. **On an OCAP terrain:** open the map, go to *Terrain and background* → **Place names from OCAP**, and press **Import place names**. It reads the server the map points at.
+1. **On an OCAP terrain:** open the map, open the **🛰️ OCAP** menu → **Place names from OCAP**, and press **Import place names**. It reads the server the map points at.
 2. **On a terrain uploaded here:** the archive’s own `locations` files are read on upload, if it has them.
 3. Either way it is once per **terrain** — every map drawn on it gains the names.
-4. Too many? The editor’s background panel has a switch per group and a size slider.
+4. Too many? **Map settings** in the editor’s side panel has a switch per group and a size slider.
 5. **If it finds nothing**, it is that one terrain that carries no location data — other terrains on the same server can still import fine. The same panel then has a script and a paste box: run it in a mission on that terrain, press LOCAL EXEC, paste the clipboard in. **Once for the terrain** — not once per map, not once per operation.
 
 > The names are in the OCAP data, just not in `map.json`. OCAP builds a terrain from a **grad_meh** export, which writes them beside the tiles as `geojson/locations/<type>.geojson.gz` — one file per Arma location type, and the file name is the type.
@@ -723,11 +732,11 @@ See also: [Put a real terrain behind the plan](#put-a-real-terrain-behind-the-pl
 
 #### Share, copy or post a map
 
-**Who:** Unit Leader or Admin · **Where:** Web — the map’s **Share** and **Post** panels
+**Who:** Unit Leader or Admin · **Where:** Web — the map’s **Share** and **Post** menus
 
 Give people a link that needs no login, copy a plan to start the next one, or announce it in a channel.
 
-1. **Share**: open the **Share** panel and pick **view** or **edit**. You get a `/m/…` link that works without signing in.
+1. **Share**: open the **Share** menu and pick **view** or **edit**. You get a `/m/…` link that works without signing in.
 2. **Post**: pick a channel and press **Post**. The bot sends an embed with the link and the counts.
 3. **Duplicate**: press **Duplicate** for a copy of the plan — the share link deliberately does not come with it.
 4. **Rename**: the **Name and description** form on the map page.
@@ -743,12 +752,12 @@ Give people a link that needs no login, copy a plan to start the next one, or an
 
 #### Get the plan into Arma 3
 
-**Who:** Unit Leader or Admin · **Where:** Web — the map’s **Arma** panel
+**Who:** Unit Leader or Admin · **Where:** Web — the map’s **To Arma** menu
 
 Paste the plan into a running mission as markers, with no mod on either side.
 
 1. Make sure the map sits on a terrain, or that its Arma corners are filled in — the export needs to know where the sheet is in the world.
-2. Open the **Arma** panel and copy one of the two scripts.
+2. Open the **🎯 To Arma** menu in the map’s bar and copy one of the two scripts.
 3. In the mission, open the **debug console** as a logged-in admin and paste it.
 4. Press **LOCAL EXEC**. `createMarker` is global, so one machine running it draws the plan for everybody.
 
@@ -766,7 +775,27 @@ Paste the plan into a running mission as markers, with no mod on either side.
 >
 > Arma has no dashed line and draws every line at one width, so a dashed or dotted line arrives as its dashes — one short line marker each, at most 150 per line — and thickness stays on the website. Arrow heads arrive as Arma arrow markers at whichever ends have one.
 >
+> A line’s name arrives as text alone at the same place — the middle, or both ends of a phase line — on an invisible marker, because a line marker shows no text in Arma.
+>
+> Above the scripts, the panel says how many markers the plan makes and what will not survive the trip.
+>
 > The debug console has to be enabled in the mission’s `description.ext`.
+
+#### Bring markers back from Arma 3
+
+**Who:** Unit Leader or Admin · **Where:** Web — the map’s **From Arma** menu
+
+Copy the markers a mission’s players drew onto the map, so a plan finished in game can be kept and briefed.
+
+1. Check the map’s Arma corners match the mission’s terrain — the markers are placed by them.
+2. Copy the script in the **📥 From Arma** menu, run it in the mission’s debug console with **LOCAL EXEC**: it copies every marker to your clipboard.
+3. Paste into **What it copied**, leave **Only markers players drew** ticked unless you want the mission’s own too, and press **Import**.
+
+> They land on a new layer, *From Arma*, to switch off or delete in one go.
+>
+> Lines, areas, rectangles, ellipses, the standard military markers and NATO unit markers come back as themselves. Any other marker comes back as a dot named after its type.
+>
+> Markers outside this map are left out, and the message says how many.
 
 ### Campaign planner
 
@@ -829,7 +858,7 @@ See also: [Write a mission in the wizard](#write-a-mission-in-the-wizard) · [Pl
 Six steps from concept to after action, saved as you type, with each drop previewed exactly as it will post.
 
 1. Open a mission from its campaign. The wizard starts on the first step that is not locked yet.
-2. Fill in the step. Fields marked * are needed to lock it; the step's chip turns into 🔒 when they are all filled.
+2. Fill in the step. Fields marked * are needed to lock it; the step's chip turns into 🔒 when they are all filled. Each step's tab shows the date it should lock by and how many days are left — red once it is overdue.
 3. Watch the panel on the right: the **drop preview** is exactly what the bot will post, and **Checks** flags mistakes as you go. Press **Preview in Discord** to see the drop formatted the way readers will see it — headings, bold, quotes, times in your own time zone and images.
 4. In **Orders**, add the phases in order. Give each its AO and press **+ Add objective** to pick from the objectives library.
 5. When a drop reads right, press **Approve** under its preview. It posts by itself at its time — see *Approve and post the drops*.

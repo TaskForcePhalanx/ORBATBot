@@ -40,7 +40,8 @@
     tool: 'select',
     side: 'friend',
     symbol: 'inf',
-    glyph: catalog.points.length ? catalog.points[0].glyph : 'OBJ',
+    // No text on a new marker until somebody picks some.
+    glyph: '',
     marker: catalog.defaultMarker,
     echelon: '',
     dimension: catalog.defaultDimension,
@@ -144,10 +145,11 @@
     return Math.max(size, catalog.minLineSize);
   }
 
-  function label(text, x, y, size, fill) {
+  function label(text, x, y, size, fill, anchor) {
     if (!text) return '';
     var font = labelSize(size);
-    return '<text x="' + round(x) + '" y="' + round(y) + '" text-anchor="middle"' +
+    return '<text x="' + round(x) + '" y="' + round(y) + '" text-anchor="' +
+      (anchor || 'middle') + '"' +
       ' font-size="' + font + '" font-weight="600"' +
       ' font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"' +
       ' fill="' + (fill || '#ffffff') + '" stroke="#11161c"' +
@@ -344,7 +346,10 @@
     var transform = 'translate(' + round(item.x) + ',' + round(item.y) + ') scale(' +
       scale + ') translate(-50,-50)';
     var dash = dashOf(item);
-    var shape = '<g transform="' + transform + '">' +
+    // A flag: its own colours, drawn once and never tinted.
+    var shape = markers[key] && markers[key].paint
+      ? '<g transform="' + transform + '"><use href="#tmm-' + key + '"/></g>'
+      : '<g transform="' + transform + '">' +
       '<use href="#tmm-' + key + '" fill="none" stroke="' + backing +
       '" color="' + backing + '" stroke-width="15"' +
       ' stroke-linecap="round" stroke-linejoin="round"' + dash + '/>' +
@@ -407,6 +412,34 @@
 
   var ARROW_ENDS = { end: [false], start: [true], both: [true, false] };
 
+  // Mirrors line_label_spots(): above the middle corner, or off the ends,
+  // reading away from the line — a phase line is named at both ends.
+  function lineLabelSpots(item) {
+    if (!item.label) return [];
+    var points = item.points;
+    var place = item.label_at || 'middle';
+    if (place === 'middle') {
+      var middle = points[Math.floor(points.length / 2)];
+      return [[middle[0], middle[1] - 10 * item.size, 'middle']];
+    }
+    var font = labelSize(item.size);
+    var gap = font * 0.6;
+    var ends = { ends: ['start', 'end'], end: ['end'], start: ['start'] }[place] || [];
+    return ends.map(function (end) {
+      var tip = end === 'start' ? points[0] : points[points.length - 1];
+      var back = end === 'start' ? points[1] : points[points.length - 2];
+      var dx = tip[0] - back[0];
+      var dy = tip[1] - back[1];
+      var length = Math.hypot(dx, dy) || 1;
+      var x = tip[0] + dx / length * gap;
+      var y = tip[1] + dy / length * gap + font * 0.35;
+      var anchor = dx > Math.abs(dy) * 0.3 ? 'start'
+        : (-dx > Math.abs(dy) * 0.3 ? 'end' : 'middle');
+      if (anchor === 'middle') y += font * (dy > 0 ? 0.6 : -0.6);
+      return [round(x), round(y), anchor];
+    });
+  }
+
   function shapeSVG(item) {
     var colour = itemColour(item);
     var points = item.points.map(function (point) {
@@ -433,10 +466,9 @@
         }).join(' ') + '" fill="' + colour + '"/>');
       }
     });
-    if (item.label) {
-      var middle = item.points[Math.floor(item.points.length / 2)];
-      parts.push(label(item.label, middle[0], middle[1] - 10 * item.size, item.size));
-    }
+    lineLabelSpots(item).forEach(function (spot) {
+      parts.push(label(item.label, spot[0], spot[1], item.size, null, spot[2]));
+    });
     return parts.join('');
   }
 
@@ -667,6 +699,7 @@
   }
 
   function draftSVG() {
+    if (state.ruler) return rulerSVG();
     if (state.box) return boxDraftSVG();
     if (!state.draft || state.draft.points.length === 0) return '';
     var paint = colours[state.side];
@@ -752,21 +785,40 @@
     drawSelection();
   }
 
+  // Every selected item: the one picked last (state.selected) and any
+  // picked with it (state.extra), so several can be moved, copied or
+  // deleted together.
+  function selection() {
+    if (state.selected < 0) return [];
+    return [state.selected].concat((state.extra || []).filter(function (index) {
+      return index !== state.selected && index < state.doc.items.length;
+    }));
+  }
+
   function drawSelection() {
-    var existing = overlay.querySelector('.tm-ring');
-    if (existing) existing.remove();
-    if (state.selected < 0) return;
-    var group = layer.querySelector('[data-i="' + state.selected + '"]');
-    if (!group) return;
-    var box = group.getBBox();
-    var ring = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    ring.setAttribute('class', 'tm-ring');
-    ring.setAttribute('x', box.x - 6);
-    ring.setAttribute('y', box.y - 6);
-    ring.setAttribute('width', box.width + 12);
-    ring.setAttribute('height', box.height + 12);
-    overlay.appendChild(ring);
-    drawHandles();
+    Array.prototype.forEach.call(overlay.querySelectorAll('.tm-ring'),
+      function (node) { node.remove(); });
+    var picked = selection();
+    if (!picked.length) {
+      drawHandles();
+      return;
+    }
+    picked.forEach(function (index) {
+      var group = layer.querySelector('[data-i="' + index + '"]');
+      if (!group) return;
+      var box = group.getBBox();
+      var ring = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      ring.setAttribute('class', 'tm-ring');
+      ring.setAttribute('x', box.x - 6);
+      ring.setAttribute('y', box.y - 6);
+      ring.setAttribute('width', box.width + 12);
+      ring.setAttribute('height', box.height + 12);
+      overlay.appendChild(ring);
+    });
+    // Handles only for one thing at a time — several are moved as a group.
+    if (picked.length === 1) drawHandles();
+    else Array.prototype.forEach.call(overlay.querySelectorAll('.tm-handle, .tm-stalk'),
+      function (node) { node.remove(); });
   }
 
   /* -- a shape's handles ----------------------------------------------------- */
@@ -786,7 +838,12 @@
     Array.prototype.forEach.call(overlay.querySelectorAll('.tm-handle, .tm-stalk'),
       function (node) { node.remove(); });
     var item = selected();
-    if (!editable || !item || item.kind !== 'shape') return;
+    if (!editable || !item) return;
+    if (item.kind === 'line' || item.kind === 'area') {
+      drawVertexHandles(item);
+      return;
+    }
+    if (item.kind !== 'shape') return;
     var a = item.w / 2;
     var b = item.h / 2;
     var r = round(view.w / 110);
@@ -858,6 +915,211 @@
     if (snap) angle = Math.round(angle / 15) * 15;
     item.rotation = Math.round(angle * 10) / 10;
     return item;
+  }
+
+  /* -- a line's corners: drag, add, delete --------------------------------- */
+
+  // Every corner of a selected line or area is a handle to drag; the dot in
+  // the middle of each segment adds a corner there when it is dragged; Alt+
+  // click or right-click on a corner deletes it. Redrawing a line to move
+  // one corner was the only way before.
+  function drawVertexHandles(item) {
+    var r = round(view.w / 140);
+    var points = item.points;
+    var html = '';
+    var count = item.kind === 'area' ? points.length : points.length - 1;
+    for (var i = 0; i < count; i++) {
+      var a = points[i];
+      var b = points[(i + 1) % points.length];
+      html += '<circle class="tm-handle tm-mid" data-h="m' + i + '" cx="' +
+        round((a[0] + b[0]) / 2) + '" cy="' + round((a[1] + b[1]) / 2) + '" r="' +
+        round(r * 0.7) + '"><title>Drag to add a corner here</title></circle>';
+    }
+    points.forEach(function (point, index) {
+      html += '<circle class="tm-handle tm-vertex" data-h="v' + index + '" cx="' +
+        round(point[0]) + '" cy="' + round(point[1]) + '" r="' + r +
+        '"><title>Drag to move · Alt+click or right-click to delete</title></circle>';
+    });
+    overlay.insertAdjacentHTML('beforeend', html);
+  }
+
+  svg.addEventListener('contextmenu', function (event) {
+    var handle = event.target.closest ? event.target.closest('.tm-vertex') : null;
+    if (!handle || !selected()) return;
+    event.preventDefault();
+    removeVertex(state.selected, Number(handle.dataset.h.slice(1)));
+  });
+
+  function removeVertex(index, vertex) {
+    var item = state.doc.items[index];
+    if (!item || !item.points) return;
+    var least = item.kind === 'area' ? 3 : 2;
+    if (item.points.length <= least) {
+      say('A ' + (item.kind === 'area' ? 'area needs three' : 'line needs two') +
+          ' corners — delete the whole thing instead.', 'warn');
+      return;
+    }
+    snapshot();
+    item.points.splice(vertex, 1);
+    touched();
+    render();
+    fillInspector();
+  }
+
+  /* -- measuring: metres, and where you are on Arma's grid ------------------ */
+
+  // Mirrors metres_per_unit(), length_m() and grid_ref() in utils/tacmap.py:
+  // the sheet's Arma corners are what turn sheet units into the ground.
+  function metresPerUnit() {
+    var arma = state.doc.arma || {};
+    return [Math.abs((arma.right - arma.left) || 0) / state.doc.width,
+            Math.abs((arma.top - arma.bottom) || 0) / state.doc.height];
+  }
+
+  function lengthM(points, closed) {
+    var scale = metresPerUnit();
+    var path = closed ? points.concat([points[0]]) : points;
+    var total = 0;
+    for (var i = 1; i < path.length; i++) {
+      total += Math.hypot((path[i][0] - path[i - 1][0]) * scale[0],
+                          (path[i][1] - path[i - 1][1]) * scale[1]);
+    }
+    return total;
+  }
+
+  function metres(value) {
+    if (value >= 10000) return (value / 1000).toFixed(1) + ' km';
+    if (value >= 1000) return (value / 1000).toFixed(2) + ' km';
+    return Math.round(value) + ' m';
+  }
+
+  function toWorld(x, y) {
+    var arma = state.doc.arma || {};
+    return [arma.left + x / state.doc.width * (arma.right - arma.left),
+            arma.top - y / state.doc.height * (arma.top - arma.bottom)];
+  }
+
+  function pad(value, width) {
+    var text = String(Math.max(0, Math.floor(value)) % Math.pow(10, width));
+    while (text.length < width) text = '0' + text;
+    return text;
+  }
+
+  function gridRef(x, y) {
+    var world = toWorld(x, y);
+    return pad(world[0] / 100, 3) + ' ' + pad(world[1] / 100, 3);
+  }
+
+  // Bearing clockwise from north, in degrees — the sheet's y grows down.
+  function bearing(a, b) {
+    var scale = metresPerUnit();
+    var angle = Math.atan2((b[0] - a[0]) * scale[0], -(b[1] - a[1]) * scale[1]) * 180 / Math.PI;
+    return Math.round((angle + 360) % 360);
+  }
+
+  var readout = document.getElementById('tmreadout');
+
+  // The corner of the map: the grid reference under the pointer, and while
+  // something is being drawn or measured, how long it is.
+  function showReadout(point, extra) {
+    if (!readout) return;
+    var text = 'Grid ' + gridRef(point.x, point.y);
+    if (extra) text += ' · ' + extra;
+    readout.textContent = text;
+  }
+
+  function draftMeasure() {
+    var draft = state.draft;
+    if (!draft || !draft.points.length) return '';
+    var points = draft.points.concat(draft.cursor ? [draft.cursor] : []);
+    var last = points.length > 1 ? lengthM(points.slice(-2)) : 0;
+    var parts = [];
+    if (points.length > 1) parts.push('segment ' + metres(last) + ' at ' +
+      bearing(points[points.length - 2], points[points.length - 1]) + '°');
+    parts.push('total ' + metres(lengthM(points, draft.kind === 'area')));
+    return parts.join(' · ');
+  }
+
+  /* -- snapping ---------------------------------------------------------- */
+
+  var snapBox = document.getElementById('tmsnap');
+  state.snap = false;
+  try { state.snap = window.localStorage.getItem('tmsnap') === '1'; } catch (e) { /* none */ }
+  if (snapBox) {
+    snapBox.checked = state.snap;
+    snapBox.addEventListener('change', function () {
+      state.snap = snapBox.checked;
+      try { window.localStorage.setItem('tmsnap', state.snap ? '1' : '0'); } catch (e) { /* none */ }
+    });
+  }
+
+  // With Snap on, a corner being placed or dragged lands on the nearest
+  // corner of another line or area, a shape's corner or centre, or a symbol
+  // or marker — within a dozen screen pixels — so boundaries meet properly.
+  function snapPoint(point, skipIndex, skipVertex) {
+    if (!state.snap) return null;
+    var reach = view.w / svg.getBoundingClientRect().width * 12;
+    var best = null;
+    var bestDistance = reach;
+    function offer(x, y) {
+      var distance = Math.hypot(x - point.x, y - point.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = [round(x), round(y)];
+      }
+    }
+    var hidden = hiddenLayers();
+    state.doc.items.forEach(function (item, index) {
+      if (hidden[item.layer]) return;
+      if (item.points) {
+        item.points.forEach(function (corner, vertex) {
+          if (index === skipIndex && (skipVertex === undefined || vertex === skipVertex)) return;
+          offer(corner[0], corner[1]);
+        });
+      } else if (item.kind === 'shape') {
+        offer(item.x, item.y);
+        CORNERS.forEach(function (corner) {
+          var spot = turnPoint(item, corner[0] * item.w / 2, corner[1] * item.h / 2);
+          offer(spot[0], spot[1]);
+        });
+      } else if (index !== skipIndex) {
+        offer(item.x, item.y);
+      }
+    });
+    if (state.draft) {
+      // Closing a line on its own first corner.
+      var first = state.draft.points[0];
+      if (first && state.draft.points.length > 2) offer(first[0], first[1]);
+    }
+    return best;
+  }
+
+  function snapMark(spot) {
+    var old = overlay.querySelector('.tm-snapmark');
+    if (old) old.remove();
+    if (!spot) return;
+    var r = round(view.w / 90);
+    overlay.insertAdjacentHTML('beforeend', '<circle class="tm-snapmark" cx="' + spot[0] +
+      '" cy="' + spot[1] + '" r="' + r + '" pointer-events="none"/>');
+  }
+
+  /* -- the ruler: measure without drawing --------------------------------- */
+
+  function rulerSVG() {
+    var ruler = state.ruler;
+    if (!ruler) return '';
+    var a = ruler.from;
+    var b = ruler.to;
+    return '<g class="tm-ruler" pointer-events="none"><line x1="' + a[0] + '" y1="' + a[1] +
+      '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="#ffd166" stroke-width="2"' +
+      ' stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="' + round(view.w / 250) +
+      '" fill="#ffd166"/></g>';
+  }
+
+  function rulerText() {
+    var ruler = state.ruler;
+    return metres(lengthM([ruler.from, ruler.to])) + ' at ' + bearing(ruler.from, ruler.to) + '°';
   }
 
   /* -- the sheet, zoom and pan --------------------------------------------- */
@@ -962,6 +1224,7 @@
       row.appendChild(shown);
 
       var kind = plannerLayer(entry.id);
+      if (editable) row.appendChild(layerControls(entry, index));
       if (editable && kind) {
         var fixed = document.createElement('span');
         fixed.className = 'tmlayerfixed';
@@ -1016,6 +1279,58 @@
       }
       layerList.appendChild(row);
     });
+  }
+
+  // Up, down and lock, in front of the layer's name. Order is drawing
+  // order: a layer lower in the list is drawn over the ones above it.
+  function layerControls(entry, index) {
+    var box = document.createElement('span');
+    box.className = 'tmlayerctl';
+    var list = layers();
+    [['↑', -1, 'Draw this layer under the one above'],
+     ['↓', 1, 'Draw this layer over the one below']].forEach(function (spec) {
+      var target = index + spec[1];
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tmlayerbtn';
+      button.textContent = spec[0];
+      button.title = spec[2];
+      button.disabled = target < 0 || target >= list.length;
+      button.addEventListener('click', function () {
+        snapshot();
+        var moved = list.splice(index, 1)[0];
+        list.splice(target, 0, moved);
+        touched();
+        refreshLayers();
+        render();
+      });
+      box.appendChild(button);
+    });
+    var lock = document.createElement('button');
+    lock.type = 'button';
+    lock.className = 'tmlayerbtn' + (entry.locked ? ' on' : '');
+    lock.textContent = entry.locked ? '🔒' : '🔓';
+    lock.title = entry.locked ? 'Locked — nothing on it can be picked up. Click to unlock.'
+      : 'Lock: keep everything on this layer from being picked up or moved';
+    lock.addEventListener('click', function () {
+      if (entry.locked) delete entry.locked;
+      else entry.locked = true;
+      // Whatever is selected on a layer that just locked is let go.
+      var keep = selection().filter(function (i) { return !isLocked(state.doc.items[i]); });
+      state.selected = keep.length ? keep[keep.length - 1] : -1;
+      state.extra = keep.slice(0, -1);
+      touched();
+      drawLayers();
+      render();
+      fillInspector();
+    });
+    box.appendChild(lock);
+    return box;
+  }
+
+  function isLocked(item) {
+    if (!item) return false;
+    return layers().some(function (entry) { return entry.id === item.layer && entry.locked; });
   }
 
   function removeLayer(index, withItems) {
@@ -1090,6 +1405,37 @@
     state.dirty = true;
     state.edits = (state.edits || 0) + 1;
     say('Unsaved changes', 'warn');
+    scheduleAutosave();
+  }
+
+  // Autosave: a moment after the last change, unless something is being
+  // drawn or dragged right now, or the last save ran into somebody else's —
+  // then it waits for the person to choose. Remembered per browser; on by
+  // default.
+  var autosaveBox = document.getElementById('tmautosave');
+  var autosaveTimer = null;
+  state.autosave = true;
+  try { state.autosave = window.localStorage.getItem('tmautosave') !== '0'; } catch (e) { /* none */ }
+  if (autosaveBox) {
+    autosaveBox.checked = state.autosave;
+    autosaveBox.addEventListener('change', function () {
+      state.autosave = autosaveBox.checked;
+      try { window.localStorage.setItem('tmautosave', state.autosave ? '1' : '0'); } catch (e) { /* none */ }
+      if (state.autosave && state.dirty) scheduleAutosave();
+    });
+  }
+
+  function scheduleAutosave() {
+    if (!autosaveBox || !state.autosave || state.blocked) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(function autosaveTick() {
+      if (!state.dirty || state.blocked) return;
+      if (state.draft || state.drag || state.handle || state.box || state.marquee) {
+        autosaveTimer = setTimeout(autosaveTick, 800);
+        return;
+      }
+      save();
+    }, 1500);
   }
 
   function selected() {
@@ -1098,6 +1444,19 @@
 
   function select(index) {
     state.selected = index;
+    state.extra = [];
+    render();
+    fillInspector();
+  }
+
+  // Shift+click: add to the selection, or take back out of it.
+  function toggleSelected(index) {
+    var picked = selection();
+    var at0 = picked.indexOf(index);
+    if (at0 >= 0) picked.splice(at0, 1);
+    else picked.push(index);
+    state.selected = picked.length ? picked[picked.length - 1] : -1;
+    state.extra = picked.slice(0, -1);
     render();
     fillInspector();
   }
@@ -1148,6 +1507,8 @@
 
   /* -- pointer handling ----------------------------------------------------- */
 
+  svg.addEventListener('pointerleave', function () { lastPointer = null; });
+
   svg.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return;
     var point = at(event);
@@ -1159,10 +1520,26 @@
     // it without Ctrl. Clicking a line out corner by corner is gone: it was a
     // mode you had to finish before anything else worked.
     var handle = event.target.closest ? event.target.closest('.tm-handle') : null;
-    if (handle && selected()) {
+    // Handles answer the Select tool. With a drawing tool in hand, a click
+    // on a corner starts something new there — which is what Snap is for.
+    if (handle && selected() && state.tool === 'select' && !state.draft) {
       event.preventDefault();
-      state.handle = { index: state.selected, which: handle.dataset.h, moved: false,
+      var which = handle.dataset.h;
+      if (which.charAt(0) === 'v' && event.altKey) {
+        removeVertex(state.selected, Number(which.slice(1)));
+        return;
+      }
+      state.handle = { index: state.selected, which: which, moved: false,
                        start: JSON.stringify(selected()) };
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (state.tool === 'measure') {
+      event.preventDefault();
+      var from = snapPoint(point) || [round(point.x), round(point.y)];
+      state.ruler = { from: from, to: from.slice() };
+      overlay.innerHTML = draftSVG();
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1179,7 +1556,8 @@
       return;
     }
 
-    var drawing = state.tool === 'line' || state.tool === 'area' || state.tool === 'ao';
+    var drawing = state.tool === 'line' || state.tool === 'phase' || state.tool === 'area' ||
+      state.tool === 'ao';
     if (state.draft && state.draft.chain) {
       // Plotting point by point, as on Arma's map with Ctrl held: every
       // click fixes the next corner, and a drag from here carries the same
@@ -1215,7 +1593,8 @@
         press: { x: event.clientX, y: event.clientY, moved: false },
         kind: state.tool === 'area' || state.tool === 'ao' ? 'area' : 'line',
         ao: state.tool === 'ao',
-        points: [[round(point.x), round(point.y)]],
+        phase: state.tool === 'phase',
+        points: [snapPoint(point) || [round(point.x), round(point.y)]],
         cursor: null,
         // Where the straight segment starts, while Shift is held. null when
         // it is not.
@@ -1232,11 +1611,26 @@
       return;
     }
 
+    if (group && isLocked(state.doc.items[Number(group.dataset.i)])) group = null;
     if (group) {
       var index = Number(group.dataset.i);
-      select(index);
-      state.drag = { index: index, from: point, moved: false,
-                     start: JSON.stringify(state.doc.items[index]) };
+      if (event.shiftKey) {
+        toggleSelected(index);
+        if (selection().indexOf(index) < 0) return;
+      } else if (selection().indexOf(index) < 0) {
+        select(index);
+      }
+      // Dragging any selected item moves every selected item with it.
+      var moving = selection();
+      state.drag = { indices: moving, from: point, moved: false,
+                     starts: moving.map(function (i) { return JSON.stringify(state.doc.items[i]); }) };
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (event.shiftKey) {
+      // Shift+drag on empty ground: a box, and everything in it is selected.
+      state.marquee = { from: [point.x, point.y], to: [point.x, point.y] };
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1247,6 +1641,15 @@
   });
 
   svg.addEventListener('pointermove', function (event) {
+    var where = at(event);
+    lastPointer = where;
+    if (state.ruler && state.ruler.live !== false) {
+      state.ruler.to = snapPoint(where) || [round(where.x), round(where.y)];
+      overlay.innerHTML = draftSVG();
+      showReadout(where, rulerText());
+      return;
+    }
+    showReadout(where, state.draft ? draftMeasure() : '');
     if (state.box) {
       var to = at(event);
       state.box.to = [to.x, to.y];
@@ -1260,6 +1663,25 @@
         state.handle.moved = true;
         snapshot();
       }
+      var kind = state.handle.which.charAt(0);
+      if (kind === 'v' || kind === 'm') {
+        var moving = JSON.parse(state.handle.start);
+        var at0 = Number(state.handle.which.slice(1));
+        if (kind === 'm') {
+          // Dragging a segment's middle adds a corner there, then moves it.
+          moving.points.splice(at0 + 1, 0, [0, 0]);
+          at0 += 1;
+        }
+        var target = snapPoint(spot, state.handle.index, at0) ||
+          [round(spot.x), round(spot.y)];
+        snapMark(snapPoint(spot, state.handle.index, at0));
+        moving.points[at0] = target;
+        state.doc.items[state.handle.index] = moving;
+        render();
+        showReadout(spot, metres(lengthM(moving.points, moving.kind === 'area')) +
+          (moving.kind === 'area' ? ' round' : ' long'));
+        return;
+      }
       state.doc.items[state.handle.index] = state.handle.which === 'turn'
         ? turnTo(state.handle.start, spot, event.shiftKey)
         : resizeTo(state.handle.start, Number(state.handle.which), spot, event.shiftKey);
@@ -1269,8 +1691,10 @@
     if (state.draft && !state.draft.press) {
       // Between clicks: a rubber band from the last corner to the pointer,
       // so you see the segment before you fix it.
-      state.draft.cursor = snapCorner(state.draft, at(event), event.shiftKey);
+      state.draft.cursor = snapCorner(state.draft, where, event.shiftKey);
       overlay.innerHTML = draftSVG();
+      snapMark(event.shiftKey ? null : snapPoint(where));
+      showReadout(where, draftMeasure());
       return;
     }
     if (state.draft) {
@@ -1323,17 +1747,15 @@
         state.drag.moved = true;
         snapshot();
       }
-      var item = JSON.parse(state.drag.start);
-      if (item.points) {
-        item.points = item.points.map(function (corner) {
-          return [round(corner[0] + dx), round(corner[1] + dy)];
-        });
-      } else {
-        item.x = round(item.x + dx);
-        item.y = round(item.y + dy);
-      }
-      state.doc.items[state.drag.index] = item;
+      state.drag.indices.forEach(function (index, n) {
+        state.doc.items[index] = shifted(JSON.parse(state.drag.starts[n]), dx, dy);
+      });
       render();
+      return;
+    }
+    if (state.marquee) {
+      state.marquee.to = [where.x, where.y];
+      overlay.innerHTML = marqueeSVG();
       return;
     }
     if (state.pan) {
@@ -1345,6 +1767,13 @@
   });
 
   svg.addEventListener('pointerup', function () {
+    if (state.ruler && state.ruler.live !== false) {
+      // The measurement stays on screen until the next one, or Esc.
+      state.ruler.live = false;
+      say('Measured ' + rulerText() + ' — drag again to measure another, Esc to clear');
+      return;
+    }
+    snapMark(null);
     if (state.box) {
       finishBox();
       return;
@@ -1375,6 +1804,10 @@
         return;
       }
       finishDraft();
+      return;
+    }
+    if (state.marquee) {
+      finishMarquee();
       return;
     }
     if (state.drag && state.drag.moved) touched();
@@ -1441,7 +1874,7 @@
   // boundary drawn by hand is only as straight as the hand.
   function snapCorner(draft, point, straight) {
     var last = draft.points[draft.points.length - 1];
-    if (!straight || !last) return [round(point.x), round(point.y)];
+    if (!straight || !last) return snapPoint(point) || [round(point.x), round(point.y)];
     var dx = point.x - last[0];
     var dy = point.y - last[1];
     var length = Math.hypot(dx, dy);
@@ -1468,8 +1901,24 @@
       arrow: ''
     };
     if (draft.ao) makeAO(item);
+    if (draft.phase) {
+      // A phase line: named at both ends, solid, as on any overlay.
+      item.label_at = 'ends';
+      item.label = 'PL ';
+      item.style = 'solid';
+    }
     add(item);
     if (draft.ao) nameAO();
+    if (draft.phase) namePhaseLine();
+  }
+
+  // Straight into its name, after the "PL " already there.
+  function namePhaseLine() {
+    if (!fields.label) return;
+    fields.label.focus();
+    var end = fields.label.value.length;
+    fields.label.setSelectionRange(end, end);
+    say('Name the phase line — PL AMBER, PL BLUE — it is written at both ends');
   }
 
   /* -- toolbar -------------------------------------------------------------- */
@@ -1477,6 +1926,11 @@
   function setTool(tool) {
     if (state.draft) finishDraft();
     state.box = null;
+    if (state.ruler) {
+      state.ruler = null;
+      overlay.innerHTML = '';
+      drawSelection();
+    }
     state.tool = tool;
     Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
       button.classList.toggle('active', button.dataset.tool === tool);
@@ -1489,6 +1943,36 @@
       field.hidden = field.dataset.for.split(' ').indexOf(tool) < 0;
     });
     svg.classList.toggle('tm-drawing', tool !== 'select');
+    showToolPanel();
+  }
+
+  // The side panel's first box: what the tool in hand does and draws. With
+  // the Select tool and something selected, the inspector is what matters,
+  // so this steps aside.
+  var TOOL_HINTS = {
+    select: 'Click to select, Shift+click for several, drag to move. Ctrl+click ' +
+      'or Ctrl+drag draws a line from here too.',
+    unit: 'Click to place the symbol.',
+    point: 'Click to place the marker — every Arma map marker is in the list.',
+    line: 'Click each corner, double-click or Enter to finish — or drag freehand.',
+    phase: 'Click each corner; the line is named at both ends.',
+    area: 'Click each corner, Enter to close it — or drag freehand.',
+    rect: 'Drag corner to corner; Shift for a square.',
+    ellipse: 'Drag corner to corner; Shift for a circle.',
+    ao: 'Draw the area of operations; everything outside it is greyed out.',
+    text: 'Click to place a label.',
+    measure: 'Drag to measure a distance and bearing. Nothing is drawn.'
+  };
+
+  function showToolPanel() {
+    var panel = document.getElementById('tmtoolpanel');
+    if (!panel) return;
+    var button = app.querySelector('.tmtool[data-tool="' + state.tool + '"]');
+    var title = document.getElementById('tmtooltitle');
+    var hint = document.getElementById('tmtoolhint');
+    if (title && button) title.textContent = button.title.replace(/\s*\(\w\)$/, '');
+    if (hint) hint.textContent = TOOL_HINTS[state.tool] || '';
+    panel.hidden = state.tool === 'select' && selection().length > 0;
   }
 
   Array.prototype.forEach.call(app.querySelectorAll('.tmtool'), function (button) {
@@ -1528,6 +2012,30 @@
     });
   }
 
+  // The markers are a hundred and more, so they are grouped the way Arma's
+  // own marker list groups them.
+  function fillMarkerOptions(select, value) {
+    var groups = {};
+    var order = [];
+    catalog.markers.forEach(function (marker) {
+      var group = marker.group || 'Military';
+      if (!groups[group]) {
+        groups[group] = [];
+        order.push(group);
+      }
+      groups[group].push(marker);
+    });
+    // Military first, then the hand-drawn set, then the rest — each its own
+    // group, with a rule between them so the two styles never run together.
+    select.innerHTML = order.map(function (group, index) {
+      return (index ? '<option disabled>──────────</option>' : '') +
+        '<optgroup label="' + attr(group) + '">' + groups[group].map(function (marker) {
+          return '<option value="' + attr(marker.key) + '">' + esc(marker.label) + '</option>';
+        }).join('') + '</optgroup>';
+    }).join('');
+    select.value = value;
+  }
+
   function fillOptions(select, options, value) {
     select.innerHTML = options.map(function (option) {
       return '<option value="' + attr(option.value) + '">' + esc(option.label) + '</option>';
@@ -1541,12 +2049,10 @@
   var symbolOptions = catalog.symbols.map(function (symbol) {
     return { value: symbol.key, label: symbol.group + ' · ' + symbol.label };
   });
-  var glyphOptions = catalog.points.map(function (preset) {
-    return { value: preset.glyph, label: preset.glyph + ' · ' + preset.label };
-  });
-  var markerOptions = catalog.markers.map(function (marker) {
-    return { value: marker.key, label: marker.label };
-  });
+  var glyphOptions = [{ value: '', label: 'No text' }].concat(
+    catalog.points.map(function (preset) {
+      return { value: preset.glyph, label: preset.glyph + ' · ' + preset.label };
+    }));
   var echelonOptions = [{ value: '', label: 'No size' }].concat(
     catalog.echelons.map(function (entry) {
       return { value: entry.key, label: entry.label };
@@ -1578,7 +2084,7 @@
   fillOptions(sidePick, sideOptions, state.side);
   fillOptions(symbolPick, symbolOptions, state.symbol);
   fillOptions(glyphPick, glyphOptions, state.glyph);
-  fillOptions(markerPick, markerOptions, state.marker);
+  fillMarkerOptions(markerPick, state.marker);
   fillOptions(echelonPick, echelonOptions, state.echelon);
   fillOptions(dimensionPick, dimensionOptions, state.dimension);
   fillOptions(statusPick, statusOptions, state.status);
@@ -1702,6 +2208,7 @@
     style: document.getElementById('tmf-style'),
     arrow: document.getElementById('tmf-arrow'),
     weight: document.getElementById('tmf-weight'),
+    labelAt: document.getElementById('tmf-labelat'),
     layer: document.getElementById('tmf-layer'),
     color: document.getElementById('tmf-color'),
     figure: document.getElementById('tmf-figure'),
@@ -1716,7 +2223,7 @@
   }), catalog.defaultFill);
   fillOptions(fields.side, sideOptions, state.side);
   fillOptions(fields.symbol, symbolOptions, state.symbol);
-  fillOptions(fields.marker, markerOptions, state.marker);
+  fillMarkerOptions(fields.marker, state.marker);
   fillOptions(fields.echelon, echelonOptions, state.echelon);
   fillOptions(fields.strength, strengthOptions, '');
   fillOptions(fields.mobility, mobilityOptions, '');
@@ -1727,11 +2234,20 @@
   fillOptions(fields.arrow, catalog.arrows.map(function (entry) {
     return { value: entry.key, label: entry.label };
   }), '');
+  fillOptions(fields.labelAt, catalog.labelPlaces.map(function (entry) {
+    return { value: entry.key, label: entry.label };
+  }), 'middle');
 
   function fillInspector() {
+    showToolPanel();
     var item = selected();
-    inspector.hidden = !item;
-    if (!item) return;
+    var many = selection().length > 1;
+    inspector.hidden = !item || many;
+    if (many) {
+      say(selection().length + ' selected — drag to move them together, Del deletes, ' +
+          'Ctrl+C copies, Ctrl+D duplicates');
+    }
+    if (!item || many) return;
     Array.prototype.forEach.call(inspector.querySelectorAll('[data-for]'), function (field) {
       field.hidden = field.dataset.for.split(' ').indexOf(item.kind) < 0;
     });
@@ -1760,12 +2276,47 @@
         '<option value="' + weight + '">' + weight + ' px</option>');
     }
     fields.weight.value = weight;
+    fields.labelAt.value = item.label_at || 'middle';
     fields.layer.value = item.layer;
     fields.color.value = item.color || colours[item.side].fill;
     fields.figure.value = item.shape || 'rect';
     fields.fill.value = item.fill || catalog.defaultFill;
     fields.ao.checked = !!item.ao;
     if (inspectorColours) markSwatches(inspectorColours, item.color);
+    fillMeasure(item);
+  }
+
+  // How big the selected thing is on the ground, from the sheet's corners.
+  function fillMeasure(item) {
+    var host = document.getElementById('tmf-measure');
+    if (!host) return;
+    var text = '';
+    if (item.kind === 'line') {
+      text = 'Length ' + metres(lengthM(item.points));
+    } else if (item.kind === 'area') {
+      var scale = metresPerUnit();
+      var sum = 0;
+      item.points.forEach(function (point, index) {
+        var next = item.points[(index + 1) % item.points.length];
+        sum += point[0] * scale[0] * next[1] * scale[1] - next[0] * scale[0] * point[1] * scale[1];
+      });
+      text = 'Perimeter ' + metres(lengthM(item.points, true)) + ' · ' + hectares(Math.abs(sum) / 2);
+    } else if (item.kind === 'shape') {
+      var size = metresPerUnit();
+      var w = item.w * size[0];
+      var h = item.h * size[1];
+      var area = item.shape === 'ellipse' ? Math.PI * w * h / 4 : w * h;
+      text = metres(w) + ' × ' + metres(h) + ' · ' + hectares(area);
+    } else if (item.x !== undefined) {
+      text = 'Grid ' + gridRef(item.x, item.y);
+    }
+    host.textContent = text;
+    host.hidden = !text;
+  }
+
+  function hectares(square) {
+    if (square >= 1e6) return (square / 1e6).toFixed(2) + ' km²';
+    return (square / 1e4).toFixed(square >= 1e5 ? 0 : 1) + ' ha';
   }
 
   function editField(field, read) {
@@ -1820,6 +2371,7 @@
   editField(fields.style, function (item) { item.style = fields.style.value; });
   editField(fields.arrow, function (item) { item.arrow = fields.arrow.value; });
   editField(fields.weight, function (item) { item.weight = Number(fields.weight.value); });
+  editField(fields.labelAt, function (item) { item.label_at = fields.labelAt.value; });
   editField(fields.layer, function (item) { item.layer = fields.layer.value; });
   editField(fields.color, function (item) { item.color = fields.color.value; });
   editField(fields.figure, function (item) { item.shape = fields.figure.value; });
@@ -1860,11 +2412,133 @@
   });
 
   function removeSelected() {
-    if (state.selected < 0) return;
+    var picked = selection().sort(function (a, b) { return b - a; });
+    if (!picked.length) return;
     snapshot();
-    state.doc.items.splice(state.selected, 1);
+    picked.forEach(function (index) { state.doc.items.splice(index, 1); });
     touched();
     select(-1);
+  }
+
+  function shifted(item, dx, dy) {
+    if (item.points) {
+      item.points = item.points.map(function (corner) {
+        return [round(corner[0] + dx), round(corner[1] + dy)];
+      });
+    } else {
+      item.x = round(item.x + dx);
+      item.y = round(item.y + dy);
+    }
+    return item;
+  }
+
+  function marqueeSVG() {
+    var m = state.marquee;
+    var x = Math.min(m.from[0], m.to[0]);
+    var y = Math.min(m.from[1], m.to[1]);
+    return '<rect class="tm-marquee" x="' + round(x) + '" y="' + round(y) + '" width="' +
+      round(Math.abs(m.to[0] - m.from[0])) + '" height="' +
+      round(Math.abs(m.to[1] - m.from[1])) + '" pointer-events="none"/>';
+  }
+
+  function itemAnchors(item) {
+    if (item.points) return item.points;
+    if (item.kind === 'shape') return [[item.x, item.y]];
+    return [[item.x, item.y]];
+  }
+
+  function finishMarquee() {
+    var m = state.marquee;
+    state.marquee = null;
+    overlay.innerHTML = '';
+    var x1 = Math.min(m.from[0], m.to[0]);
+    var x2 = Math.max(m.from[0], m.to[0]);
+    var y1 = Math.min(m.from[1], m.to[1]);
+    var y2 = Math.max(m.from[1], m.to[1]);
+    var hidden = hiddenLayers();
+    var picked = selection();
+    state.doc.items.forEach(function (item, index) {
+      if (hidden[item.layer] || picked.indexOf(index) >= 0 || isLocked(item)) return;
+      // Inside means wholly inside: every corner of a line, the centre of
+      // anything else.
+      var inside = itemAnchors(item).every(function (p) {
+        return p[0] >= x1 && p[0] <= x2 && p[1] >= y1 && p[1] <= y2;
+      });
+      if (inside) picked.push(index);
+    });
+    state.selected = picked.length ? picked[picked.length - 1] : -1;
+    state.extra = picked.slice(0, -1);
+    render();
+    fillInspector();
+  }
+
+  /* -- copy, paste, duplicate ------------------------------------------- */
+
+  // Copied items are kept in the browser too, so a plan copied on one map
+  // pastes into another.
+  var clipboard = null;
+
+  function copySelection() {
+    var picked = selection().slice().sort(function (a, b) { return a - b; });
+    if (!picked.length) return false;
+    clipboard = picked.map(function (index) { return JSON.parse(JSON.stringify(state.doc.items[index])); });
+    try { window.localStorage.setItem('tmclip', JSON.stringify(clipboard)); } catch (e) { /* none */ }
+    say(clipboard.length === 1 ? 'Copied' : 'Copied ' + clipboard.length + ' items', 'ok');
+    return true;
+  }
+
+  function readClipboard() {
+    try {
+      var stored = JSON.parse(window.localStorage.getItem('tmclip') || 'null');
+      if (Array.isArray(stored)) return stored;
+    } catch (e) { /* none */ }
+    return clipboard;
+  }
+
+  var lastPointer = null;
+
+  function pasteItems(items, offset) {
+    if (!items || !items.length) return;
+    if (state.doc.items.length + items.length > catalog.limits.items) {
+      say('That would be more than one map holds (' + catalog.limits.items + ' items).', 'err');
+      return;
+    }
+    // Where it lands: under the pointer when it is over the map, otherwise a
+    // step down and right of the original so the copy is visibly a copy.
+    var xs = [];
+    var ys = [];
+    items.forEach(function (item) {
+      itemAnchors(item).forEach(function (p) { xs.push(p[0]); ys.push(p[1]); });
+    });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    var cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    var dx = offset;
+    var dy = offset;
+    if (lastPointer && offset === null) {
+      dx = lastPointer.x - cx;
+      dy = lastPointer.y - cy;
+    } else if (offset === null) {
+      dx = dy = view.w / 40;
+    }
+    var known = {};
+    layers().forEach(function (entry) { known[entry.id] = true; });
+    snapshot();
+    var first = state.doc.items.length;
+    items.forEach(function (item) {
+      var copy = shifted(JSON.parse(JSON.stringify(item)), dx, dy);
+      // An AO copied is a new AO on the planner's side; a plain copy should
+      // not quietly become one.
+      delete copy.ao;
+      if (!known[copy.layer] || plannerLayer(copy.layer)) copy.layer = state.layer;
+      state.doc.items.push(copy);
+    });
+    touched();
+    var added = [];
+    for (var i = first; i < state.doc.items.length; i++) added.push(i);
+    state.selected = added[added.length - 1];
+    state.extra = added.slice(0, -1);
+    render();
+    fillInspector();
   }
 
   /* -- map settings --------------------------------------------------------- */
@@ -2011,6 +2685,69 @@
     settings[key].addEventListener('change', settingsChanged);
   });
 
+  /* -- the bar's menus, the whole window, zoom ------------------------------- */
+
+  // The menus are <details>, so they open without any of this; this only
+  // keeps one open at a time and closes it on a click anywhere else.
+  var menus = Array.prototype.slice.call(document.querySelectorAll('.tmmenu'));
+  menus.forEach(function (menu) {
+    menu.addEventListener('toggle', function () {
+      if (!menu.open) return;
+      menus.forEach(function (other) { if (other !== menu) other.open = false; });
+    });
+  });
+  document.addEventListener('pointerdown', function (event) {
+    menus.forEach(function (menu) {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    });
+  });
+
+  var focusButton = document.getElementById('tmfocus');
+  // The page column is centred with a transform, which makes it the box a
+  // fixed element is placed in — so for the whole window the editor moves
+  // to the body, and back to where it was afterwards.
+  var focusHome = null;
+  function setFocus(on) {
+    if (on && !focusHome) {
+      focusHome = document.createComment('tmapp');
+      app.parentNode.insertBefore(focusHome, app);
+      document.body.appendChild(app);
+    } else if (!on && focusHome) {
+      focusHome.parentNode.insertBefore(app, focusHome);
+      focusHome.remove();
+      focusHome = null;
+    }
+    app.classList.toggle('tm-focus', on);
+    document.body.classList.toggle('tm-focused', on);
+    if (focusButton) focusButton.textContent = on ? '✕ Exit' : '⤢ Whole window';
+    try { window.localStorage.setItem('tmfocus', on ? '1' : '0'); } catch (e) { /* none */ }
+  }
+  if (focusButton) {
+    focusButton.addEventListener('click', function () {
+      setFocus(!app.classList.contains('tm-focus'));
+    });
+    try { if (window.localStorage.getItem('tmfocus') === '1') setFocus(true); } catch (e) { /* none */ }
+  }
+
+  function zoomBy(factor) {
+    var cx = view.x + view.w / 2;
+    var cy = view.y + view.h / 2;
+    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20), state.doc.width * 3);
+    var scale = width / view.w;
+    view.w = width;
+    view.h = view.h * scale;
+    view.x = cx - view.w / 2;
+    view.y = cy - view.h / 2;
+    applyView();
+    drawSelection();
+  }
+  [['tmzoomin', 1 / 1.4], ['tmzoomout', 1.4]].forEach(function (pair) {
+    var button = document.getElementById(pair[0]);
+    if (button) button.addEventListener('click', function () { zoomBy(pair[1]); });
+  });
+  var fitButton = document.getElementById('tmzoomfit');
+  if (fitButton) fitButton.addEventListener('click', function () { resetView(); drawSelection(); });
+
   /* -- saving --------------------------------------------------------------- */
 
   var saving = false;
@@ -2021,6 +2758,8 @@
     ? null : Number(app.dataset.rev);
 
   function conflict(message) {
+    // Autosave stops here: the person has to choose.
+    state.blocked = true;
     say(message + ' ', 'err');
     var reload = document.createElement('button');
     reload.type = 'button';
@@ -2065,6 +2804,7 @@
         return;
       }
       if (typeof answer.rev === 'number') rev = answer.rev;
+      state.blocked = false;
       var editedSince = (state.edits || 0) !== editsAtSend;
       if (editedSince) {
         // Something was drawn while the save was out. Replacing the
@@ -2072,6 +2812,7 @@
         // on screen and leave it unsaved: the next save brings the planner's
         // changes back in (an AO outline finds its way home by its name).
         say('Saved — and you have changed it since. Save again to keep that.', 'warn');
+        scheduleAutosave();
         return;
       }
       state.dirty = false;
@@ -2117,7 +2858,7 @@
   /* -- keyboard ------------------------------------------------------------- */
 
   var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text',
-                    r: 'rect', e: 'ellipse', o: 'ao' };
+                    r: 'rect', e: 'ellipse', o: 'ao', d: 'measure', p: 'phase' };
 
   // Letting go of Shift fixes the straight segment where it is. Clearing the
   // anchor on the next freehand move is not enough: tapping Shift again
@@ -2162,6 +2903,45 @@
       undo();
       return;
     }
+    if ((event.ctrlKey || event.metaKey) && !state.draft) {
+      var key = event.key.toLowerCase();
+      if (key === 'c' && copySelection()) {
+        event.preventDefault();
+        return;
+      }
+      if (key === 'v' && editable) {
+        event.preventDefault();
+        pasteItems(readClipboard(), null);
+        return;
+      }
+      if (key === 'd' && selection().length) {
+        event.preventDefault();
+        pasteItems(selection().sort(function (a, b) { return a - b; }).map(function (index) {
+          return state.doc.items[index];
+        }), view.w / 40);
+        return;
+      }
+      if (key === 'a') {
+        event.preventDefault();
+        var all = [];
+        var hidden = hiddenLayers();
+        state.doc.items.forEach(function (item, index) {
+          if (!hidden[item.layer] && !isLocked(item)) all.push(index);
+        });
+        state.selected = all.length ? all[all.length - 1] : -1;
+        state.extra = all.slice(0, -1);
+        render();
+        fillInspector();
+        return;
+      }
+    }
+    if (event.key === 'Escape' && state.ruler) {
+      state.ruler = null;
+      overlay.innerHTML = '';
+      say('');
+      drawSelection();
+      return;
+    }
     if (event.key === 'Escape' && state.box) {
       state.box = null;
       overlay.innerHTML = '';
@@ -2185,6 +2965,10 @@
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
     if (event.key === 'Escape') {
+      if (state.selected < 0 && app.classList.contains('tm-focus')) {
+        setFocus(false);
+        return;
+      }
       state.draft = null;
       overlay.innerHTML = '';
       say('');

@@ -24,12 +24,14 @@
   </div>
 {% endif %}
 
-{% include '_tacmap_canvas.html' %}
-
-{% if editable %}
-  <details class="panel" {% if panel == 'terrain' %}open{% endif %}>
-    <summary>🗻 Put it on a terrain <span class="note">uploaded once, served from here</span></summary>
-    <div class="panelbody">
+{# The page's menus ride in the editor's own bar rather than stacking up
+   under the map: each is a <details>, so it opens without JavaScript too, and
+   tacmap.js only closes the others and closes them on a click elsewhere. #}
+{% set map_menus %}{% if editable %}
+  <details class="tmmenu" data-menu="terrain" {% if panel == 'terrain' %}open{% endif %}>
+    <summary>🗻 Terrain</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">🗻 Put it on a terrain <span class="note">uploaded once, served from here</span></h3>
       <p class="hint">
         Terrains uploaded to this server, tiles and all — nothing outside has to
         be reachable for the map to render, which is what a share link needs.
@@ -59,9 +61,10 @@
     </div>
   </details>
 
-  <details class="panel" {% if panel == 'ocap' %}open{% endif %}>
-    <summary>🛰️ Load a terrain from OCAP <span class="note">without uploading it</span></summary>
-    <div class="panelbody">
+  <details class="tmmenu" data-menu="ocap" {% if panel == 'ocap' %}open{% endif %}>
+    <summary>🛰️ OCAP</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">🛰️ Load a terrain from OCAP <span class="note">without uploading it</span></h3>
       <p class="hint">
         OCAP already renders every terrain you play on. Point this at the folder
         it keeps them in and pick one from the list: the map takes that terrain
@@ -184,9 +187,10 @@
     </div>
   </details>
 
-  <details class="panel" {% if panel == 'share' %}open{% endif %}>
-    <summary>🔗 Share link <span class="note">for people who don't sign in here</span></summary>
-    <div class="panelbody">
+  <details class="tmmenu" data-menu="share" {% if panel == 'share' %}open{% endif %}>
+    <summary>🔗 Share</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">🔗 Share link <span class="note">for people who don't sign in here</span></h3>
       <p class="hint">
         A link that opens this map without a Discord login. Everyone holding it
         sees the same map; <strong>Replace the link</strong> is how you take it
@@ -221,9 +225,10 @@
     </div>
   </details>
 
-  <details class="panel" {% if panel == 'post' %}open{% endif %}>
-    <summary>📣 Post in a channel <span class="note">as a link, so it stays current</span></summary>
-    <div class="panelbody">
+  <details class="tmmenu" data-menu="post" {% if panel == 'post' %}open{% endif %}>
+    <summary>📣 Post</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">📣 Post in a channel <span class="note">as a link, so it stays current</span></h3>
       <p class="hint">
         A picture would be out of date the moment the plan changes, so what goes
         into the channel is a link. The share link is used when there is one;
@@ -246,9 +251,10 @@
     </div>
   </details>
 
-  <details class="panel" {% if panel == 'arma' %}open{% endif %}>
-    <summary>🎯 Put it into Arma 3 <span class="note">markers in a running mission, no mod</span></summary>
-    <div class="panelbody">
+  <details class="tmmenu" data-menu="arma" {% if panel == 'arma' %}open{% endif %}>
+    <summary>🎯 To Arma</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">🎯 Put it into Arma 3 <span class="note">markers in a running mission, no mod</span></h3>
       <p class="hint">
         Arma cannot fetch anything from outside without a mod, so the way in is
         the debug console: paste a script and run it as a logged-in admin
@@ -272,6 +278,16 @@
         Running either one again <strong>replaces</strong> this map's markers
         rather than adding a second copy.
       </p>
+
+      <div class="tmreport">
+        <p><strong>{{ export_report.markers }} marker{{ '' if export_report.markers == 1 else 's' }}</strong>
+          in the mission.</p>
+        {% if export_report.notes %}
+          <ul>{% for note in export_report.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+        {% else %}
+          <p class="hint">Everything on this map goes across as it is.</p>
+        {% endif %}
+      </div>
 
       <div class="tmexport">
         <h3>1 · Fixed markers <span class="note">the usual one</span></h3>
@@ -336,9 +352,40 @@
     </div>
   </details>
 
-  <details class="panel" {% if panel == 'about' %}open{% endif %}>
-    <summary>✏️ Name, copy and delete</summary>
-    <div class="panelbody">
+  <details class="tmmenu" data-menu="import" {% if panel == 'import' %}open{% endif %}>
+    <summary>📥 From Arma</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">📥 Import from Arma 3 <span class="note">markers drawn in game, back onto this map</span></h3>
+      <p class="hint">
+        The way back. Run this in the debug console of the running mission
+        (<strong>LOCAL EXEC</strong>): it copies every marker on the map to your
+        clipboard. Paste that below. The markers land on a new layer,
+        <em>From Arma</em>, so they can be switched off or deleted in one go —
+        and the map's <strong>Arma 3 coordinates</strong> have to match the
+        mission's terrain, or they land in the wrong place.
+      </p>
+      <label class="field"><span>Script — LOCAL EXEC</span>
+        <textarea class="sqfbox" rows="7" readonly spellcheck="false"
+                  onclick="this.select()">{{ arma_dump_sqf }}</textarea>
+      </label>
+      <form class="form" method="post"
+            action="/g/{{ guild.id }}/maps/{{ record.id }}/import-arma">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="field"><span>What it copied</span>
+          <textarea name="dump" rows="5" spellcheck="false" required
+                    placeholder='[["_USER_DEFINED #2/0/1","ICON","mil_objective",…]]'></textarea>
+        </label>
+        <label class="check"><input type="checkbox" name="players_only" value="1" checked>
+          Only markers players drew — leave out the mission's own</label>
+        <div class="actions"><button class="button primary" type="submit">Import</button></div>
+      </form>
+    </div>
+  </details>
+
+  <details class="tmmenu" data-menu="about" {% if panel == 'about' %}open{% endif %}>
+    <summary>✏️ Map</summary>
+    <div class="tmmenupanel">
+      <h3 class="tmmenutitle">✏️ Name, copy and delete</h3>
       <form class="form" method="post" action="/g/{{ guild.id }}/maps/{{ record.id }}/rename">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="row">
@@ -375,6 +422,8 @@
       </form>
     </div>
   </details>
-{% endif %}
+{% endif %}{% endset %}
+{% include '_tacmap_canvas.html' %}
+
 </div>
 {% endblock %}

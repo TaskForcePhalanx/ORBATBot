@@ -102,7 +102,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(620 cases), and every one of them covers a module that imports nothing beyond
+(632 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -111,7 +111,7 @@ all:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
+| `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, every frame's geometry, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
@@ -2061,7 +2061,7 @@ Three things about it are deliberate:
 
 ### The help pages (`utils/help.py`)
 
-Fifty-seven how-tos — one per thing somebody might want to do — served at `/help`
+Fifty-eight how-tos — one per thing somebody might want to do — served at `/help`
 and written into the README by `scripts/gen_help.py`. The module is data plus a
 renderer; there is no `web/help.py`, because the two routes have no permissions
 to check and no form to translate, which is all such a module has ever been for
@@ -2541,6 +2541,34 @@ Three things about them:
   label rather than being dropped. A point drawn before the shapes existed has
   no marker, so `parse()` reads its glyph — one typed `OBJ` becomes the
   objective marker, which is what the export already assumed it meant.
+
+**Every vanilla marker is in `MARKERS`** — the military set here, and the
+rest (hand-drawn `hd_`, map locations `loc_`, unit sizes `group_`, respawn,
+Zeus and 44 flags) in `utils/arma_markers.py`, merged at import. The list is
+the game's own `CfgMarkers` read out of a running game (scope > 0, icon under
+`\A3\`), and each entry keeps its exact class name, which is what exports and
+what an imported marker is matched by (case-insensitively). **The drawings are
+our own**: Arma's icons are Bohemia's artwork, so each is a plain pictogram of
+what it means; national flags are the flags; a fictional faction's or an
+organisation's flag (NATO, UN, CSAT, AAF…) is a plain cloth with its short
+name rather than a copy of its emblem. The **hand-drawn set** is the military set
+under `tm-rough`, an SVG displacement filter in `defs()` — the same wobble in
+the browser and in resvg — and the picker puts a rule between the groups so
+the two styles never run together. A new marker carries no text until some
+is picked. A flag is `paint`: full colour, drawn
+once, never tinted, and exported with `setMarkerColor "Default"`. The picker
+groups them by `MARKER_GROUPS`. Mod markers (RHS, 3CB flags) are left out —
+a player without the mod sees nothing for them; an imported one comes back
+as a dot named after its class.
+
+**Every unit exports as a marker the game has.** Arma's civilian markers are
+only `c_unknown/car/ship/air/plane` and its unknown side has only
+`u_installation`, so `ARMA_CIVILIAN` maps civilians onto those and an unknown
+unit takes the neutral frame in the unknown colour; `civ` used to export as
+`u_inf` and the like, which draw nothing. The equipment symbols (truck, APC,
+IFV, tank, HMG, GL) and the new EOD symbol (`b_Ordnance`) are in
+`ARMA_TYPES`. `test_every_unit_exports_as_a_marker_arma_has` checks every
+side × symbol × HQ × dimension against the game's list.
 
 `UNIT_BOX` is small on purpose. A platoon plan puts twenty symbols on one
 sheet, and what reads as comfortable with three of them is a wall of colour
@@ -3052,6 +3080,93 @@ means:
 
 Lines and areas are `POLYLINE` markers and the map's own editing is built
 around icon markers, so those may stay fixed while the symbols move.
+
+### The editor's layout
+
+One bar, a rail, the map, a side panel (`_tacmap_canvas.html`, `.tmeditor`):
+
+- **The bar** carries the page's menus on the left — terrain, OCAP, share,
+  post, to and from Arma, name/copy/delete — and saving on the right. The
+  menus are the old panels under the map, now `<details class="tmmenu">`
+  dropdowns: `tacmap_edit.html` builds them into `map_menus` with
+  `{% set %}` and the canvas renders that in its bar, so the share-link page
+  (which sets none) has a bar with saving only. Being `<details>` they open
+  without JavaScript and `panel=` still opens the one a form came back to;
+  `tacmap.js` only keeps one open and closes it on a click elsewhere.
+- **The rail** holds the tools; **the side panel** shows what the tool in
+  hand draws (`#tmtoolpanel`, the old toolbar pickers) — stepping aside while
+  something is selected with Select, when the inspector matters — then the
+  layers, Map settings, Arma coordinates and Keys.
+- **The map takes the window's height**; **Whole window** (`tm-focus`) makes
+  the editor fixed over the page. `.widepage` is centred with a transform,
+  which traps a fixed element, so `setFocus()` moves the editor to `<body>`
+  and back. Esc leaves it when nothing is selected. **+ − ⤢** zoom and fit.
+- **Autosave**, on by default and remembered per browser, saves 1.5 s after
+  the last change, waits while something is being drawn or dragged, and stops
+  after a refused save (`state.blocked`) until the person chooses.
+- **Layers** can be reordered (↑ ↓ — order is drawing order) and **locked**
+  (`locked: true`, written only when set): drawn, but nothing on them can be
+  selected, boxed, Ctrl+A'd or dragged.
+- Below 900 px the rail runs across the top and the side panel goes under
+  the map.
+
+### Editing, measuring and moving several things at once
+
+All of it lives in `tacmap.js`; what has to agree with the server (lengths,
+grid references, label places) has a Python twin in `utils/tacmap.py`.
+
+- **A selected line's corners are handles** (`drawVertexHandles()`): drag one
+  to move it, drag a segment's middle dot to add a corner there, Alt+click or
+  right-click to delete one (never below two, or three for an area).
+  **Handles answer only the Select tool** — with a drawing tool in hand a
+  click on a corner starts a new line there, which is what Snap is for.
+- **Measuring** reads the sheet's Arma corners (`metres_per_unit()`,
+  `length_m()`, `grid_ref()`). The readout in the map's top corner shows the
+  6-figure grid reference under the pointer for everybody, and while drawing
+  the segment's length and bearing and the total; the inspector shows a
+  line's length, an area's perimeter and size, a shape's size. The grid is
+  counted from the terrain's south-west corner, as most terrains' are. The
+  **Measure** tool (`state.ruler`) draws nothing into the document.
+- **Snap** (`snapPoint()`, remembered per browser in `localStorage`) puts a
+  corner being placed or dragged on the nearest corner, shape corner or
+  centre, or symbol within 12 screen pixels, and closes a line on its own
+  first corner.
+- **Several selected** is `state.selected` (the last picked) plus
+  `state.extra`; `selection()` is the list. Shift+click toggles, Shift+drag on
+  empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes
+  everything shown. Dragging any selected item moves them all; Delete removes
+  them all; the inspector hides while more than one is selected.
+- **Copy and paste** go through `localStorage` (`tmclip`) as well as memory,
+  so a plan copied on one map pastes into another — under the pointer when it
+  is over the map. A pasted copy is never an AO and never lands on a planner
+  layer: either would quietly create an AO in the campaign planner.
+- **Phase lines** are lines with `label_at: 'ends'` (`LABEL_PLACES`); the
+  tool starts the name as *PL* and drops the cursor after it.
+  `line_label_spots()` puts a name above the middle corner or just past an
+  end, reading away from the line. **In Arma a line marker shows no text**,
+  so `to_sqf()` writes the name on a `LINE_LABEL_MARKER` — a `mil_dot` at
+  **size 0** — at each place it is drawn. Checked in game against an `Empty`
+  or `EmptyIcon` marker (no text at all), a dot at 0.4 (a visible dot) and
+  `setMarkerText` on the polyline (nothing): only the size-0 dot shows the
+  name and nothing else.
+
+### Back from Arma, and what does not survive the trip
+
+`ARMA_DUMP_SQF` is the mirror of the export: run in the debug console it
+copies `allMapMarkers` — shape, type, position, text, colour, size,
+direction, brush and polyline — to the clipboard with `str`, and
+`import_arma_markers()` reads it back (`parse_sqf_value()` is a small reader
+for what `str` writes: nested arrays, strings with doubled quotes, numbers,
+booleans). Positions go through `from_world()`. Lines and closed polylines
+(areas), rectangles and ellipses, `mil_`/`hd_` markers and NATO unit markers
+come back as themselves; anything else as a dot named after its type, so
+nothing is silently lost. *Only markers players drew* keeps `_USER_DEFINED`
+ones. `web/tacmap.import_from_arma()` puts them on a new *From Arma* layer.
+
+`export_report()` sits above the scripts: how many markers (it counts
+`createMarker` in the script itself, so it cannot disagree with it) and what
+will not survive — hidden layers, dashes, thickness, unfilled freehand areas,
+shape labels, symbols with only a nearest Arma marker, the mask.
 
 ### Rectangles and ellipses are their own kind
 

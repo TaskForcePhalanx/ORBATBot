@@ -5,37 +5,65 @@
    `web/static/tacmap.js` takes it over when it loads and keeps it up to date in
    the browser, which is also what makes the layer switches work for somebody
    who only has the link. #}
-<div class="tmapp" id="tmapp"
+<div class="tmapp{{ ' tmeditor' if editable }}" id="tmapp"
      data-save="{{ save_url }}"
      data-editable="{{ '1' if editable else '0' }}"
      data-rev="{{ map_rev|default('', true) }}"
      data-csrf="{{ csrf }}">
   {% if editable %}
+    {# One bar: the page's menus on the left (terrain, Arma, sharing… —
+       `map_menus`, set by the page that includes this), saving on the right. #}
     <div class="tmbar">
-      <div class="tmtools" role="group" aria-label="Tools">
-        <button type="button" class="tmtool active" data-tool="select">✋ Select</button>
-        <button type="button" class="tmtool" data-tool="unit">🛡️ Unit</button>
-        <button type="button" class="tmtool" data-tool="point">📍 Marker</button>
-        <button type="button" class="tmtool" data-tool="line">➟ Line</button>
-        <button type="button" class="tmtool" data-tool="area">⬟ Area</button>
-        <button type="button" class="tmtool" data-tool="rect">▭ Rectangle</button>
-        <button type="button" class="tmtool" data-tool="ellipse">◯ Ellipse</button>
-        <button type="button" class="tmtool" data-tool="ao"
-                title="Draw an area of operations: clear ground in the grey mask">⬚ AO</button>
-        <button type="button" class="tmtool" data-tool="text">🔤 Text</button>
+      <div class="tmmenus">{{ map_menus|default('', true) }}</div>
+      <div class="tmdo">
+        <span class="tmstatus" id="tmstatus"></span>
+        <label class="tmcheck tmauto" title="Save by itself a moment after each change">
+          <input type="checkbox" id="tmautosave"> Autosave</label>
+        <button type="button" class="button" id="tmundo">Undo</button>
+        <button type="button" class="button primary" id="tmsave">Save</button>
+        <button type="button" class="button" id="tmfocus"
+                title="Give the map the whole window — Esc to come back">⤢ Whole window</button>
       </div>
-      {# The gesture is the one Arma's own map uses, so it is what people try
-         first — but nothing on the page would otherwise say it is here. #}
-      <p class="tmhint">Lines work as on Arma's map: hold <kbd>Ctrl</kbd> and
-        <strong>click</strong> each corner, let go of <kbd>Ctrl</kbd> to finish — or
-        hold <kbd>Ctrl</kbd> and <strong>drag</strong> for freehand. The Line and Area
-        tools do the same without <kbd>Ctrl</kbd> (double-click or <kbd>Enter</kbd> to
-        finish). <kbd>Shift</kbd> keeps a segment straight and snaps it to 15°;
-        <kbd>Esc</kbd> throws it away. Rectangles and ellipses are dragged corner to
-        corner — <kbd>Shift</kbd> makes a square or a circle. The <strong>AO</strong>
-        tool greys out the map and clears each area you draw; on a campaign map,
-        every AO drawn becomes one of the campaign's AOs when you save.</p>
-      <div class="tmpick">
+    </div>
+  {% endif %}
+
+  <div class="tmstage">
+    {% if editable %}
+      <nav class="tmrail tmtools" role="group" aria-label="Tools">
+        <button type="button" class="tmtool active" data-tool="select" title="Select, move and edit (V)"><span class="tmicon" aria-hidden="true">✋</span><span class="tmlabel">Select</span></button>
+        <button type="button" class="tmtool" data-tool="unit" title="A unit symbol (U)"><span class="tmicon" aria-hidden="true">🛡️</span><span class="tmlabel">Unit</span></button>
+        <button type="button" class="tmtool" data-tool="point" title="Any Arma map marker (M)"><span class="tmicon" aria-hidden="true">📍</span><span class="tmlabel">Marker</span></button>
+        <button type="button" class="tmtool" data-tool="line" title="A line — click corners or drag (L)"><span class="tmicon" aria-hidden="true">➟</span><span class="tmlabel">Line</span></button>
+        <button type="button" class="tmtool" data-tool="phase" title="A phase line, named at both ends (P)"><span class="tmicon" aria-hidden="true">⎯</span><span class="tmlabel">Phase</span></button>
+        <button type="button" class="tmtool" data-tool="area" title="A freehand area (A)"><span class="tmicon" aria-hidden="true">⬟</span><span class="tmlabel">Area</span></button>
+        <button type="button" class="tmtool" data-tool="rect" title="A rectangle (R)"><span class="tmicon" aria-hidden="true">▭</span><span class="tmlabel">Box</span></button>
+        <button type="button" class="tmtool" data-tool="ellipse" title="An ellipse (E)"><span class="tmicon" aria-hidden="true">◯</span><span class="tmlabel">Ellipse</span></button>
+        <button type="button" class="tmtool" data-tool="ao" title="An area of operations: clear ground in the grey mask (O)"><span class="tmicon" aria-hidden="true">⬚</span><span class="tmlabel">AO</span></button>
+        <button type="button" class="tmtool" data-tool="text" title="A free label (T)"><span class="tmicon" aria-hidden="true">🔤</span><span class="tmlabel">Text</span></button>
+        <button type="button" class="tmtool" data-tool="measure" title="Measure a distance and bearing — nothing is drawn (D)"><span class="tmicon" aria-hidden="true">📏</span><span class="tmlabel">Measure</span></button>
+      </nav>
+    {% endif %}
+    <div class="tmcanvas" id="tmcanvas">
+      <button type="button" class="tmfull" id="tmfull">⛶ Full screen</button>
+      {# Where the pointer is on Arma's grid, and how long a line being drawn
+         is — for everybody looking, not only whoever may draw. #}
+      <div class="tmreadout" id="tmreadout" aria-live="off"></div>
+      <div class="tmzoom" role="group" aria-label="Zoom">
+        <button type="button" id="tmzoomin" title="Zoom in">+</button>
+        <button type="button" id="tmzoomout" title="Zoom out">−</button>
+        <button type="button" id="tmzoomfit" title="Fit the whole map">⤢</button>
+      </div>
+      {{ svg|safe }}
+    </div>
+    <aside class="tmside">
+      {% if editable %}
+        {# What the tool in hand will draw — hidden while something is
+           selected with the Select tool, when the inspector below is what
+           matters. #}
+        <div class="tmpanel tmpick" id="tmtoolpanel">
+          <h3 id="tmtooltitle">Select</h3>
+          <p class="tmtoolhint" id="tmtoolhint"></p>
+
         <label>Side <select id="tmside"></select></label>
         <label>Layer <select id="tmlayerpick"></select></label>
         <label data-for="unit">Symbol <select id="tmsymbol"></select></label>
@@ -53,30 +81,19 @@
           <option value="free">Freehand</option>
         </select></label>
         <label data-for="rect ellipse">Fill <select id="tmfill"></select></label>
-        <label data-for="select line area rect ellipse">Line <select id="tmstyle"></select></label>
-        <label data-for="select line area rect ellipse"
+        <label data-for="select line phase area rect ellipse">Line <select id="tmstyle"></select></label>
+        <label data-for="select line phase area rect ellipse"
                title="On this map only — Arma draws every line at one width">Thickness
           <select id="tmweight"></select></label>
-        <span class="tmswatches" data-for="select line area point rect ellipse" id="tmcolours"
+        <span class="tmswatches" data-for="select line phase area point rect ellipse" id="tmcolours"
               role="group" aria-label="Colour"></span>
-      </div>
-      <div class="tmdo">
-        <span class="tmstatus" id="tmstatus"></span>
-        <button type="button" class="button" id="tmundo">Undo</button>
-        <button type="button" class="button primary" id="tmsave">Save</button>
-      </div>
-    </div>
-  {% endif %}
+        <label class="tmcheck" title="New and moved corners land on the nearest corner, symbol or marker">
+          <input type="checkbox" id="tmsnap"> Snap</label>
+        </div>
 
-  <div class="tmstage">
-    <div class="tmcanvas" id="tmcanvas">
-      <button type="button" class="tmfull" id="tmfull">⛶ Full screen</button>
-      {{ svg|safe }}
-    </div>
-    <aside class="tmside">
-      {% if editable %}
         <div class="tmpanel" id="tminspector" hidden>
           <h3>Selected</h3>
+          <p class="tmmeasure" id="tmf-measure" hidden></p>
           <label class="field"><span>Label</span>
             <input id="tmf-label" maxlength="48"></label>
           <label class="field" data-for="unit point line area shape"><span>Note</span>
@@ -147,6 +164,10 @@
               width.</span></label>
           <label class="field" data-for="line"><span>Arrow head</span>
             <select id="tmf-arrow"></select></label>
+          <label class="field" data-for="line"><span>Name at</span>
+            <select id="tmf-labelat"></select>
+            <span class="hint">In Arma the name goes on a small marker at the same
+              place — a line marker cannot show text.</span></label>
           <div class="actions">
             <button type="button" class="button" id="tmf-front">Bring to front</button>
             <button type="button" class="button danger" id="tmf-delete">Delete</button>
@@ -239,12 +260,32 @@
           </div>
         </details>
 
-        <div class="tmpanel tmhelp">
-          <h3>Keys</h3>
+        <details class="tmpanel tmhelp">
+          <summary>Keys and gestures</summary>
+      <p class="hint">Lines work as on Arma's map: hold <kbd>Ctrl</kbd> and
+        <strong>click</strong> each corner, let go of <kbd>Ctrl</kbd> to finish — or
+        hold <kbd>Ctrl</kbd> and <strong>drag</strong> for freehand. The Line and Area
+        tools do the same without <kbd>Ctrl</kbd> (double-click or <kbd>Enter</kbd> to
+        finish). <kbd>Shift</kbd> keeps a segment straight and snaps it to 15°;
+        <kbd>Esc</kbd> throws it away. Rectangles and ellipses are dragged corner to
+        corner — <kbd>Shift</kbd> makes a square or a circle. The <strong>AO</strong>
+        tool greys out the map and clears each area you draw; on a campaign map,
+        every AO drawn becomes one of the campaign's AOs when you save.</p>
+
           <ul>
             <li><kbd>V</kbd> select · <kbd>U</kbd> unit · <kbd>M</kbd> marker ·
               <kbd>L</kbd> line · <kbd>A</kbd> area · <kbd>R</kbd> rectangle ·
-              <kbd>E</kbd> ellipse · <kbd>O</kbd> AO · <kbd>T</kbd> text</li>
+              <kbd>E</kbd> ellipse · <kbd>O</kbd> AO · <kbd>T</kbd> text ·
+              <kbd>D</kbd> measure · <kbd>P</kbd> phase line</li>
+            <li><kbd>Shift</kbd>+click adds to the selection,
+              <kbd>Shift</kbd>+drag on empty ground selects by box,
+              <kbd>Ctrl</kbd>+<kbd>A</kbd> selects everything shown ·
+              <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> copy and
+              paste, even into another map · <kbd>Ctrl</kbd>+<kbd>D</kbd>
+              duplicates</li>
+            <li>Selected line or area: drag a corner to move it, drag a
+              segment's middle dot to add one, <kbd>Alt</kbd>+click or
+              right-click a corner to delete it</li>
             <li>Line and area: <kbd>Ctrl</kbd>+click corners (let go of
               <kbd>Ctrl</kbd> to finish) or <kbd>Ctrl</kbd>+drag freehand;
               <kbd>Shift</kbd> straight and 15° snap, <kbd>Enter</kbd> or
@@ -256,7 +297,7 @@
               undoes · <kbd>Ctrl</kbd>+<kbd>S</kbd> saves</li>
             <li>Scroll to zoom, drag the background to pan</li>
           </ul>
-        </div>
+        </details>
       {% endif %}
     </aside>
   </div>
