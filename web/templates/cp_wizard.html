@@ -117,40 +117,21 @@
         {# Drawn empty and filled by campaign.js from the same `mission_state()`
            the step tabs and the no-JavaScript schedule page draw from, so the
            three cannot disagree about what is due, ready or approved. #}
+        {# The back-schedule, the checks and every drop — the same partial the
+           no-JavaScript schedule page is built from, so the two cannot drift.
+           Server-rendered: nothing in here is redrawn as you type, and
+           `#cp-overstale` says so once a save has moved something. #}
         <section class="cpstepbody cpover" data-body="overview" hidden>
           <header class="cpstephead">
             <h2>Overview</h2>
             <span class="muted" id="cp-overmeta"></span>
           </header>
-
-          <h3 class="cpovh">The schedule</h3>
-          <ol class="cpovsched" id="cp-oversched"></ol>
-
-          <h3 class="cpovh">Checks <span class="muted" id="cp-overcheckcount"></span></h3>
-          <ul class="cpchecks" id="cp-overchecks"></ul>
-
-          {% for step in steps %}
-            <section class="cpovstep" data-ovstep="{{ step.key }}">
-              <h3 class="cpovh">
-                <button type="button" class="linkish cpovopen" data-ovopen="{{ step.key }}"
-                        title="Open this step">{{ step.number }}. {{ step.title }}</button>
-                <span class="cpstatus" data-ovgate="{{ step.key }}"></span>
-              </h3>
-              <dl class="cpovfields">
-                {% for f in step.fields %}
-                  <div class="cpovfield {{ 'structural' if f.kind not in ('text', 'date', 'time', 'textarea') }}"
-                       data-ovfield="{{ f.key }}" data-ovkind="{{ f.kind }}" data-ovin="{{ step.key }}">
-                    <dt>
-                      {{ f.label }}
-                      {% if f.required %}<span class="cpreq" title="Needed to lock this step">*</span>{% endif %}
-                      {% if f.private %}<span class="chip warn">🔒</span>{% endif %}
-                    </dt>
-                    <dd data-ovvalue="{{ f.key }}"></dd>
-                  </div>
-                {% endfor %}
-              </dl>
-            </section>
-          {% endfor %}
+          <p class="flash warn" id="cp-overstale" hidden>
+            The schedule and the drops below were worked out when this page loaded, and
+            something has changed since.
+            <button type="button" class="linkish" id="cp-overreload">Refresh</button>
+          </p>
+          {% with back = 'wizard' %}{% include '_cp_schedule_body.html' %}{% endwith %}
         </section>
 
         {% for step in steps %}

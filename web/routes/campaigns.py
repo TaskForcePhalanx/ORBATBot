@@ -376,11 +376,13 @@ def register(app, d):
     @app.post('/g/{guild_id}/campaigns/{campaign_id}/missions/{mission_id}/drops/{kind}/{action}')
     async def mission_drop_action(request: Request, guild_id: str, campaign_id: int,
                                   mission_id: int, kind: str, action: str):
-        """Approve, unapprove, skip or un-skip a drop from the schedule page —
-        the form twin of the wizard's API call below."""
+        """Approve, unapprove, skip or un-skip a drop from the schedule page or
+        the wizard's Overview — the form twin of the wizard's API call below."""
         context = await mission_ctx(request, guild_id, mission_id, campaign_id)
         form = await planner_form(request, context)
-        url = campaign_url(guild_id, campaign_id, f'/missions/{mission_id}/schedule')
+        url = campaign_url(guild_id, campaign_id, f'/missions/{mission_id}')
+        if form.get('back') == 'schedule':
+            url += '/schedule'
         try:
             note = await campaign_service.drop_action(
                 bot, context['guild'], context['mission'], kind, action, context['member'],

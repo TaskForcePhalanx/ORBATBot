@@ -106,7 +106,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(706 cases), and almost every one of them covers a module that imports nothing
+(704 cases), and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
 `tests/test_logging.py` parses the whole service with `ast`, and
@@ -128,7 +128,7 @@ for one exception class:
 | `tests/test_logging.py` | the logging rules: no `print()` left in the service, no `log.exception()` outside an `except`, every logging module has its own logger, and every package that logs is one `bot.py` raises above WARNING |
 | `tests/test_schema.py` | the migration list's numbering — versions unique and contiguous from 1, listed in the order they run — that migration 1 is unedited (its source is hashed), and that `init_db()` creates nothing outside the list |
 | `tests/test_nav.py` | the tab bar: who sees which groups, that a group links to its first reachable page and that every page knows its group, that the top row stays within the width it was measured to fit — and that no page heads itself with the guild's name or says who is signed in |
-| `tests/test_wizard_overview.py` | the Overview tab's contract: that it walks `STEPS` rather than a hand-written field list, that only plain fields are editable in place and the template and `campaign.js` agree on which those are, that it does not repeat the step editors' ids, and that a save reply cannot take an open editor away |
+| `tests/test_wizard_overview.py` | that the wizard's Overview and the schedule page are **one template** — neither has grown a copy of the schedule, both hand it what it asks for, every form in it comes back to the page it was pressed on, and nothing in it is redrawn in the browser |
 | `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
@@ -1359,41 +1359,47 @@ without a reload. Vanilla, no build step, no CDN. It decides nothing:
 Opening a mission lands here, because *where does this mission stand* is the
 question somebody has on opening one and the six step tabs each answer only
 for themselves. A link to a step (`#orders`) still opens that step, so the
-checks and the drops panel can point at one.
+checks and a drop can point at one.
 
-It holds the whole mission on one page: how many steps are locked, the
-back-schedule with every lock and drop and what each is waiting on, every
-check rather than the open step's, and then each step's fields with their
-values.
+**It is the schedule page**: the back-schedule with every lock and drop and
+what each is waiting on, the checks, and every drop with **Approve / Withdraw
+/ Don't post** — which is what the planner wanted first on opening a mission,
+and was already built and already correct.
 
-- **It decides nothing.** Every row is drawn from `state`, the same
-  `mission_state()` the step tabs and the no-JavaScript schedule page are
-  drawn from, so the three cannot disagree about what is due, ready or
-  approved. In particular the tab's "next due" label is the first unfinished
-  item in date order and says so in a comment — it is deliberately **not** a
-  second copy of `campaign.next_due()`, which ranks overdue locks first and
-  lives in Python.
-- **A plain field is editable in both places.** A text, date, time or textarea
-  value is a button until it is clicked and then the same kind of input,
-  saving down the same path; the step tab stays the primary place to write,
-  with its tips, checks and drop preview. `touch()` mirrors a value into every
-  other box holding that key — never the one being typed in, since writing
-  `.value` back would move the caret to the end — so the two are two views of
-  one field. Escape puts back what was there; blur commits.
-- **The other 13 are a summary and a way through.** The phases, a list, a
-  table of rows, an image: those are editors rather than values, and nobody
-  fixes one in passing, so they show what is there and open their step.
-- **A save reply must not take an open editor away.** `apply()` runs on every
-  reply and redraws the overview, so `overviewValue()` leaves alone the cell
-  being edited — otherwise a reply landing mid-word would swallow the box.
-  Both that guard and the mirroring were mutation-tested in Chromium: without
-  either, the browser checks fail.
-- **Tips, Checks and the drop preview stand down beside it** (`data-side="step"`),
-  since the overview carries its own schedule and its own full check list, and
-  there is no one drop it is about. The mission tools — the ORBAT, the maps,
-  the recording, the briefing packs — stay, being about the mission.
-- **No server change.** The overview is a third consumer of `mission_state()`,
-  which already returns everything it draws, and `/schedule` is untouched: it
+- **One template, two pages.** `_cp_schedule_body.html` is included by
+  `cp_schedule.html` and by the wizard's Overview, and it is the schedule
+  page's own markup, moved: checked by rebuilding the page from the partial
+  and diffing against the version before the move — byte for byte identical.
+  A second copy is the thing this prevents, since the two would disagree about
+  what is due the first time either was edited.
+- **`back` says where a form returns to**, `'schedule'` or `'wizard'`, the
+  same convention `_cp_mission_tools.html` already used — and it now reaches
+  the drop actions too, which always redirected to the schedule page and so
+  threw somebody onto another page for approving a drop from the Overview. A
+  drop action comes back to `#drop-<kind>`, which on the wizard is a panel
+  inside the hidden Overview: `campaign.js` opens the tab and scrolls to it,
+  which the browser cannot do by itself while the section is hidden.
+- **`back == 'schedule'` also brings the mission-tools card**, since the
+  wizard's side panel already carries the same one.
+- **The partial asks for `steps_by_key`**, which both pages now hand over. It
+  was `steps[c.step].title`, and the wizard's `steps` is the ordered list its
+  tabs loop over — so a check's step name rendered empty there. The time zone
+  comes off `state.tz` for the same reason: `tz` is a schedule-page variable.
+- **Nothing in it is redrawn in the browser.** A renderer here would be a
+  second copy of `campaign.schedule()`, `drop_state()` and the checks, which
+  live in Python and are tested there. `drawOverview()` writes the tab's
+  locked count and the line under the heading, and nothing else.
+- **It admits when it has gone stale instead.** An edit on another tab can
+  move the op date, lock a step or change a drop's words, and the schedule
+  below was worked out when the page loaded — so a note appears offering
+  **Refresh**. Approving a drop whose words have changed is refused by the
+  server anyway (an approval names the hash it was made against), so this is a
+  prompt rather than a safety net.
+- **Tips, Checks and the drop preview stand down beside it**
+  (`data-side="step"`): they are about one step, and the Overview carries its
+  own checks and is about no one drop. The mission tools — the ORBAT, the
+  maps, the recording, the briefing packs — stay, being about the mission.
+- **No server change beyond the context.** `/schedule` is untouched and
   remains the fallback for a browser with no JavaScript.
 
 **A new mission copies `campaign.CARRY_OVER`** from the last one in the
