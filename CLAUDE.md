@@ -104,7 +104,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(619 cases), and every one of them covers a module that imports nothing beyond
+(624 cases), and every one of them covers a module that imports nothing beyond
 the standard library — which is the rule that decides what is testable here at
 all:
 
@@ -120,6 +120,7 @@ all:
 | `tests/test_ocap.py` | what the OCAP list entry means, and which recordings are due: new, counted under older rules, or failed and past their back-off |
 | `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO drawn, relabelled or deleted on the campaign map does to the planner's AOs, what an AO map starts from (masked outside its AO), which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_discordmd.py` | that nothing typed becomes HTML, links stay http(s), and headings, quotes, lists, emphasis, code, timestamps and mentions render the way Discord shows them |
+| `tests/test_logging.py` | the logging rules: no `print()` left in the service, no `log.exception()` outside an `except`, every logging module has its own logger, and every package that logs is one `bot.py` raises above WARNING |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -147,6 +148,7 @@ obvious next thing to cover.
 | `KT_SYNC` | **Optional.** `0` stops the Kill Tracker polling the OCAP server. Everything already counted keeps being served |
 | `REDDIT_USER_AGENT` | **Optional.** How the bot identifies itself to Reddit when reading a watched feed. Reddit answers 429 to a client that doesn't say who it is, so a descriptive value naming your own Reddit account is best; empty falls back to `utils/reddit.DEFAULT_USER_AGENT`. There is nothing else to configure — the feeds are public RSS, so no API registration, OAuth or client secret is involved |
 | `MEMBER_EVENTS` | **Optional.** `1` requests the privileged members intent, which `cogs/memberlog.py` needs for joins and leaves. **Only set it once "Server Members Intent" is ticked in the Developer Portal** — requesting an ungranted privileged intent makes login fail, taking the whole bot down. Bans and unbans need no intent |
+| `LOG_LEVEL` | **Optional.** How much this project's own code logs — `DEBUG`, `INFO` (the default), `WARNING`, `ERROR`. It does **not** reach discord.py, which `setup_logging()` pins to WARNING: the bot starts with `bot.start()` rather than `bot.run()`, so the library has never configured logging here, and turning the root up writes a line per gateway heartbeat and buries everything else |
 
 Railway injects these at runtime; nothing sets them manually. `_railway_restart()` reads them to find the deployment to restart:
 
@@ -1061,6 +1063,39 @@ On fire: sets `reminder_fired = 1`, DMs all approved members, posts mention in `
   to reach the container.** A variable that only exists in `.env` is read by
   compose for interpolation, not passed through — so anything added to
   `.env.example` needs a line here too, or it silently does nothing under Docker.
+
+### Logging
+
+`bot.py`'s `setup_logging()` configures it once, in `main()`, and every module
+writes through `log = logging.getLogger(__name__)`. There are no `print()`
+calls left in `bot.py`, `cogs/`, `utils/` or `web/` — `scripts/` still prints,
+because those are command-line tools talking to whoever ran them.
+
+- **The root sits at WARNING; only `__main__`, `cogs`, `utils` and `web` go to
+  INFO** (`LOG_LEVELS`, overridable with `LOG_LEVEL`). `__main__` is in that
+  list because `bot.py` is run as a script, so its own logger is not called
+  `bot`.
+- **discord.py is pinned to WARNING, and that is the load-bearing part.** The
+  bot starts with `bot.start()` inside `asyncio.run()` rather than `bot.run()`,
+  which is the call that would have run discord.py's own `setup_logging()` — so
+  the library has never had logging configured here and only its warnings ever
+  reached the log. A plain `basicConfig(level=INFO)` therefore does something
+  that looks harmless and is not: it switches on the gateway, heartbeat and
+  reconnect stream and buries every line this project writes.
+- **uvicorn is left alone.** `web/server.py` passes `log_level='info'` and
+  uvicorn's `dictConfig` carries `disable_existing_loggers: False`, so it
+  configures its own three loggers and silences none of ours.
+- **An `except` that reports uses `log.exception()`**, which keeps the
+  traceback the old `print(f"… {e}")` threw away. Every loop that must not die
+  still catches `Exception` and carries on — the catching did not change, only
+  what it writes.
+
+`tests/test_logging.py` reads the source the way `tests/test_help.py` does and
+pins four rules: nothing in `bot.py`, `cogs/`, `utils/` or `web/` calls
+`print()`; no `log.exception()` sits outside an `except`, where it would write
+`NoneType: None` under the message; every module that logs defines its own
+`log`; and every package that logs is named in `LOG_LEVELS`, or its INFO lines
+would sit under the root's WARNING and never be seen.
 
 ### Startup sequence
 1. `init_db()`, then `close_dangling_voice_sessions()` — schema first, then voice

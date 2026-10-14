@@ -18,6 +18,7 @@ and count for more in Reddit's own ranking than a handful of early votes.
 scheduled one does.
 """
 
+import logging
 import asyncio
 import time
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,8 @@ import discord
 from discord.ext import commands, tasks
 
 from utils import database, reddit
+
+log = logging.getLogger(__name__)
 
 # How often every watch is read. Reddit's feeds are cached for a minute or two
 # anyway, so anything shorter buys nothing and only costs rate limit.
@@ -334,7 +337,7 @@ class RedditFeedCog(commands.Cog):
         try:
             feeds = await database.get_due_reddit_feeds()
         except Exception as e:
-            print(f"❌ redditfeed: could not load the watches: {e!r}")
+            log.exception(f"❌ redditfeed: could not load the watches: {e!r}")
             return
 
         for index, feed in enumerate(feeds):
@@ -343,15 +346,15 @@ class RedditFeedCog(commands.Cog):
             try:
                 result = await check_feed(self.bot, feed)
                 if result.get('error'):
-                    print(f"⚠️ redditfeed {feed['id']}: {result['error']}")
+                    log.warning(f"⚠️ redditfeed {feed['id']}: {result['error']}")
             except reddit.RateLimited as e:
-                print(f"⚠️ redditfeed {feed['id']} ({feed['source']}): {e} "
+                log.warning(f"⚠️ redditfeed {feed['id']} ({feed['source']}): {e} "
                       f"Standing down for {e.retry_after // 60} minute(s).")
             except (reddit.FeedError, ValueError) as e:
                 # Already recorded on the row, where the web page shows it.
-                print(f"⚠️ redditfeed {feed['id']} ({feed['source']}): {e}")
+                log.warning(f"⚠️ redditfeed {feed['id']} ({feed['source']}): {e}")
             except Exception as e:
-                print(f"❌ redditfeed {feed['id']} ({feed['source']}) failed: {e!r}")
+                log.exception(f"❌ redditfeed {feed['id']} ({feed['source']}) failed: {e!r}")
 
     @poll.before_loop
     async def _before_poll(self):

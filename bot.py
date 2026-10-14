@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+import sys
 from datetime import timezone
 
 import discord
@@ -10,6 +12,8 @@ from utils import database
 from cogs.slots import ApprovalView, OrbatRequestButton, guild_channel
 from cogs.gameroles import GameRolePanelView
 from cogs.events import EventRsvpView, load_responses
+
+log = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -37,10 +41,10 @@ class ORBATBot(commands.Bot):
 
     async def setup_hook(self):
         import traceback
-        print("--- setup_hook start ---")
+        log.info("--- setup_hook start ---")
 
         await database.init_db()
-        print("✅ Database initialised.")
+        log.info("✅ Database initialised.")
 
         # Voice intervals left open by a crash are closed at their last
         # heartbeat before anything new is recorded, so a restart can't leave a
@@ -48,86 +52,86 @@ class ORBATBot(commands.Bot):
         try:
             dangling = await database.close_dangling_voice_sessions()
             if dangling:
-                print(f"✅ Closed {dangling} voice session(s) left open by a restart.")
+                log.info(f"✅ Closed {dangling} voice session(s) left open by a restart.")
         except Exception:
-            print("❌ Failed to close dangling voice sessions:")
+            log.exception("❌ Failed to close dangling voice sessions:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.slots')
-            print("✅ Loaded cogs.slots")
+            log.info("✅ Loaded cogs.slots")
         except Exception:
-            print("❌ Failed to load cogs.slots:")
+            log.exception("❌ Failed to load cogs.slots:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.admin')
-            print("✅ Loaded cogs.admin")
+            log.info("✅ Loaded cogs.admin")
         except Exception:
-            print("❌ Failed to load cogs.admin:")
+            log.exception("❌ Failed to load cogs.admin:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.gameroles')
-            print("✅ Loaded cogs.gameroles")
+            log.info("✅ Loaded cogs.gameroles")
         except Exception:
-            print("❌ Failed to load cogs.gameroles:")
+            log.exception("❌ Failed to load cogs.gameroles:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.events')
-            print("✅ Loaded cogs.events")
+            log.info("✅ Loaded cogs.events")
         except Exception:
-            print("❌ Failed to load cogs.events:")
+            log.exception("❌ Failed to load cogs.events:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.voicelog')
-            print("✅ Loaded cogs.voicelog")
+            log.info("✅ Loaded cogs.voicelog")
         except Exception:
-            print("❌ Failed to load cogs.voicelog:")
+            log.exception("❌ Failed to load cogs.voicelog:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.memberlog')
-            print("✅ Loaded cogs.memberlog"
+            log.info("✅ Loaded cogs.memberlog"
                   + ("" if self.member_events else
                      " (joins/leaves off — set MEMBER_EVENTS=1 once the "
                      "Server Members Intent is enabled in the Developer Portal)"))
         except Exception:
-            print("❌ Failed to load cogs.memberlog:")
+            log.exception("❌ Failed to load cogs.memberlog:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.purge')
-            print("✅ Loaded cogs.purge")
+            log.info("✅ Loaded cogs.purge")
         except Exception:
-            print("❌ Failed to load cogs.purge:")
+            log.exception("❌ Failed to load cogs.purge:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.redditfeed')
-            print("✅ Loaded cogs.redditfeed")
+            log.info("✅ Loaded cogs.redditfeed")
         except Exception:
-            print("❌ Failed to load cogs.redditfeed:")
+            log.exception("❌ Failed to load cogs.redditfeed:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.campaigns')
-            print("✅ Loaded cogs.campaigns")
+            log.info("✅ Loaded cogs.campaigns")
         except Exception:
-            print("❌ Failed to load cogs.campaigns:")
+            log.exception("❌ Failed to load cogs.campaigns:")
             traceback.print_exc()
 
         try:
             await self.load_extension('cogs.killtracker')
-            print("✅ Loaded cogs.killtracker")
+            log.info("✅ Loaded cogs.killtracker")
         except Exception:
-            print("❌ Failed to load cogs.killtracker:")
+            log.exception("❌ Failed to load cogs.killtracker:")
             traceback.print_exc()
 
         registered = [c.name for c in self.tree.get_commands()]
-        print(f"Commands registered in tree: {registered}")
+        log.info(f"Commands registered in tree: {registered}")
 
         # Re-register approval views for all pending requests so buttons
         # continue to work after a bot restart.
@@ -140,7 +144,7 @@ class ORBATBot(commands.Bot):
         for req in pending:
             self.add_view(ApprovalView(request_id=req['id'], bot=self))
 
-        print(f"{len(pending)} pending view(s) restored.")
+        log.info(f"{len(pending)} pending view(s) restored.")
 
         # Re-register RSVP buttons for every event that is still open. The custom
         # ids encode each event's own response keys, so they have to be loaded.
@@ -151,13 +155,13 @@ class ORBATBot(commands.Bot):
                 responses=await load_responses(event['id']),
             ))
 
-        print(f"{len(live_events)} event view(s) restored.")
+        log.info(f"{len(live_events)} event view(s) restored.")
 
         self.reminder_task.start()
-        print("✅ Reminder task started.")
+        log.info("✅ Reminder task started.")
 
         await self._start_web()
-        print("--- setup_hook end ---")
+        log.info("--- setup_hook end ---")
 
     async def _start_web(self):
         """Start the browser UI, if it is configured.
@@ -171,20 +175,20 @@ class ORBATBot(commands.Bot):
         try:
             from web import WebServer, load_config
         except Exception:
-            print("ℹ️ Web UI dependencies missing (pip install -r requirements.txt) — skipped.")
+            log.exception("ℹ️ Web UI dependencies missing (pip install -r requirements.txt) — skipped.")
             return
 
         try:
             config = load_config()
         except Exception:
-            print("❌ Web UI configuration is invalid — skipped:")
+            log.exception("❌ Web UI configuration is invalid — skipped:")
             traceback.print_exc()
             return
         if config.disabled:
-            print("ℹ️ Web UI switched off with WEB_ENABLED=0.")
+            log.info("ℹ️ Web UI switched off with WEB_ENABLED=0.")
             return
         if not config.ready:
-            print(
+            log.info(
                 "ℹ️ Web UI not configured — set "
                 f"{', '.join(config.missing)} to enable it. Skipped."
             )
@@ -194,12 +198,12 @@ class ORBATBot(commands.Bot):
         try:
             await server.start()
         except Exception:
-            print("❌ Web UI failed to start:")
+            log.exception("❌ Web UI failed to start:")
             traceback.print_exc()
             return
 
         self.web = server
-        print(f"✅ Web UI listening on {config.host}:{config.port}"
+        log.info(f"✅ Web UI listening on {config.host}:{config.port}"
               + (f" ({config.base_url})" if config.base_url else ""))
 
     async def close(self):
@@ -225,14 +229,14 @@ class ORBATBot(commands.Bot):
         try:
             ops = await database.get_operations_needing_reminder()
         except Exception as e:
-            print(f"reminder_task: could not load due reminders: {e!r}")
+            log.exception(f"reminder_task: could not load due reminders: {e!r}")
             return
 
         for op in ops:
             try:
                 await self._send_operation_reminder(op)
             except Exception as e:
-                print(f"reminder_task: reminder for operation {op['id']} failed: {e!r}")
+                log.exception(f"reminder_task: reminder for operation {op['id']} failed: {e!r}")
 
     async def _send_operation_reminder(self, op):
         await database.mark_reminder_fired(op['id'])
@@ -282,16 +286,16 @@ class ORBATBot(commands.Bot):
         await self.wait_until_ready()
 
     async def on_ready(self):
-        print(f"on_ready fired. Guilds: {[g.name for g in self.guilds]}")
+        log.info(f"on_ready fired. Guilds: {[g.name for g in self.guilds]}")
         # Copy global commands into each guild and sync — this is instant,
         # unlike global sync which can take up to an hour to propagate.
         for guild in self.guilds:
             try:
                 self.tree.copy_global_to(guild=guild)
                 synced = await self.tree.sync(guild=guild)
-                print(f"✅ Guild sync '{guild.name}': {len(synced)} command(s).")
+                log.info(f"✅ Guild sync '{guild.name}': {len(synced)} command(s).")
             except Exception as e:
-                print(f"❌ Guild sync failed for '{guild.name}': {e}")
+                log.exception(f"❌ Guild sync failed for '{guild.name}': {e}")
 
 
     async def on_guild_join(self, guild: discord.Guild):
@@ -299,12 +303,46 @@ class ORBATBot(commands.Bot):
         try:
             self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
-            print(f"✅ Joined '{guild.name}' — synced {len(synced)} command(s).")
+            log.info(f"✅ Joined '{guild.name}' — synced {len(synced)} command(s).")
         except Exception as e:
-            print(f"❌ Guild sync failed for '{guild.name}': {e}")
+            log.exception(f"❌ Guild sync failed for '{guild.name}': {e}")
+
+
+# Levels this project's own log lines are written at:
+#   info      something happened that the next person reading the log wants
+#   warning   something is set up wrong, and the bot carried on
+#   error     an action failed
+#   exception as error, with the traceback — what every `except` should use
+LOG_LEVELS = ('__main__', 'cogs', 'utils', 'web')
+
+
+def setup_logging():
+    """Timestamped, levelled lines on stdout, which is what Railway reads.
+
+    The root sits at WARNING and only this project's loggers go to INFO.
+    discord.py is pinned explicitly, and that is the part worth keeping: the
+    bot starts with `bot.start()` inside `asyncio.run()`, not `bot.run()`, so
+    the library has never configured logging here and only its warnings have
+    been reaching the log at all. Turning the root up to INFO switches on its
+    gateway, heartbeat and reconnect stream and buries every line we write.
+
+    `LOG_LEVEL` overrides the project's own level, so a quiet deployment can be
+    turned up to DEBUG without a code change.
+    """
+    logging.basicConfig(
+        level=logging.WARNING,
+        format='%(asctime)s %(levelname)-8s %(name)s | %(message)s',
+        datefmt='%H:%M:%S',
+        stream=sys.stdout,
+    )
+    level = getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper(), logging.INFO)
+    for name in LOG_LEVELS:
+        logging.getLogger(name).setLevel(level)
+    logging.getLogger('discord').setLevel(logging.WARNING)
 
 
 def main():
+    setup_logging()
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         raise RuntimeError("DISCORD_TOKEN is not set. Check your .env file or Railway variables.")

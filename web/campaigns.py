@@ -10,6 +10,7 @@ calls and shapes the answers for a template or for the wizard's JSON. A
 `web/`.
 """
 
+import logging
 import json
 from datetime import date, datetime, timedelta
 
@@ -17,6 +18,8 @@ from cogs.campaigns import mission_drops, post_context
 from utils import campaign as rules
 from utils import database, tacmap
 from web.guilds import can_plan, mentionable_roles, postable_channels
+
+log = logging.getLogger(__name__)
 
 
 class NotFound(LookupError):
@@ -669,7 +672,7 @@ async def drop_action(bot, guild, mission: dict, kind: str, action: str, member,
         try:
             done = await cog.process_mission_id(mission['id'])
         except Exception as e:      # the loop retries; the approval stands
-            print(f"⚠️ campaigns: processing after approval failed: {e!r}")
+            log.warning(f"⚠️ campaigns: processing after approval failed: {e!r}")
     if any(line.startswith(('posted', 'updated')) for line in done):
         note += ' ' + ' '.join(line[0].upper() + line[1:] + ('' if line.endswith('.') else '.')
                                for line in done)

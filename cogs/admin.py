@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import os
 from datetime import datetime, timezone
@@ -13,6 +14,8 @@ from cogs.slots import (_get_unit_role, _update_orbat, ActionError,
                        assign_slot_request, check_can_assign,
                        clear_pending_queue, clear_slot_request, guild_channel,
                        publish_board, SquadSelectView, UNIT_LEADER_ROLE)
+
+log = logging.getLogger(__name__)
 
 
 def _is_unit_leader_or_admin(member: discord.Member) -> bool:
@@ -261,7 +264,7 @@ async def _railway_restart() -> str:
                 raise RuntimeError('No active deployment found for this service')
             deployment_id = edges[0]['node']['id']
 
-        print(f"Triggering Railway restart for deployment {deployment_id}")
+        log.info(f"Triggering Railway restart for deployment {deployment_id}")
         mutation = 'mutation Restart($id: String!) { deploymentRestart(id: $id) }'
         async with session.post(
             _RAILWAY_API_URL, json={'query': mutation, 'variables': {'id': deployment_id}}
@@ -829,7 +832,7 @@ class AdminCog(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True)
-        print(f"Restart requested by {interaction.user} ({interaction.user.id}) in guild {interaction.guild_id}")
+        log.info(f"Restart requested by {interaction.user} ({interaction.user.id}) in guild {interaction.guild_id}")
 
         note = ''
         if os.getenv('RAILWAY_API_TOKEN'):

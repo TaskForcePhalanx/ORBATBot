@@ -13,12 +13,15 @@ Nothing here decides anything: which layers a trace shows, where it looks and
 how deep the terrain goes are `utils/campaign.py`'s.
 """
 
+import logging
 import asyncio
 import base64
 import os
 
 from utils import campaign as rules
 from utils import database, tacmap
+
+log = logging.getLogger(__name__)
 
 TILE_TIMEOUT = 10
 MAX_TILE_BYTES = 2 * 1024 * 1024
@@ -156,7 +159,7 @@ async def phase_traces(guild_id: str, campaign_id: int, phases: list) -> list[di
         try:
             png = await draw(str(guild_id), doc, rules.phase_layer_id(phase['id']))
         except Exception as e:
-            print(f"⚠️ maptrace: phase {phase['id']} could not be drawn: {e!r}")
+            log.warning(f"⚠️ maptrace: phase {phase['id']} could not be drawn: {e!r}")
             png = None
         if png:
             title = (phase.get('title') or '').strip()

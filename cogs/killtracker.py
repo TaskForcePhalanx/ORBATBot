@@ -13,6 +13,7 @@ loop is what runs periodic work here, and `setup_hook` is where it is started.
 calls it, and so would anything else that wanted a manual run.
 """
 
+import logging
 import asyncio
 import os
 import tempfile
@@ -21,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from discord.ext import commands, tasks
 
 from utils import database, killtracker, ocap
+
+log = logging.getLogger(__name__)
 
 # How often the OCAP server is asked. Recordings appear once a week or so; the
 # interval only decides how long after a mission the numbers show up.
@@ -115,7 +118,7 @@ async def check(base: str = None, limit: int = MAX_PER_PASS) -> dict:
         # The server counts kills its own way, so a difference is not an error —
         # but a large one is the first sign that the rules and the game disagree.
         if op['player_kills'] and abs(result['kills'] - op['player_kills']) > max(5, op['player_kills'] // 10):
-            print(f"⚠️ killtracker {op['filename']}: counted {result['kills']} kills, "
+            log.warning(f"⚠️ killtracker {op['filename']}: counted {result['kills']} kills, "
                   f"the OCAP server says {op['player_kills']}.")
     now = _now()
     return {
@@ -145,27 +148,27 @@ class KillTrackerCog(commands.Cog):
         try:
             result = await check()
         except ocap.OcapError as e:
-            print(f"⚠️ killtracker: {e}")
+            log.warning(f"⚠️ killtracker: {e}")
             return
         except Exception as e:
-            print(f"❌ killtracker failed: {e!r}")
+            log.exception(f"❌ killtracker failed: {e!r}")
             return
         # One line per pass, whatever happened: a log with nothing in it for hours
         # cannot be told from a loop that has stopped.
-        print(f"ℹ️ killtracker: {result['listed']} on the server, {result['finished']} finished, "
+        log.info(f"ℹ️ killtracker: {result['listed']} on the server, {result['finished']} finished, "
               f"{result['stored']} stored before this pass; this pass counted "
               f"{len(result['imported'])}, failed {len(result['failed'])}; "
               f"{result['pending']} still waiting, {result['backing_off']} backing off.")
         for name, result_ in result['imported']:
-            print(f"✅ killtracker: counted {name} → {result_['label']} ({result_['kills']} kills)")
+            log.info(f"✅ killtracker: counted {name} → {result_['label']} ({result_['kills']} kills)")
         for name, error in result['failed']:
-            print(f"⚠️ killtracker: could not read {name}: {error}")
+            log.warning(f"⚠️ killtracker: could not read {name}: {error}")
 
     @poll.error
     async def _poll_error(self, error: BaseException):
         """`poll()` catches what it expects; this is for what it did not. A loop
         that raised is stopped for good by discord.py, so say so and start it again."""
-        print(f"❌ killtracker loop stopped on {error!r}; restarting it.")
+        log.error(f"❌ killtracker loop stopped on {error!r}; restarting it.")
         self.poll.restart()
 
     @poll.before_loop

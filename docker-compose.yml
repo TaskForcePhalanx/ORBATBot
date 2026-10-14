@@ -12,6 +12,7 @@ services:
       # "Server Members Intent" is ticked in the Developer Portal — requesting an
       # ungranted intent stops the bot from starting at all.
       - MEMBER_EVENTS=${MEMBER_EVENTS:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Web UI — empty values simply leave it switched off
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
