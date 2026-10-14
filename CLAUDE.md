@@ -59,7 +59,8 @@ utils/
 web/                    # Optional browser UI — Discord OAuth2 login, events, roster, approvals, maps
   config.py             # Env-driven config; the feature is off until it is complete
   server.py             # uvicorn driven from inside the bot's event loop
-  app.py                # FastAPI routes, session plumbing, template rendering
+  app.py                # The app: setup, the shared request plumbing, and the list of features
+  routes/               # One module per feature — its routes and nothing else
   auth.py               # OAuth2 flow, signed-cookie sessions, CSRF, flash messages
   guilds.py             # Signed-in user → discord.Member, and what they may do
   service.py            # Create/edit/cancel/delete/RSVP, on top of cogs/events.py
@@ -1728,6 +1729,44 @@ Two consequences to keep in mind:
   down out from under discord.py.
 - `ORBATBot.close()` stops the server first. A slow HTTP handler must not
   outlive the Discord connection it is calling into.
+
+### One module per feature (`web/routes/`)
+
+`create_app()` was a single 2,638-line closure holding all 157 routes, every
+helper a local, so nothing in it could be imported or tested and a new route was
+added by scrolling. The routes now live in `web/routes/`, one module per
+feature, each exposing `register(app, d)`; `web/app.py` keeps the setup, the
+static files, the error handlers and the **request plumbing** they share, and
+hands that over as one namespace.
+
+Three things about the split are deliberate:
+
+- **The bodies moved verbatim.** Each `register()` opens by rebinding what it
+  uses — `render = d.render`, `guild_context = d.guild_context` — so not one
+  line inside a route changed, and the diff reads as a move rather than a
+  rewrite. That unpacking also states, in one place at the top, exactly which
+  shared pieces the module depends on.
+- **The plumbing stayed as closures rather than becoming FastAPI
+  `Depends()`.** Converting would have rewritten the signature of all 157
+  endpoints for no behaviour anybody could see. `d` is a `SimpleNamespace`
+  built once per app.
+- **`maps.py` holds the terrains, and `campaigns.py` the wizard's JSON.** Those
+  sections share helpers with the feature above them (`map_context`,
+  `map_json`, `require_draw`; `planner_context`, `mission_ctx`), and splitting
+  them would have meant promoting private helpers to the shared namespace to no
+  end. They are the two large modules as a result.
+
+**`require_admin()` moved into the plumbing**, because six features ask it and
+only one defined it. Its message had to stop naming that one: a non-admin who
+posted the voice settings was told *"Only a server admin can manage the game
+roles themselves."* It now reads *"Only a server admin can change this."*
+
+**What a refactor here has to prove** is that the route table did not move:
+157 rows of path, methods and handler name, identical before and after. That
+check is worth rerunning on any later reshuffle — it catches a lost decorator
+or a double registration, which is exactly what it caught the first time (the
+last section swallowed `create_app`'s tail, so `killtracker_service.install()`
+ran twice and five public routes were registered twice).
 
 ### Auth and permissions
 
