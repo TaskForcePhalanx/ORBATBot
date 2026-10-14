@@ -1,19 +1,16 @@
 """What the wizard's Overview tab promises.
 
-The overview decides nothing: every row on it is drawn from `mission_state()`,
-the same answer the step tabs and the no-JavaScript schedule page are drawn
-from. So there are no rules here to test — what there is instead is a contract
-between three files that have no other way of noticing each other:
+The Overview is the back-schedule, the checks and every drop — the same thing
+the no-JavaScript schedule page has always shown, as the wizard's first tab,
+because *where does this mission stand* is the question somebody has on
+opening one and the six step tabs each answer only for themselves.
 
-* `utils/campaign.STEPS` is the list of fields;
-* `web/templates/cp_wizard.html` draws a row per field, twice over — once as
-  the step's editor and once on the overview;
-* `web/static/campaign.js` fills the second from the first's values.
-
-A field added to `STEPS` lands on its step automatically, because that loop is
-over `step.fields`. It lands on the overview automatically too — and these
-tests are what keep both loops honest, because a field that quietly stopped
-appearing on one of them would look like nothing at all.
+It is one template, `_cp_schedule_body.html`, included by both pages. That is
+the whole design: there is no second copy of the schedule to drift, nothing is
+redrawn in the browser, and the forms in it post and reload like every other
+form on this site. So what these tests pin is the sharing itself — that
+neither page has grown its own copy, that both hand the partial what it asks
+for, and that a form in it comes back to the page it was pressed on.
 """
 
 import pathlib
@@ -23,19 +20,16 @@ from utils import campaign as rules
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WIZARD = (ROOT / 'web' / 'templates' / 'cp_wizard.html').read_text(encoding='utf-8')
+SCHEDULE = (ROOT / 'web' / 'templates' / 'cp_schedule.html').read_text(encoding='utf-8')
+BODY = (ROOT / 'web' / 'templates' / '_cp_schedule_body.html').read_text(encoding='utf-8')
 SCRIPT = (ROOT / 'web' / 'static' / 'campaign.js').read_text(encoding='utf-8')
-STYLE = (ROOT / 'web' / 'static' / 'style.css').read_text(encoding='utf-8')
-
-PLAIN = ('text', 'date', 'time', 'textarea')
-FIELDS = [f for step in rules.STEPS for f in step.fields]
+PAGES = (ROOT / 'web' / 'campaigns.py').read_text(encoding='utf-8')
+ROUTES = (ROOT / 'web' / 'routes' / 'campaigns.py').read_text(encoding='utf-8')
 
 
-# -- the tab itself ---------------------------------------------------------
+# -- the tab ----------------------------------------------------------------
 
 def test_the_overview_is_the_first_tab():
-    # It answers "where does this mission stand", which is the question
-    # somebody has on opening one; the six step tabs each answer only for
-    # themselves.
     strip = WIZARD[WIZARD.index('<nav class="cpsteps"'):]
     strip = strip[:strip.index('</nav>')]
     assert strip.index('data-step="overview"') < strip.index('{% for step in steps %}')
@@ -47,168 +41,134 @@ def test_opening_a_mission_lands_on_the_overview():
 
 
 def test_a_link_to_a_step_still_opens_that_step():
-    # The drops panel and the checks point at one, so #orders has to work.
+    # The checks and the drops panel point at one.
     assert "var first = (location.hash || '').slice(1);" in SCRIPT
 
 
-# -- every field is on it ---------------------------------------------------
+# -- one template, two pages ------------------------------------------------
 
-# These read the template rather than a rendered page, the way
-# `tests/test_logging.py` and `tests/test_help.py` read source: what is being
-# pinned is that the overview walks the *same* list the step editors walk, so
-# a field added to `STEPS` cannot land on one and not the other.
-
-def section(name):
-    """The markup between `<section class=... data-body=...>` and its end."""
-    start = WIZARD.index(f'data-body="{name}"')
-    depth, i = 0, WIZARD.index('<section', start - 200)
-    for m in re.finditer(r'</?section\b', WIZARD[i:]):
-        depth += 1 if m.group(0) == '<section' else -1
-        if depth == 0:
-            return WIZARD[i:i + m.end()]
-    raise AssertionError(f'unclosed section for {name}')
+def test_both_pages_are_built_from_the_one_partial():
+    assert "{% include '_cp_schedule_body.html' %}" in WIZARD
+    assert "{% include '_cp_schedule_body.html' %}" in SCHEDULE
 
 
-def test_the_overview_walks_the_same_fields_as_the_steps():
-    over = section('overview')
-    assert '{% for step in steps %}' in over
-    assert '{% for f in step.fields %}' in over
-    # And the step editors walk it the same way, one loop each.
-    assert WIZARD.count('{% for f in step.fields %}{{ field_editor(f) }}{% endfor %}') == 1
+def test_each_page_says_where_its_forms_come_back_to():
+    assert "{% with back = 'wizard' %}{% include '_cp_schedule_body.html' %}" in WIZARD
+    assert "{% with back = 'schedule' %}{% include '_cp_schedule_body.html' %}" in SCHEDULE
+    # and the partial writes that into every form rather than naming a page.
+    assert 'name="back" value="{{ back }}"' in BODY
+    assert 'name="back" value="schedule"' not in BODY
 
 
-def test_every_row_says_which_step_and_which_kind_it_is():
-    # The row's button opens that step and its kind decides whether it may be
-    # edited here, so both come off the loop variables rather than a copy.
-    over = section('overview')
-    assert 'data-ovfield="{{ f.key }}"' in over
-    assert 'data-ovkind="{{ f.kind }}"' in over
-    assert 'data-ovin="{{ step.key }}"' in over
+def test_neither_page_keeps_a_copy_of_the_schedule():
+    """A second copy is exactly what this partial exists to prevent — the two
+    would then disagree about what is due the first time either is edited."""
+    for name, page in (('wizard', WIZARD), ('schedule', SCHEDULE)):
+        # (the wizard's side panel has a `cpchecks` list of its own, filled by
+        # campaign.js for the open step — a different thing from this loop)
+        for markup in ('<table class="cptable cpschedule">', 'id="drop-{{ drop.key }}"',
+                       '{% for drop in state.drops %}', '{% for c in state.checks %}'):
+            assert markup not in page, f'{markup} is in cp_{name}.html as well as the partial'
 
 
-def test_the_field_list_is_not_written_out_by_hand():
-    """55 fields across six steps. Any of them named literally in the overview
-    is one that stops following `STEPS`."""
-    over = section('overview')
-    for field in FIELDS:
-        assert f'"{field.key}"' not in over, field.key
+def test_the_partial_carries_the_schedule_the_checks_and_the_drops():
+    # The three things the page is for; a test that matched an empty partial
+    # would pass for the wrong reason.
+    assert '<table class="cptable cpschedule">' in BODY
+    assert 'class="cpchecks"' in BODY
+    assert '{% for drop in state.drops %}' in BODY
+    for action in ('approve', 'unapprove', 'skip', 'unskip'):
+        assert f"'{action}'" in BODY, action
 
 
-def test_there_are_fields_to_walk():
-    # A contract test that matched an empty list would pass for the wrong
-    # reason.
-    assert len(FIELDS) > 40
-    assert {f.kind for f in FIELDS} > set(PLAIN)
+def test_the_mission_tools_card_is_only_on_the_schedule_side():
+    """The wizard's side panel already carries it, and two of the same card on
+    one screen is what this guard is for."""
+    assert "{% if back == 'schedule' %}" in BODY
+    tools = BODY[BODY.index("{% if back == 'schedule' %}"):]
+    assert "_cp_mission_tools.html" in tools[:tools.index('{% endif %}')]
+    assert "_cp_mission_tools.html" not in SCHEDULE
 
 
-# -- what may be edited in place, and what may not --------------------------
+# -- what the partial asks for, both pages hand over ------------------------
 
-def test_only_plain_fields_are_editable_in_place():
-    """A text box can be the same box in two places. The phases, a list, a
-    table of rows or an image cannot — those are editors, not values, and
-    nobody fixes one in passing. They show a summary and a way through."""
-    over = section('overview')
-    assert "'structural' if f.kind not in ('text', 'date', 'time', 'textarea')" in over
-
-
-def test_the_two_places_agree_on_what_plain_means():
-    # The template decides by Jinja, campaign.js by PLAIN; a field editable in
-    # one and not the other is either an editor that never saves or a value
-    # with no way to type into it.
-    assert 'var PLAIN = { text: 1, date: 1, time: 1, textarea: 1 };' in SCRIPT
+def test_both_pages_hand_over_the_steps_by_key():
+    """The wizard's own `steps` is the ordered list its tabs loop over, so the
+    partial names the lookup separately — it was `steps[c.step]` and rendered
+    an empty step name on the wizard, where that is a list."""
+    assert 'steps_by_key[c.step]' in BODY
+    assert PAGES.count("'steps_by_key': {s.key: s for s in rules.STEPS}") == 2
 
 
-# -- the ids stay unique ----------------------------------------------------
-
-def test_the_overview_does_not_repeat_the_step_editors_ids():
-    """`campaign.js` binds every `input[data-key]` once at startup and finds a
-    step's box by `#cpf-<key>`. A second element with that id would take the
-    binding, and a value typed on the step would stop saving."""
-    # Every one of those ids is inside `field_editor`, one branch per kind,
-    # and exactly one branch runs per field.
-    macro = WIZARD[WIZARD.index('{% macro field_editor(f) %}'):WIZARD.index('{% endmacro %}')]
-    assert macro.count('id="cpf-{{ f.key }}"') == WIZARD.count('id="cpf-{{ f.key }}"') > 1
-    assert 'id="cpf-' not in section('overview')
-    # The overview's cells are addressed by attribute instead.
-    assert 'data-ovvalue="{{ f.key }}"' in section('overview')
+def test_the_partial_reads_the_time_zone_off_the_state():
+    # `tz` is a schedule-page variable; `state.tz` is on both.
+    assert '{{ state.tz }}' in BODY
+    assert '({{ tz }})' not in BODY
 
 
-def test_an_overview_editor_carries_the_key_so_the_step_follows_along():
-    # touch() mirrors a value into every other box holding that key, which is
-    # what makes the overview and the step two views of one field.
-    assert "input.dataset.key = key;" in SCRIPT
-    assert "app.querySelectorAll('[data-key=\"' + key + '\"]')" in SCRIPT
-    assert "other !== document.activeElement" in SCRIPT, \
-        'writing .value back into the box being typed in moves the caret to the end'
+def test_the_wizard_still_loops_the_ordered_steps():
+    assert "{% for step in steps %}" in WIZARD
+    assert len(rules.STEPS) == 6
 
 
-# -- a save reply must not take an open editor away -------------------------
+# -- a form comes back where it was pressed ---------------------------------
 
-def test_a_save_reply_leaves_an_open_editor_alone():
-    """`apply()` runs on every save reply and redraws the overview. A reply
-    landing mid-word must not replace the box somebody is typing in."""
-    assert "if (!cell || editing === key) return;" in SCRIPT
+def test_every_mission_form_honours_back():
+    """Four forms post out of the shared partial or the tools card beside it.
+    The drop one always redirected to the schedule page, which from the
+    Overview meant being thrown onto another page to approve a drop."""
+    for route in ('orbat', 'recording', 'signups', 'drops'):
+        block = ROUTES[ROUTES.index(f"/missions/{{mission_id}}/{route}"):]
+        block = block[:block.index('@app.', 20)] if '@app.' in block[20:] else block
+        assert "if form.get('back') == 'schedule':" in block or \
+               "back = form.get('back') or 'wizard'" in block, route
 
 
-def test_the_overview_is_redrawn_with_everything_else():
-    body = SCRIPT[SCRIPT.index('drawProgress();'):]
-    assert 'drawOverview();' in body[:400]
+def test_a_drop_action_comes_back_to_its_panel():
+    assert "url + f'#drop-{kind}'" in ROUTES
+    # ...which on the wizard is a panel inside the hidden Overview section.
+    assert "first.slice(0, 5) === 'drop-'" in SCRIPT
+    assert 'anchored.scrollIntoView();' in SCRIPT
 
 
-# -- the side panel ---------------------------------------------------------
+# -- the browser draws none of it -------------------------------------------
+
+def test_nothing_in_the_overview_is_redrawn_in_the_browser():
+    """It is server-rendered, and the rules behind it live in Python. A
+    renderer here would be a second copy of `campaign.schedule()`,
+    `drop_state()` and the checks."""
+    for gone in ('overviewValue', 'editField', 'fieldSummary', 'cpovedit',
+                 'data-ovvalue', 'cpovinput'):
+        assert gone not in SCRIPT, gone
+    over = SCRIPT[SCRIPT.index('function drawOverview'):]
+    over = over[:over.index('\n  }\n')]
+    for gone in ('state.schedule', 'state.checks', 'state.drops'):
+        assert gone not in over, f'drawOverview() reads {gone}'
+
+
+def test_the_field_list_is_gone():
+    for gone in ('data-ovfield', 'cpovfield', 'data-ovvalue', 'cpovfields'):
+        assert gone not in WIZARD, gone
+
+
+def test_it_admits_when_it_has_gone_stale():
+    """An edit on another tab can move the op date or change a drop's words,
+    and the schedule below was worked out when the page loaded."""
+    assert 'id="cp-overstale"' in WIZARD
+    assert 'id="cp-overreload"' in WIZARD
+    assert 'stale = true;' in SCRIPT
+    assert 'staleNote.hidden = !stale;' in SCRIPT
+
 
 def test_the_step_cards_stand_down_on_the_overview():
-    """Tips, Checks and the drop preview are about one step. Beside the
-    overview, which carries its own schedule and its whole check list, they
-    would say the same thing twice — and the preview would be blank, there
-    being no one drop the overview is about."""
+    """Tips, Checks and the drop preview are about one step; the Overview
+    carries its own checks and is about no one drop."""
     assert WIZARD.count('data-side="step"') == 3
     assert "card.hidden = key === 'overview';" in SCRIPT
 
 
-def test_the_mission_tools_stay():
-    # The ORBAT, the maps, the recording and the briefing packs are about the
-    # mission, not a step, so they belong beside the overview.
-    tools = WIZARD[WIZARD.index('_cp_mission_tools.html') - 200:]
-    assert 'data-side="step"' not in tools.split('_cp_mission_tools.html')[0][-200:]
+# -- the no-JavaScript page is untouched ------------------------------------
 
-
-# -- no second copy of a rule ----------------------------------------------
-
-def test_the_overview_does_not_reimplement_next_due():
-    """`campaign.next_due()` ranks overdue locks first and is tested. The tab's
-    label is the first unfinished item in date order, which is a label rather
-    than that rule — and the comment says so, because the two coming to
-    disagree is exactly how this would go wrong."""
-    assert 'campaign.next_due()' in SCRIPT
-
-
-def test_the_checks_shown_are_all_of_them():
-    # The side panel filters to the open step. This page answers "what is
-    # left", so filtering it would defeat the point.
-    over = SCRIPT[SCRIPT.index('function drawOverview'):]
-    over = over[:over.index('\n  }\n')]
-    assert 'state.checks.forEach' in over
-    assert 'filter' not in over.split('state.checks.forEach')[0].split('cp-overchecks')[1]
-
-
-# -- the stylesheet ---------------------------------------------------------
-
-def test_the_overview_has_styles_of_its_own():
-    for selector in ('.cpover', '.cpovfield', '.cpovsched', '.cpovinput', '.cpovrow'):
-        assert selector in STYLE, selector
-
-
-def test_a_schedule_row_has_a_column_for_every_part():
-    """A drop row carries a note ("ORBAT opens for everyone") as well as its
-    date, label, D-day, status and its button. Measured in Chromium: with one
-    column short, every row with a note wrapped onto a second line."""
-    assert 'grid-template-columns: 112px minmax(0, 1fr) repeat(4, auto);' in STYLE
-
-
-def test_a_label_sits_at_the_top_of_its_value():
-    """`align-items: baseline` lines a one-line label up against the last line
-    of a three-line value, which reads as the label belonging to the field
-    below. Measured in Chromium on the Concept step."""
-    block = STYLE[STYLE.index('.cpovfield {'):]
-    assert 'align-items: start;' in block[:block.index('}')]
+def test_the_schedule_page_still_needs_no_javascript():
+    assert '<script' not in SCHEDULE
+    assert 'campaign.js' not in SCHEDULE

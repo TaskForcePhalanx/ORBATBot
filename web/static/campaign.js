@@ -72,15 +72,7 @@
   function touch(key, value) {
     fields[key] = value;
     pending[key] = value;
-    // A field can be typed in two places — its step, and the overview — so
-    // every other box holding this key follows along. Never the one being
-    // typed in: writing .value back would move the caret to the end.
-    app.querySelectorAll('[data-key="' + key + '"]').forEach(function (other) {
-      if (other !== document.activeElement && 'value' in other && other.value !== value) {
-        other.value = value;
-      }
-    });
-    overviewValue(key);
+    stale = true;
     schedule();
   }
 
@@ -421,173 +413,34 @@
 
   /* -- the overview ----------------------------------------------------------- */
 
-  /* The whole mission on one page: where it stands, and every field at once.
-     It decides nothing — every row is drawn from `state`, which is the same
-     `mission_state()` the step tabs and the no-JavaScript schedule page read,
-     so the three cannot disagree about what is due, ready or approved.
+  /* The first tab is the back-schedule, the checks and every drop, rendered by
+     the server from `_cp_schedule_body.html` — the same partial the
+     no-JavaScript schedule page is built from. Nothing here redraws it: it
+     would be a second copy of rules that already live in Python, and the drop
+     forms in it post and reload like any other form on this site.
 
-     A plain field is editable here as well as on its step: the value is a
-     button until you click it, and then it is the same kind of input, saving
-     down the same path. Anything structural — the phases, a list, a table of
-     rows, an image — is a summary and a way through to its step, because
-     those are editors rather than fields and nobody fixes one in passing. */
+     What this does do is admit when it has gone stale. An edit on another tab
+     can move the op date, lock a step or change a drop's words, and the
+     schedule below was worked out when the page loaded. Approving a drop whose
+     words have changed is refused by the server anyway — an approval names the
+     hash it was made against — so this is a prompt, not a safety net. */
 
-  var PLAIN = { text: 1, date: 1, time: 1, textarea: 1 };
-  var editing = null;        // the field key open for editing, if any
-
-  function fieldSummary(cell, key, kind) {
-    var value = fields[key];
-    if (kind === 'phases') {
-      var n = (phases || []).length;
-      return n ? n + (n === 1 ? ' phase' : ' phases') : '';
-    }
-    if (kind === 'image' || kind === 'images') {
-      var ids = Array.isArray(value) ? value : (value ? [value] : []);
-      return ids.length ? ids.length + (ids.length === 1 ? ' image' : ' images') : '';
-    }
-    if (kind === 'groups') {
-      // Short enough to read: the names say more than a count does.
-      return Array.isArray(value) ? value.join(', ') : (value || '');
-    }
-    if (Array.isArray(value)) {
-      return value.length ? value.length + (value.length === 1 ? ' item' : ' items') : '';
-    }
-    return value ? String(value) : '';
-  }
-
-  function openField(key, stepKey) {
-    showStep(stepKey);
-    var input = app.querySelector('[data-body="' + stepKey + '"] #cpf-' + key);
-    if (input) {
-      if (input.scrollIntoView) input.scrollIntoView({ block: 'center' });
-      if (input.focus) input.focus();
-    }
-  }
-
-  /* One value on the overview: the text, or the editor if this is the one
-     being edited. Called on every save reply, so it must leave an open editor
-     alone — otherwise a reply landing mid-word would take the box away. */
-  function overviewValue(key) {
-    var cell = app.querySelector('[data-ovvalue="' + key + '"]');
-    if (!cell || editing === key) return;
-    var box = cell.parentNode;
-    var kind = box.dataset.ovkind;
-    var stepKey = box.dataset.ovin;
-    var text = fieldSummary(cell, key, kind);
-    cell.textContent = '';
-    box.classList.toggle('empty', !text);
-
-    if (!PLAIN[kind]) {
-      cell.appendChild(el('button', {
-        type: 'button', class: 'linkish', title: 'Open this on its step',
-        text: text || 'Add…', onclick: function () { openField(key, stepKey); }
-      }));
-      return;
-    }
-    cell.appendChild(el('button', {
-      type: 'button', class: 'cpovedit', title: 'Click to edit',
-      text: text || 'Empty', onclick: function () { editField(key, kind, stepKey); }
-    }));
-  }
-
-  function editField(key, kind, stepKey) {
-    var cell = app.querySelector('[data-ovvalue="' + key + '"]');
-    if (!cell) return;
-    editing = key;
-    var before = fields[key] || '';
-    var input = el(kind === 'textarea' ? 'textarea' : 'input', { class: 'cpovinput' });
-    input.dataset.key = key;                     // so touch() keeps the step's copy in step
-    if (kind !== 'textarea') {
-      input.type = kind === 'date' ? 'date' : (kind === 'time' ? 'time' : 'text');
-      input.maxLength = 300;
-    } else {
-      input.rows = 4;
-      input.maxLength = 6000;
-    }
-    input.value = before;
-
-    function close() {
-      if (editing !== key) return;
-      editing = null;
-      overviewValue(key);
-    }
-    input.addEventListener('input', function () { touch(key, input.value); });
-    input.addEventListener('blur', close);
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { touch(key, before); input.value = before; close(); }
-      // Enter commits a one-line field; a textarea keeps it for a new line.
-      if (e.key === 'Enter' && kind !== 'textarea') { e.preventDefault(); close(); }
-    });
-    cell.textContent = '';
-    cell.appendChild(input);
-    input.focus();
-    if (input.setSelectionRange && kind === 'text') {
-      input.setSelectionRange(input.value.length, input.value.length);
-    }
-  }
+  var stale = false;
+  var staleNote = document.getElementById('cp-overstale');
+  var reload = document.getElementById('cp-overreload');
+  if (reload) reload.addEventListener('click', function () { location.reload(); });
 
   function drawOverview() {
-    // The tab itself: how much is locked, and the next thing due.
     var locked = state.locked || [0, 0];
-    document.getElementById('cp-overcount').textContent = locked[0] + '/' + locked[1];
-    // The first unfinished thing in date order. Deliberately not a second copy
-    // of `campaign.next_due()` — that rule ranks overdue locks first and lives
-    // in Python; this is a label, and reimplementing the ranking here is
-    // exactly how the two would come to disagree.
-    var next = state.schedule.filter(function (i) { return i.status && i.status[0] !== 'ok'; })[0];
-    document.getElementById('cp-overdue').textContent = next ? next.label : '';
-    document.getElementById('cp-overmeta').textContent =
-      locked[0] + ' of ' + locked[1] + ' steps locked' +
-      (state.updated_by ? ' · last edited by ' + state.updated_by : '');
-
-    // The schedule, every lock and drop in order, with what each is waiting on.
-    var list = document.getElementById('cp-oversched');
-    list.textContent = '';
-    state.schedule.forEach(function (item) {
-      var when = el('span', { class: 'cpovwhen', text: item.date_label || '—' });
-      var what = el('span', { class: 'cpovwhat', text: item.label });
-      var row = el('li', { class: 'cpovrow ' + (item.status ? item.status[0] : '') }, [when, what]);
-      if (item.d_label) row.appendChild(el('span', { class: 'muted', text: item.d_label }));
-      if (item.note) row.appendChild(el('span', { class: 'muted', text: item.note }));
-      if (item.status) row.appendChild(el('span', { class: 'cpstatus ' + item.status[0], text: item.status[1] }));
-      // A drop names the step behind it, so either kind of row opens the place
-      // the work is done.
-      row.appendChild(el('button', { type: 'button', class: 'linkish', text: 'Open',
-        onclick: function () { showStep(item.step); } }));
-      list.appendChild(row);
-    });
-
-    // Every check, not only the open step's — this is the page that answers
-    // "what is left", so filtering it to one step would defeat the point.
-    var checks = document.getElementById('cp-overchecks');
-    checks.textContent = '';
-    state.checks.forEach(function (c) {
-      checks.appendChild(el('li', { class: c.level,
-        text: (c.level === 'crit' ? '⛔ ' : '⚠️ ') + c.text }));
-    });
-    if (!state.checks.length) {
-      checks.appendChild(el('li', { class: 'muted', text: 'Nothing to flag.' }));
+    var meta = document.getElementById('cp-overmeta');
+    if (meta) {
+      meta.textContent = locked[0] + ' of ' + locked[1] + ' steps locked' +
+        (state.updated_by ? ' · last edited by ' + state.updated_by : '');
     }
-    document.getElementById('cp-overcheckcount').textContent =
-      state.checks.length ? '(' + state.checks.length + ')' : '';
-
-    // Each step's lock line, then every one of its values.
-    var gates = {};
-    state.schedule.forEach(function (i) { if (i.kind === 'gate') gates[i.key] = i; });
-    app.querySelectorAll('[data-ovgate]').forEach(function (node) {
-      var gate = gates[node.dataset.ovgate];
-      if (node.dataset.ovgate === 'aar') { node.textContent = 'After the op'; node.className = 'cpstatus'; return; }
-      node.textContent = gate ? gate.date_label + ' · ' + gate.left_label : 'No op date yet';
-      node.className = 'cpstatus ' + (gate ? gate.status[0] : '');
-    });
-    app.querySelectorAll('[data-ovvalue]').forEach(function (cell) {
-      overviewValue(cell.dataset.ovvalue);
-    });
+    var tab = app.querySelector('.cpstep[data-step="overview"] .cpstepcount');
+    if (tab) tab.textContent = locked[0] + '/' + locked[1];
+    if (staleNote) staleNote.hidden = !stale;
   }
-
-  app.querySelectorAll('[data-ovopen]').forEach(function (button) {
-    button.addEventListener('click', function () { showStep(button.dataset.ovopen); });
-  });
 
   /* -- steps ------------------------------------------------------------------ */
 
@@ -1044,7 +897,15 @@
   // goes there, so the drops panel and the checks can point at one.
   var first = (location.hash || '').slice(1);
   var known = ['overview'].concat(state.progress.map(function (p) { return p.key; }));
+  // A drop action redirects to #drop-warno, which is a panel on the overview:
+  // open the tab, then let the browser scroll to it, which it cannot do while
+  // the section is hidden.
+  var anchored = first.slice(0, 5) === 'drop-' && document.getElementById(first);
   if (known.indexOf(first) === -1) first = 'overview';
   apply(state);
   showStep(first);
+  if (anchored) {
+    anchored.open = true;
+    anchored.scrollIntoView();
+  }
 })();

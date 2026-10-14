@@ -520,6 +520,9 @@ async def wizard_page(guild, mission: dict, tz: str) -> dict:
         'recording': await recording_panel(mission),
         'packs': rules.PACKS,
         'steps': rules.STEPS,
+        # The ordered list draws the tabs and the editors; the shared
+        # _cp_schedule_body.html needs to look one up by key.
+        'steps_by_key': {s.key: s for s in rules.STEPS},
         'state': state,
         'aos': aos,
         'aos_json': [{'id': a['id'], 'name': a['name']} for a in aos],
@@ -535,7 +538,7 @@ async def schedule_page(guild, mission: dict, tz: str) -> dict:
             'orbat': await orbat_panel(guild, mission), 'packs': rules.PACKS,
             'maps': await maps_panel(guild, campaign, mission),
             'recording': await recording_panel(mission),
-            'steps': {s.key: s for s in rules.STEPS}}
+            'steps_by_key': {s.key: s for s in rules.STEPS}}
 
 
 # ---------------------------------------------------------------------------
