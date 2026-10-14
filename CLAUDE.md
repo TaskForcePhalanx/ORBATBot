@@ -105,7 +105,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(651 cases), and almost every one of them covers a module that imports nothing
+(671 cases), and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
 `tests/test_logging.py` parses the whole service with `ast`, and
@@ -127,6 +127,7 @@ for one exception class:
 | `tests/test_logging.py` | the logging rules: no `print()` left in the service, no `log.exception()` outside an `except`, every logging module has its own logger, and every package that logs is one `bot.py` raises above WARNING |
 | `tests/test_schema.py` | the migration list's numbering — versions unique and contiguous from 1, listed in the order they run — that migration 1 is unedited (its source is hashed), and that `init_db()` creates nothing outside the list |
 | `tests/test_nav.py` | the tab bar: who sees which groups, that a group links to its first reachable page and that every page knows its group, that the top row stays within the width it was measured to fit — and that no page heads itself with the guild's name or says who is signed in |
+| `tests/test_wizard_overview.py` | the Overview tab's contract: that it walks `STEPS` rather than a hand-written field list, that only plain fields are editable in place and the template and `campaign.js` agree on which those are, that it does not repeat the step editors' ids, and that a save reply cannot take an open editor away |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -1251,7 +1252,7 @@ and the bot's own posting can never disagree. In particular:
 |---|---|
 | Campaigns (`campaigns`) | Every campaign as a folder: its missions with date, steps locked and what is next; empty slots up to `planned_missions`; archived ones folded away |
 | Campaign | Missions in order (↑ ↓), **Plan the next mission**, the AOs, the details form, delete (type the name) |
-| Mission wizard | The six steps, one at a time; tips, checks and the step's drop preview beside it. **JavaScript** |
+| Mission wizard | The Overview, then the six steps one at a time; tips, checks and the step's drop preview beside it. **JavaScript** |
 | Back-schedule | Every lock and drop with its status, the checks, every drop as it will post with its state and **Approve / Withdraw / Don't post**, and **Start sign-ups now**. **No JavaScript** — the fallback for the wizard |
 | Objectives (`cpobjectives`) | The library by category. Admins edit, add and remove |
 
@@ -1300,6 +1301,48 @@ without a reload. Vanilla, no build step, no CDN. It decides nothing:
   JPEG, GIF, WebP, 8 MB, what Discord takes) and served behind planner access
   with `nosniff`. An upload error is shown beside the field: the status line is
   overwritten by the next save.
+
+#### The Overview is the first tab
+
+Opening a mission lands here, because *where does this mission stand* is the
+question somebody has on opening one and the six step tabs each answer only
+for themselves. A link to a step (`#orders`) still opens that step, so the
+checks and the drops panel can point at one.
+
+It holds the whole mission on one page: how many steps are locked, the
+back-schedule with every lock and drop and what each is waiting on, every
+check rather than the open step's, and then each step's fields with their
+values.
+
+- **It decides nothing.** Every row is drawn from `state`, the same
+  `mission_state()` the step tabs and the no-JavaScript schedule page are
+  drawn from, so the three cannot disagree about what is due, ready or
+  approved. In particular the tab's "next due" label is the first unfinished
+  item in date order and says so in a comment — it is deliberately **not** a
+  second copy of `campaign.next_due()`, which ranks overdue locks first and
+  lives in Python.
+- **A plain field is editable in both places.** A text, date, time or textarea
+  value is a button until it is clicked and then the same kind of input,
+  saving down the same path; the step tab stays the primary place to write,
+  with its tips, checks and drop preview. `touch()` mirrors a value into every
+  other box holding that key — never the one being typed in, since writing
+  `.value` back would move the caret to the end — so the two are two views of
+  one field. Escape puts back what was there; blur commits.
+- **The other 13 are a summary and a way through.** The phases, a list, a
+  table of rows, an image: those are editors rather than values, and nobody
+  fixes one in passing, so they show what is there and open their step.
+- **A save reply must not take an open editor away.** `apply()` runs on every
+  reply and redraws the overview, so `overviewValue()` leaves alone the cell
+  being edited — otherwise a reply landing mid-word would swallow the box.
+  Both that guard and the mirroring were mutation-tested in Chromium: without
+  either, the browser checks fail.
+- **Tips, Checks and the drop preview stand down beside it** (`data-side="step"`),
+  since the overview carries its own schedule and its own full check list, and
+  there is no one drop it is about. The mission tools — the ORBAT, the maps,
+  the recording, the briefing packs — stay, being about the mission.
+- **No server change.** The overview is a third consumer of `mission_state()`,
+  which already returns everything it draws, and `/schedule` is untouched: it
+  remains the fallback for a browser with no JavaScript.
 
 **A new mission copies `campaign.CARRY_OVER`** from the last one in the
 campaign — the details that stay the same week to week. The next date is

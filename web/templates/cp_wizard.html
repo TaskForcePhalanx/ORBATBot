@@ -92,6 +92,15 @@
        data-objectives="/g/{{ guild.id }}/cp/api/objectives">
 
     <nav class="cpsteps" aria-label="Steps">
+      {# Where the mission stands, and every field in one place. First because
+         it is what you want on opening one: the six step tabs each answer for
+         their own step and none of them answers "what is left". #}
+      <button type="button" class="cpstep cpstepover" data-step="overview">
+        <span class="cpstepnum">▦</span>
+        <span class="cpsteptitle">Overview</span>
+        <span class="cpstepcount" id="cp-overcount"></span>
+        <span class="cpstepdue" id="cp-overdue"></span>
+      </button>
       {% for step in steps %}
         <button type="button" class="cpstep" data-step="{{ step.key }}">
           <span class="cpstepnum">{{ step.number }}</span>
@@ -105,6 +114,45 @@
 
     <div class="cpwork">
       <div class="cpmain">
+        {# Drawn empty and filled by campaign.js from the same `mission_state()`
+           the step tabs and the no-JavaScript schedule page draw from, so the
+           three cannot disagree about what is due, ready or approved. #}
+        <section class="cpstepbody cpover" data-body="overview" hidden>
+          <header class="cpstephead">
+            <h2>Overview</h2>
+            <span class="muted" id="cp-overmeta"></span>
+          </header>
+
+          <h3 class="cpovh">The schedule</h3>
+          <ol class="cpovsched" id="cp-oversched"></ol>
+
+          <h3 class="cpovh">Checks <span class="muted" id="cp-overcheckcount"></span></h3>
+          <ul class="cpchecks" id="cp-overchecks"></ul>
+
+          {% for step in steps %}
+            <section class="cpovstep" data-ovstep="{{ step.key }}">
+              <h3 class="cpovh">
+                <button type="button" class="linkish cpovopen" data-ovopen="{{ step.key }}"
+                        title="Open this step">{{ step.number }}. {{ step.title }}</button>
+                <span class="cpstatus" data-ovgate="{{ step.key }}"></span>
+              </h3>
+              <dl class="cpovfields">
+                {% for f in step.fields %}
+                  <div class="cpovfield {{ 'structural' if f.kind not in ('text', 'date', 'time', 'textarea') }}"
+                       data-ovfield="{{ f.key }}" data-ovkind="{{ f.kind }}" data-ovin="{{ step.key }}">
+                    <dt>
+                      {{ f.label }}
+                      {% if f.required %}<span class="cpreq" title="Needed to lock this step">*</span>{% endif %}
+                      {% if f.private %}<span class="chip warn">🔒</span>{% endif %}
+                    </dt>
+                    <dd data-ovvalue="{{ f.key }}"></dd>
+                  </div>
+                {% endfor %}
+              </dl>
+            </section>
+          {% endfor %}
+        </section>
+
         {% for step in steps %}
           <section class="cpstepbody" data-body="{{ step.key }}" hidden>
             <header class="cpstephead">
@@ -120,7 +168,7 @@
       </div>
 
       <aside class="cpside">
-        <div class="card"><div class="cardbody">
+        <div class="card" data-side="step"><div class="cardbody">
           <h3 class="nospace">Tips</h3>
           {% for step in steps %}
             <ul class="cptips" data-tips="{{ step.key }}" hidden>
@@ -129,12 +177,12 @@
           {% endfor %}
         </div></div>
 
-        <div class="card"><div class="cardbody">
+        <div class="card" data-side="step"><div class="cardbody">
           <h3 class="nospace">Checks <span class="muted" id="cp-checkcount"></span></h3>
           <ul class="cpchecks" id="cp-checks"></ul>
         </div></div>
 
-        <div class="card"><div class="cardbody">
+        <div class="card" data-side="step"><div class="cardbody">
           <div class="cpprevhead">
             <h3 class="nospace" id="cp-droptitle">Drop preview</h3>
             <button type="button" class="button small" id="cp-dcopen" hidden>👁 Preview in Discord</button>
