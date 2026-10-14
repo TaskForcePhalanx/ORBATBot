@@ -2,19 +2,15 @@
 {% block title %}{{ guild.name }} · Slot Approvals{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'slots' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Slot Approvals</h1>
+</div>
 
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
 {% if not operation %}
-  <h2>Slot Approvals</h2>
   <p class="empty">No operation is running. An admin starts one with
     <code>/setup-slots</code>.</p>
 {% else %}

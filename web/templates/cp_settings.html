@@ -2,16 +2,12 @@
 {% block title %}{{ guild.name }} · Campaign planner settings{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'cpsettings' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>Campaign planner settings</h2>
+<div class="pagehead">
+  <h1>Campaign planner settings</h1>
+</div>
+
 <p class="hint">
   Who may plan campaigns, where the weekly drops are posted, and when. Drop times
   are read in this server's time zone ({{ tz }}).

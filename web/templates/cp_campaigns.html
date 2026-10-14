@@ -32,16 +32,12 @@
 {% endmacro %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'campaigns' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>Campaigns</h2>
+<div class="pagehead">
+  <h1>Campaigns</h1>
+</div>
+
 <p class="hint">
   A campaign is three to five missions. Each mission runs on the weekly cycle:
   lock a step, and the drop it feeds goes out a few days later.

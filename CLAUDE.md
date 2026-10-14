@@ -121,6 +121,7 @@ all:
 | `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO drawn, relabelled or deleted on the campaign map does to the planner's AOs, what an AO map starts from (masked outside its AO), which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_discordmd.py` | that nothing typed becomes HTML, links stay http(s), and headings, quotes, lists, emphasis, code, timestamps and mentions render the way Discord shows them |
 | `tests/test_logging.py` | the logging rules: no `print()` left in the service, no `log.exception()` outside an `except`, every logging module has its own logger, and every package that logs is one `bot.py` raises above WARNING |
+| `tests/test_nav.py` | the tab bar: who sees which groups, that a group links to its first reachable page and that every page knows its group, that the top row stays within the width it was measured to fit — and that no page heads itself with the guild's name or says who is signed in |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -2046,6 +2047,12 @@ data: a display name with an apostrophe in it would end the JavaScript string,
 and Jinja's HTML escaping does not reach inside an attribute the browser hands
 to the script parser.
 
+**The top bar carries the brand, the guild and you.** `base.html` renders the
+guild's name there whenever a page has one, as a link back to that guild — see
+[the tab bar](#the-tab-bar-webnavpy) for why it is not a heading on every page.
+A long name is truncated rather than squeezing the sign-out control off the bar
+(`.topbarstart { min-width: 0 }`).
+
 **Branding is data, not markup.** The name comes from `config.brand` (`WEB_BRAND`,
 default `TFP BOT`) and the logo from `_logo_url()`, which looks for
 `web/static/logo.*` at startup and returns `''` when there is none — every
@@ -2130,7 +2137,17 @@ levels, and `build()` returns the whole structure — the top row, the second ro
 per group, and the page-key → group map, so a page names only itself and
 `_nav.html` works out where that sits.
 
-Three things about it are deliberate:
+**The top row has to fit 860px, and that is a measurement rather than a
+preference.** `main` is 900px wide whatever the window is, so the row's nine
+tabs wrapped onto a second line at *every* width — 919px of tabs in 860px of
+bar. Embeds, the member log and the Reddit watches are one **🛠️ Server** group
+now (all three admin-only, none of them touched during an operation), and the
+two longest labels are *Roles* and *Voice* beside their icons; seven group tabs
+plus the `?` come to 824px. So anything added to the top row goes inside a
+group, or the row wraps again for everybody. `tests/test_nav.py` holds the
+count; the width itself was measured in Chromium against the real stylesheet.
+
+Four things about it are deliberate:
 
 - **Permissions decide what is in the structure, not what the template hides.**
   A group whose every page is out of reach is not built at all, and the group's
@@ -2142,6 +2159,14 @@ Three things about it are deliberate:
 - **It is built in Python.** The shape of the bar — which groups exist, who sees
   what, where each lands — is precisely what goes wrong when it is spread across
   template conditionals in nine files.
+- **The bar is the top of the page.** It used to sit under an `<h1>` of the
+  guild's name and a *Signed in as …* line, repeated identically on all 21
+  pages — a heading that said nothing, over an avatar and a name the top bar
+  was already showing. The guild's name is in the top bar now, as what it is
+  (which server you are looking at), and each page's own name is its `<h1>`,
+  under the tabs, where ten of them used to repeat it in the first `<h2>`.
+  Measured in Chromium: a page's content started **353px** down and now starts
+  at **238px**.
 
 ### The help pages (`utils/help.py`)
 

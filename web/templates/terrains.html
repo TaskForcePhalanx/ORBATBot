@@ -2,18 +2,14 @@
 {% block title %}{{ guild.name }} · Terrains{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'maps' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Terrains</h1>
+</div>
 
 <p class="crumbs"><a href="/g/{{ guild.id }}/maps">Maps</a> › Terrains</p>
 
-<h2>Terrains</h2>
 <p class="hint">
   The map tiles a plan is drawn on, uploaded once and served by this bot — the
   same archives you prepare for OCAP. Once a terrain is here, nothing outside

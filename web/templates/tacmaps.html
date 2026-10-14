@@ -2,16 +2,12 @@
 {% block title %}{{ guild.name }} · Maps{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'maps' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>Tactical maps</h2>
+<div class="pagehead">
+  <h1>Tactical maps</h1>
+</div>
+
 <p class="hint">
   The plan, drawn on the terrain: unit symbols, movement lines, objectives and
   boundaries. A map can be shared with a link so anyone who needs it can open it

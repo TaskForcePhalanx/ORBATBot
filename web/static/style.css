@@ -70,6 +70,21 @@ main {
 .brandlogo { width: 32px; height: 32px; }
 .herologo { width: 96px; height: 96px; margin-bottom: 10px; }
 
+/* Brand, then which server you are looking at — the guild name used to be an
+   `<h1>` repeated on every page. `min-width: 0` lets a long guild name be
+   truncated rather than squeezing the sign-out control off the bar. */
+.topbarstart { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topsep { color: var(--muted); }
+.guildname {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.guildname:hover { color: var(--accent); }
+
 .user { display: flex; align-items: center; gap: 10px; }
 .avatar { border-radius: 50%; }
 .user .name { color: var(--muted); }
@@ -103,6 +118,12 @@ h3 { font-size: 15px; margin: 0 0 8px; }
   flex-wrap: wrap;
   margin-bottom: 8px;
 }
+
+/* A page's name, under the tabs. The `h2` after it opens a section of that
+   page rather than a new subject, so it does not need its usual 32px of air. */
+.pagehead h1 { margin-bottom: 0; }
+.pagehead + h2 { margin-top: 20px; }
+.pagehead + p, .pagehead + .hint, .pagehead + .crumbs { margin-top: 10px; }
 
 .hero { padding: 48px 0; }
 .hero .button { margin-top: 12px; }
@@ -242,18 +263,21 @@ h3 { font-size: 15px; margin: 0 0 8px; }
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin: 18px 0 8px;
+  /* Little air above: the tabs are the first thing in the page now, where the
+     guild's name used to sit. */
+  margin: 2px 0 8px;
   border-bottom: 1px solid var(--line);
 }
 
 .tab {
-  padding: 8px 14px;
+  padding: 8px 11px;
   text-decoration: none;
   color: var(--muted);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  /* Past five tabs a flex row starts breaking the labels themselves instead of
-     wrapping; this makes the row wrap and keeps each label on one line. */
+  /* A flex row breaks the labels themselves rather than wrapping, so this
+     keeps each label on one line and lets the row wrap instead. It should not
+     have to: the row is meant to fit 860px — see web/nav.py. */
   white-space: nowrap;
 }
 

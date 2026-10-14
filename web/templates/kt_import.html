@@ -2,14 +2,11 @@
 {% block title %}{{ guild.name }} · Kill Tracker import{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'ktimport' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Import</h1>
+</div>
 
 <h2>Take over the old work</h2>
 <p class="hint">

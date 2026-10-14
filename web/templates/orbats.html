@@ -2,16 +2,12 @@
 {% block title %}{{ guild.name }} · ORBATs{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'orbats' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>ORBATs</h2>
+<div class="pagehead">
+  <h1>ORBATs</h1>
+</div>
+
 <p class="hint">
   The slot roster, held here instead of in a Google Sheet. An ORBAT is a
   template: the same one backs as many operations as you like, and the bookings

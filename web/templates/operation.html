@@ -2,14 +2,11 @@
 {% block title %}{{ guild.name }} · Operation{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'operation' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Operation</h1>
+</div>
 
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 

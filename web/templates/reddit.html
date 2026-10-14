@@ -2,17 +2,13 @@
 {% block title %}{{ guild.name }} · Reddit{% endblock %}
 
 {% block content %}
+{% with active = 'reddit' %}{% include '_nav.html' %}{% endwith %}
+
 <div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
+  <h1>Reddit posts</h1>
   <a class="button primary" href="/g/{{ guild.id }}/reddit/new">+ Watch a feed</a>
 </div>
 
-{% with active = 'reddit' %}{% include '_nav.html' %}{% endwith %}
-
-<h2>Reddit posts</h2>
 <p class="hint">
   Watches a Reddit user or a subreddit and announces every new post in a channel,
   with your own wording and whoever you want pinged. Checked every
