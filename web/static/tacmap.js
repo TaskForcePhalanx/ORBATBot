@@ -720,6 +720,32 @@
     drawSelection();
   }
 
+  // Redraw only the items that changed, not the whole plan.
+  //
+  // `render()` rebuilds every item's markup, and a drag used to call it on
+  // each pointer move: measured at 156 items that was ~35 ms a move, so the
+  // drag ran at under 30 fps, and it would have been three times worse at the
+  // 400-item cap. A drag changes the items being dragged and nothing else, so
+  // only those groups are rebuilt.
+  //
+  // The document stays the single source of truth — the items are mutated as
+  // before and the mask and the selection rings are redrawn from them — so
+  // nothing can drift out of step with what is saved. That is the reason this
+  // is a narrower redraw rather than a transform on the group: a transform
+  // would move the picture without moving the plan, and the mask's holes, the
+  // rings and `getBBox()` would all then be reading stale geometry.
+  function redrawItems(indices) {
+    indices.forEach(function (index) {
+      var group = layer.querySelector('[data-i="' + index + '"]');
+      var item = state.doc.items[index];
+      if (group && item) group.innerHTML = itemSVG(item) + hitSVG(item);
+    });
+    // An AO that moves takes its hole in the grey cover with it. The cover is
+    // one rect and a path per AO, so this is cheap beside the item layer.
+    if (state.doc.mask && state.doc.mask.on) maskLayer.innerHTML = maskSVG();
+    drawSelection();
+  }
+
   // Every selected item: the one picked last (state.selected) and any
   // picked with it (state.extra), so several can be moved, copied or
   // deleted together.
@@ -1616,7 +1642,7 @@
         snapMark(snapPoint(spot, state.handle.index, at0));
         moving.points[at0] = target;
         state.doc.items[state.handle.index] = moving;
-        render();
+        redrawItems([state.handle.index]);
         showReadout(spot, metres(lengthM(moving.points, moving.kind === 'area')) +
           (moving.kind === 'area' ? ' round' : ' long'));
         return;
@@ -1624,7 +1650,7 @@
       state.doc.items[state.handle.index] = state.handle.which === 'turn'
         ? turnTo(state.handle.start, spot, event.shiftKey)
         : resizeTo(state.handle.start, Number(state.handle.which), spot, event.shiftKey);
-      render();
+      redrawItems([state.handle.index]);
       return;
     }
     if (state.draft && !state.draft.press) {
@@ -1689,7 +1715,7 @@
       state.drag.indices.forEach(function (index, n) {
         state.doc.items[index] = shifted(JSON.parse(state.drag.starts[n]), dx, dy);
       });
-      render();
+      redrawItems(state.drag.indices);
       return;
     }
     if (state.marquee) {

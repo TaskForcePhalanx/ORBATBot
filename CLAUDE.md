@@ -3072,6 +3072,21 @@ One bar, a rail, the map, a side panel (`_tacmap_canvas.html`, `.tmeditor`):
 All of it lives in `tacmap.js`; what has to agree with the server (lengths,
 grid references, label places) has a Python twin in `utils/tacmap.py`.
 
+- **A drag redraws what moved, not the plan** (`redrawItems()`). `render()`
+  rebuilds every item's markup, and the three dragging paths — an item, a
+  line's corner, a shape's handle — used to call it on every pointer move.
+  Measured with CDP's main-thread counters: **14.6 ms a move at 156 items and
+  31.9 ms at 396**, so a drag ran under 30 fps and got worse the fuller the
+  map. Rebuilding only the groups that changed is **1.2 ms and 1.4 ms** at the
+  same two sizes — flat, where the old path scaled with the map.
+
+  **The items are still mutated first and the markup redrawn from them**, which
+  is the whole reason this is a narrower redraw rather than a `transform` on
+  the dragged group. A transform moves the picture without moving the plan, and
+  then the mask's AO holes, the selection rings and every `getBBox()` are
+  reading geometry that no longer matches. The grey mask is redrawn with the
+  items when it is on, so dragging an AO moves its hole as you drag it.
+
 - **A selected line's corners are handles** (`drawVertexHandles()`): drag one
   to move it, drag a segment's middle dot to add a corner there, Alt+click or
   right-click to delete one (never below two, or three for an area).
