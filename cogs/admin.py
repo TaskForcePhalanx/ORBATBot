@@ -1,8 +1,7 @@
 import logging
 import asyncio
 import os
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import timezone
 
 import aiohttp
 import discord
@@ -10,6 +9,10 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils import database, roster, sheets
+# The date reader lives in a module that imports nothing but the standard
+# library, which is what makes it testable — see utils/eventtime.py. The
+# private name is kept so every call site here and in web/ is unchanged.
+from utils.eventtime import parse_event_time as _parse_event_time
 from cogs.slots import (_get_unit_role, _update_orbat, ActionError,
                        assign_slot_request, check_can_assign,
                        clear_pending_queue, clear_slot_request, guild_channel,
@@ -23,7 +26,6 @@ def _is_unit_leader_or_admin(member: discord.Member) -> bool:
         return True
     return any(r.name == UNIT_LEADER_ROLE for r in member.roles)
 
-_EVENT_TIME_FORMATS = ['%d/%m/%Y %H:%M', '%Y-%m-%d %H:%M', '%d-%m-%Y %H:%M']
 
 # Common timezone choices (max 25 for Discord)
 _TIMEZONE_CHOICES = [
@@ -45,26 +47,6 @@ _TIMEZONE_CHOICES = [
     app_commands.Choice(name='Los Angeles (PST/PDT)',      value='America/Los_Angeles'),
 ]
 
-
-def _parse_event_time(raw: str, tz_name: str = 'UTC') -> datetime:
-    """Parse event time in the given timezone, return as naive UTC for storage."""
-    raw = raw.strip()
-    try:
-        tz = ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError:
-        tz = ZoneInfo('UTC')
-
-    for fmt in _EVENT_TIME_FORMATS:
-        try:
-            local_dt = datetime.strptime(raw, fmt).replace(tzinfo=tz)
-            # Convert to naive UTC for DB storage
-            return local_dt.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
-        except ValueError:
-            continue
-    raise ValueError(
-        f"Could not parse `{raw}`.\n"
-        "Use format `DD/MM/YYYY HH:MM`, e.g. `25/06/2025 19:00`"
-    )
 
 ORBAT_CHANNEL_NAME = 'orbat'
 
