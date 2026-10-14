@@ -25,10 +25,20 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/">
-      {% if logo_url %}<img class="brandlogo" src="{{ logo_url }}" alt="" width="32" height="32">{% endif %}
-      <span>{{ brand }}</span>
-    </a>
+    <div class="topbarstart">
+      <a class="brand" href="/">
+        {% if logo_url %}<img class="brandlogo" src="{{ logo_url }}" alt="" width="32" height="32">{% endif %}
+        <span>{{ brand }}</span>
+      </a>
+      {# The guild's name lives here rather than as an `<h1>` on every page.
+         It is the same on all of them, so as a heading it said nothing and
+         pushed each page's own content a line and a half further down; up here
+         it is what it actually is — which server you are looking at. #}
+      {% if guild %}
+        <span class="topsep" aria-hidden="true">›</span>
+        <a class="guildname" href="/g/{{ guild.id }}">{{ guild.name }}</a>
+      {% endif %}
+    </div>
     <div class="topbarend">
       <a class="helpbtn" href="/help" title="Help — how do I…?">
         ?<span class="visually-hidden"> Help</span>

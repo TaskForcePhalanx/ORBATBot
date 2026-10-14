@@ -2,18 +2,14 @@
 {% block title %}{{ guild.name }} · Operation settings{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'opsettings' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Operation settings</h1>
+</div>
 
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
-<h2>Settings</h2>
 <p class="hint">Two things you set once and forget. They apply to the whole
   server, not to one operation, which is why they are not on the Operation
   page with the things you change every week.</p>

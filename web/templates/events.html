@@ -3,17 +3,14 @@
 {% block tzfoot %}{{ tz }}{% endblock %}
 
 {% block content %}
+{% with active = 'events' %}{% include '_nav.html' %}{% endwith %}
+
 <div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }} · times in {{ tz }}</p>
-  </div>
+  <h1>Events</h1>
   {% if may_create %}
     <a class="button primary" href="/g/{{ guild.id }}/events/new">+ New event</a>
   {% endif %}
 </div>
-
-{% with active = 'events' %}{% include '_nav.html' %}{% endwith %}
 
 <h2>Upcoming</h2>
 {% if upcoming %}

@@ -7,6 +7,12 @@ built in Python because the shape of it — which groups exist, what each one
 lands on, who may see it — is the kind of thing that goes wrong when it is
 spread across template conditionals.
 
+The row is one line, and that is a constraint rather than a preference: the
+column is 900px whatever the window is, so nine top-level tabs wrapped onto a
+second line at **every** width. Anything added to the top row has to earn its
+place there or go inside a group — which is where Embeds, the member log and
+the Reddit watches went, as **Server**.
+
 `build()` returns everything `_nav.html` needs:
 
     groups    the top row, in order
@@ -49,6 +55,18 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
         operations.append(_item('opsettings', 'Settings',
                                 f"{base}/operation/settings"))
 
+    # What the bot does in the server outside an operation. All three are
+    # admin-only, and as three top-level tabs they were what pushed the row
+    # onto a second line — nine tabs wrapped at every window width, because
+    # the column is 900px whatever the window is.
+    server = []
+    if is_admin:
+        server = [
+            _item('embeds', 'Embeds', f"{base}/embeds"),
+            _item('logs', 'Member log', f"{base}/logs"),
+            _item('reddit', 'Reddit', f"{base}/reddit"),
+        ]
+
     groups = [_item('events', '📅 Events', base)]
     if operations:
         # The group's own link is its first page, which is the one the viewer
@@ -56,12 +74,11 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
         # the queue.
         groups.append({'key': 'ops', 'label': '🎖️ Operations',
                        'href': operations[0]['href']})
-    groups.append(_item('roles', '🎮 Game roles', f"{base}/roles"))
-    groups.append(_item('voice', '🔊 Voice time', f"{base}/voice"))
-    if is_admin:
-        groups.append(_item('embeds', '📝 Embeds', f"{base}/embeds"))
-        groups.append(_item('logs', '📋 Member log', f"{base}/logs"))
-        groups.append(_item('reddit', '📣 Reddit', f"{base}/reddit"))
+    # Short labels: the row has to fit 860px, and "Roles" and "Voice" lose
+    # nothing beside an icon. The pages still call themselves Game roles and
+    # Voice time.
+    groups.append(_item('roles', '🎮 Roles', f"{base}/roles"))
+    groups.append(_item('voice', '🔊 Voice', f"{base}/voice"))
 
     # The Kill Tracker's own pages: the names and groupings its public numbers
     # are shown under. Server admins only, for the whole group.
@@ -78,6 +95,11 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
         groups.append({'key': 'kt', 'label': '📊 Kill Tracker',
                        'href': killtracker[0]['href']})
 
+    # Last, because it is the one group nobody goes to during an operation.
+    if server:
+        groups.append({'key': 'server', 'label': '🛠️ Server',
+                       'href': server[0]['href']})
+
     # The campaign planner. `may_plan` is admins plus the unit's own Unit
     # Leaders (web.guilds.can_plan); the settings page is admins only.
     campaigns = []
@@ -90,7 +112,8 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
         groups.insert(2 if operations else 1,
                       {'key': 'cp', 'label': '🗂️ Campaigns', 'href': campaigns[0]['href']})
 
-    items = {'ops': operations, 'cp': campaigns, 'kt': killtracker}
+    items = {'ops': operations, 'cp': campaigns, 'kt': killtracker,
+             'server': server}
     group_of = {
         item['key']: group_key
         for group_key, group_items in items.items()

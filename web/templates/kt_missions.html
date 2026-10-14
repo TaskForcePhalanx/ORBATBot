@@ -2,16 +2,12 @@
 {% block title %}{{ guild.name }} · Kill Tracker missions{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'ktmissions' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>Mission names</h2>
+<div class="pagehead">
+  <h1>Mission names</h1>
+</div>
+
 <p class="hint">
   Every recording the bot has found on the OCAP server. If a mission was not named
   cleanly, type the name you want in <strong>Shown as</strong>: the Kill Tracker

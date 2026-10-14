@@ -2,16 +2,12 @@
 {% block title %}{{ guild.name }} · Objectives library{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'cpobjectives' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>Objectives library</h2>
+<div class="pagehead">
+  <h1>Objectives library</h1>
+</div>
+
 <p class="hint">
   What the objective picker in the mission wizard draws from — {{ count }} entries.
   A phase reads best with one <strong>primary</strong> objective, at least one

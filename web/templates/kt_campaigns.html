@@ -2,17 +2,13 @@
 {% block title %}{{ guild.name }} · Kill Tracker campaigns{% endblock %}
 
 {% block content %}
+{% with active = 'ktcampaigns' %}{% include '_nav.html' %}{% endwith %}
+
 <div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
+  <h1>Kill Tracker campaigns</h1>
   <a class="button primary" href="/g/{{ guild.id }}/killtracker/campaigns/new">+ New campaign</a>
 </div>
 
-{% with active = 'ktcampaigns' %}{% include '_nav.html' %}{% endwith %}
-
-<h2>Campaigns</h2>
 <p class="hint">
   A campaign is a named group of missions. The Kill Tracker shows each one as a page
   of its own, with the medals for the players who took part. Missions are picked by

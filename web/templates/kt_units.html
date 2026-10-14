@@ -2,14 +2,11 @@
 {% block title %}{{ guild.name }} · Kill Tracker units{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'ktunits' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Units</h1>
+</div>
 
 <h2>Which unit is a player in?</h2>
 <p class="hint">

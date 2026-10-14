@@ -2,16 +2,12 @@
 {% block title %}{{ guild.name }} · Member log{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'logs' %}{% include '_nav.html' %}{% endwith %}
 
-<h2>Member log</h2>
+<div class="pagehead">
+  <h1>Member log</h1>
+</div>
+
 <p class="hint">
   Posts a message when someone joins, leaves, is kicked, banned or unbanned.
   Pick the channel and tick what you want announced.

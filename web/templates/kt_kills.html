@@ -2,14 +2,11 @@
 {% block title %}{{ guild.name }} · Longest kills{% endblock %}
 
 {% block content %}
-<div class="pagehead">
-  <div>
-    <h1>{{ guild.name }}</h1>
-    <p class="muted">Signed in as {{ member.display_name }}</p>
-  </div>
-</div>
-
 {% with active = 'ktkills' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Longest kills</h1>
+</div>
 
 <h2>The longest kills, to be checked</h2>
 <p class="hint">
