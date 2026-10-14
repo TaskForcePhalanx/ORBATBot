@@ -27,6 +27,7 @@ one place a drop's state is worked out; the web pages call it too, so the
 drops panel says exactly what the loop is about to do.
 """
 
+import logging
 import asyncio
 import io
 from datetime import datetime, timedelta, timezone
@@ -36,6 +37,8 @@ from discord.ext import commands, tasks
 
 from utils import campaign as rules
 from utils import database
+
+log = logging.getLogger(__name__)
 
 # How far around today the loop looks. The WARNO goes out at D-28 and the AAR
 # at D+1; the margin covers a drop held for a few days and approved late.
@@ -128,13 +131,13 @@ async def tell_team(bot, plan: dict, text: str) -> bool:
     """Post a note in the mission team channel. False when there is none."""
     channel = await _text_channel(bot, plan.get('team_channel_id'))
     if channel is None:
-        print(f"ℹ️ campaigns: no team channel for: {text}")
+        log.info(f"ℹ️ campaigns: no team channel for: {text}")
         return False
     try:
         await channel.send(text, allowed_mentions=NO_MENTIONS)
         return True
     except discord.HTTPException as e:
-        print(f"⚠️ campaigns: could not tell the team channel: {e}")
+        log.warning(f"⚠️ campaigns: could not tell the team channel: {e}")
         return False
 
 
@@ -249,13 +252,13 @@ async def _publish(bot, plan: dict, channel_id, message_ids: list, what: str) ->
                     continue
                 failed = e
         if failed is not None:
-            print(f"⚠️ campaigns: publishing {what} failed: {failed!r}")
+            log.warning(f"⚠️ campaigns: publishing {what} failed: {failed!r}")
             await tell_team(bot, plan,
                             f"⚠️ {what} posted in {channel.mention}, but I couldn't publish it, "
                             f"so servers following the channel didn't get it: {failed}. "
                             'Publish it by hand from the message menu.')
     except Exception as e:          # a background task has nobody to raise to
-        print(f"❌ campaigns: publishing {what} failed: {e!r}")
+        log.exception(f"❌ campaigns: publishing {what} failed: {e!r}")
 
 
 async def delete_messages(bot, pairs) -> int:
@@ -377,7 +380,7 @@ async def complete_campaigns(bot, today) -> list[str]:
             if await _complete_campaign(bot, campaign, today):
                 done.append(f"marked campaign {campaign['id']} complete")
         except Exception as e:      # one campaign must not stop the others
-            print(f"❌ campaigns: completing campaign {campaign['id']} failed: {e!r}")
+            log.exception(f"❌ campaigns: completing campaign {campaign['id']} failed: {e!r}")
     return done
 
 
@@ -477,7 +480,7 @@ class CampaignsCog(commands.Cog):
                 self._failed.pop(key, None)
             except Exception as e:
                 self._failed[key] = now
-                print(f"⚠️ campaigns: {action} {drop['key']} for mission {mission['id']} "
+                log.warning(f"⚠️ campaigns: {action} {drop['key']} for mission {mission['id']} "
                       f"failed: {e!r}")
                 if action in ('post', 'edit'):
                     await tell_team(self.bot, plan,
@@ -492,30 +495,30 @@ class CampaignsCog(commands.Cog):
             missions = await database.cp_missions_near(
                 today - timedelta(days=LOOK_BACK_DAYS), today + timedelta(days=LOOK_AHEAD_DAYS))
         except Exception as e:
-            print(f"❌ campaigns: could not read the missions: {e!r}")
+            log.exception(f"❌ campaigns: could not read the missions: {e!r}")
             return
         for mission in missions:
             if self.bot.get_guild(int(mission['guild_id'])) is None:
                 continue
             try:
                 for line in await self.process_mission(mission):
-                    print(f"✅ campaigns: {line}")
+                    log.info(f"✅ campaigns: {line}")
             except Exception as e:
-                print(f"❌ campaigns: mission {mission['id']} failed: {e!r}")
+                log.exception(f"❌ campaigns: mission {mission['id']} failed: {e!r}")
         try:
             for line in await match_recordings(today):
-                print(f"✅ campaigns: {line}")
+                log.info(f"✅ campaigns: {line}")
         except Exception as e:
-            print(f"❌ campaigns: matching recordings failed: {e!r}")
+            log.exception(f"❌ campaigns: matching recordings failed: {e!r}")
         try:
             for line in await complete_campaigns(self.bot, today):
-                print(f"✅ campaigns: {line}")
+                log.info(f"✅ campaigns: {line}")
         except Exception as e:
-            print(f"❌ campaigns: completing campaigns failed: {e!r}")
+            log.exception(f"❌ campaigns: completing campaigns failed: {e!r}")
 
     @drops.error
     async def _drops_error(self, error: BaseException):
-        print(f"❌ campaigns loop stopped on {error!r}; restarting it.")
+        log.error(f"❌ campaigns loop stopped on {error!r}; restarting it.")
         self.drops.restart()
 
     @drops.before_loop

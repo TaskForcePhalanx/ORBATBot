@@ -10,6 +10,7 @@ Voice state updates are **not** a privileged intent: `Intents.default()` already
 carries them, and no extra server permission is needed.
 """
 
+import logging
 import asyncio
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -18,6 +19,8 @@ import discord
 from discord.ext import commands, tasks
 
 from utils import database
+
+log = logging.getLogger(__name__)
 
 # How often an open interval's heartbeat is refreshed. A hard crash therefore
 # costs at most this much unrecorded time instead of the whole interval, and a
@@ -285,7 +288,7 @@ class VoiceLogCog(commands.Cog):
                 for channel in {before.channel, after.channel} - {None}:
                     await self._sync_channel(channel)
         except Exception as e:
-            print(f"❌ voicelog on_voice_state_update failed: {e}")
+            log.exception(f"❌ voicelog on_voice_state_update failed: {e}")
             return
 
         if finished is not None:
@@ -315,7 +318,7 @@ class VoiceLogCog(commands.Cog):
             )
             await channel.send(embed=embed)
         except Exception as e:
-            print(f"❌ voicelog announce failed: {e}")
+            log.exception(f"❌ voicelog announce failed: {e}")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -335,7 +338,7 @@ class VoiceLogCog(commands.Cog):
                                 self._begin_visit(member, channel)
                         await self._sync_channel(channel)
         except Exception as e:
-            print(f"❌ voicelog startup scan failed: {e}")
+            log.exception(f"❌ voicelog startup scan failed: {e}")
 
     @tasks.loop(seconds=HEARTBEAT_SECONDS)
     async def heartbeat(self):
@@ -344,7 +347,7 @@ class VoiceLogCog(commands.Cog):
             ids = [v['session_id'] for v in self._visits.values() if v.get('session_id')]
             await database.heartbeat_voice_sessions(ids, discord.utils.utcnow())
         except Exception as e:
-            print(f"❌ voicelog heartbeat failed: {e}")
+            log.exception(f"❌ voicelog heartbeat failed: {e}")
 
     @heartbeat.before_loop
     async def _before_heartbeat(self):
@@ -363,14 +366,14 @@ class VoiceLogCog(commands.Cog):
         try:
             boards = await database.get_voice_boards()
         except Exception as e:
-            print(f"❌ voicelog daily_board could not load boards: {e}")
+            log.exception(f"❌ voicelog daily_board could not load boards: {e}")
             return
 
         for settings in boards:
             try:
                 await self._maybe_refresh_board(settings)
             except Exception as e:
-                print(f"❌ voicelog board for guild {settings['guild_id']} failed: {e}")
+                log.exception(f"❌ voicelog board for guild {settings['guild_id']} failed: {e}")
 
     async def _maybe_refresh_board(self, settings):
         guild = self.bot.get_guild(int(settings['guild_id']))
@@ -400,7 +403,7 @@ class VoiceLogCog(commands.Cog):
                 try:
                     await self._close_interval(visit)
                 except Exception as e:
-                    print(f"❌ voicelog flush failed: {e}")
+                    log.exception(f"❌ voicelog flush failed: {e}")
             self._visits.clear()
 
 

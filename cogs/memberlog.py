@@ -17,6 +17,7 @@ either one needs its own privileged-intent check the join log already does.
 See `render_welcome()` and `_send_welcome()`.
 """
 
+import logging
 import asyncio
 from collections import namedtuple
 from datetime import timedelta
@@ -25,6 +26,8 @@ import discord
 from discord.ext import commands
 
 from utils import database
+
+log = logging.getLogger(__name__)
 
 # Audit-log entries appear a moment after the event, and their timestamps are
 # close but not identical to it. Anything inside this window counts as the same
@@ -430,12 +433,12 @@ class MemberLogCog(commands.Cog):
                 embed.set_thumbnail(url=member.display_avatar.url)
             await self._send(member.guild, 'join', embed)
         except Exception as e:
-            print(f"❌ memberlog on_member_join failed: {e}")
+            log.exception(f"❌ memberlog on_member_join failed: {e}")
 
         try:
             await self._send_welcome(member)
         except Exception as e:
-            print(f"❌ memberlog welcome message failed: {e}")
+            log.exception(f"❌ memberlog welcome message failed: {e}")
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
@@ -476,7 +479,7 @@ class MemberLogCog(commands.Cog):
 
             await self._send(member.guild, 'kick' if kick else 'leave', embed)
         except Exception as e:
-            print(f"❌ memberlog on_member_remove failed: {e}")
+            log.exception(f"❌ memberlog on_member_remove failed: {e}")
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
@@ -498,7 +501,7 @@ class MemberLogCog(commands.Cog):
                 embed.set_thumbnail(url=user.display_avatar.url)
             await self._send(guild, 'ban', embed)
         except Exception as e:
-            print(f"❌ memberlog on_member_ban failed: {e}")
+            log.exception(f"❌ memberlog on_member_ban failed: {e}")
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
@@ -516,7 +519,7 @@ class MemberLogCog(commands.Cog):
                 embed.add_field(name='Unbanned by', value=entry.user.mention)
             await self._send(guild, 'unban', embed)
         except Exception as e:
-            print(f"❌ memberlog on_member_unban failed: {e}")
+            log.exception(f"❌ memberlog on_member_unban failed: {e}")
 
 
 async def setup(bot: commands.Bot):

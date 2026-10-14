@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import calendar
 import re
@@ -10,6 +11,8 @@ from discord.ext import commands, tasks
 
 from utils import database
 from cogs.admin import _is_unit_leader_or_admin, _parse_event_time
+
+log = logging.getLogger(__name__)
 
 # The built-in response set, used by every event that defines no custom one.
 # Keys match what pre-existing sign-up rows already store.
@@ -688,7 +691,7 @@ class EventsCog(commands.Cog):
         try:
             due = await database.get_events_needing_reminder()
         except Exception as e:
-            print(f"event_task: could not load due reminders: {e!r}")
+            log.exception(f"event_task: could not load due reminders: {e!r}")
             due = []
 
         for event in due:
@@ -696,12 +699,12 @@ class EventsCog(commands.Cog):
                 await database.mark_event_reminder_fired(event['id'])
                 await self._send_event_reminder(event)
             except Exception as e:
-                print(f"event_task: reminder for event {event['id']} failed: {e!r}")
+                log.exception(f"event_task: reminder for event {event['id']} failed: {e!r}")
 
         try:
             finished = await database.get_finished_events()
         except Exception as e:
-            print(f"event_task: could not load finished events: {e!r}")
+            log.exception(f"event_task: could not load finished events: {e!r}")
             return
 
         for event in finished:
@@ -711,7 +714,7 @@ class EventsCog(commands.Cog):
                 # Buttons come off once the event is over.
                 await _refresh_event_message(self.bot, event, view=None)
             except Exception as e:
-                print(f"event_task: closing out event {event['id']} failed: {e!r}")
+                log.exception(f"event_task: closing out event {event['id']} failed: {e!r}")
 
         # A recurring event hands over to its next occurrence once its own
         # recurrence_delay_hours has elapsed since it ended — immediately when
@@ -719,7 +722,7 @@ class EventsCog(commands.Cog):
         try:
             ready = await database.get_events_ready_for_handover()
         except Exception as e:
-            print(f"event_task: could not load events ready for handover: {e!r}")
+            log.exception(f"event_task: could not load events ready for handover: {e!r}")
             ready = []
 
         for event in ready:
@@ -729,7 +732,7 @@ class EventsCog(commands.Cog):
                 await database.mark_event_handover_fired(event['id'])
                 await _spawn_next_occurrence(self.bot, event)
             except Exception as e:
-                print(f"event_task: handover for event {event['id']} failed: {e!r}")
+                log.exception(f"event_task: handover for event {event['id']} failed: {e!r}")
 
     @event_task.before_loop
     async def before_event_task(self):

@@ -14,6 +14,7 @@ Two Discord rules shape everything here:
   exact set first and only touches it after a confirmation click.
 """
 
+import logging
 import asyncio
 import re
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,8 @@ from discord.ext import commands
 
 from utils import database
 from cogs.admin import _parse_event_time
+
+log = logging.getLogger(__name__)
 
 # Discord refuses to bulk-delete anything older than 14 days. The margin keeps a
 # message that crosses the line between the preview and the delete call out of
@@ -259,7 +262,7 @@ class ConfirmPurgeView(discord.ui.View):
             await btn.edit_original_response(content=summary)
         except discord.HTTPException:
             pass
-        print(f"[purge] {self.reason} → deleted {deleted}, failed {failed}")
+        log.info(f"[purge] {self.reason} → deleted {deleted}, failed {failed}")
 
     @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary, emoji='✖️')
     async def cancel(self, btn: discord.Interaction, _button: discord.ui.Button):
@@ -353,7 +356,7 @@ class PurgeCog(commands.Cog):
             )
             return
 
-        print(
+        log.info(
             f"[purge] {interaction.user} ({interaction.user.id}) in "
             f"#{channel} / {interaction.guild.name}: "
             f"amount={amount} since={since} matched {len(messages)}"
