@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import calendar
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -10,6 +9,19 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from utils import database
+# The recurrence arithmetic and the date reader live in a module that imports
+# nothing but the standard library, which is what makes them testable — see
+# utils/eventtime.py. They keep the private names they had here, so every call
+# site in this file and in web/ is unchanged and the move is only a move.
+from utils.eventtime import (
+    RECURRENCE_LABELS as _RECURRENCE_LABELS,
+    DAY_NAMES as _DAY_NAMES,
+    weekday_position as _weekday_position,
+    is_last_weekday_of_month as _is_last_weekday_of_month,
+    ordinal as _ordinal,
+    recurrence_text as _recurrence_text,
+    next_occurrence as _next_occurrence,
+)
 from cogs.admin import _is_unit_leader_or_admin, _parse_event_time
 
 log = logging.getLogger(__name__)
@@ -27,18 +39,6 @@ MAX_RESPONSES = 10
 MIN_RESPONSES = 2
 MAX_RESPONSE_LABEL = 40
 
-# Recurrence keys stored in events.recurrence. The two weekday variants take
-# their weekday — and for monthly_nth their position — from the series anchor.
-_RECURRENCE_LABELS = {
-    'daily': 'Daily',
-    'weekly': 'Weekly',
-    'biweekly': 'Every 2 weeks',
-    'monthly': 'Monthly',
-    'monthly_nth': 'Monthly by weekday',
-    'monthly_last': 'Monthly, last weekday',
-    'weekly_not_last': 'Weekly except the last weekday',
-}
-
 _REPEAT_CHOICES = [
     app_commands.Choice(name="Don't repeat", value='none'),
     app_commands.Choice(name='Daily', value='daily'),
@@ -49,11 +49,6 @@ _REPEAT_CHOICES = [
     app_commands.Choice(name='Monthly — same weekday (e.g. 2nd Saturday)', value='monthly_nth'),
     app_commands.Choice(name='Weekly — except the last one of the month', value='weekly_not_last'),
 ]
-
-# Fixed English names: calendar.day_name follows the process locale, and these
-# strings end up in user-facing text and in the docs.
-_DAY_NAMES = ('Monday', 'Tuesday', 'Wednesday', 'Thursday',
-              'Friday', 'Saturday', 'Sunday')
 
 _REMINDER_CHOICES = [
     app_commands.Choice(name='No reminder', value=0),
@@ -253,116 +248,6 @@ def _describe_responses(responses: list) -> str:
 def _as_utc(dt: datetime) -> datetime:
     """Attach UTC to the naive timestamps we store, so .timestamp() is correct."""
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-
-
-def _add_months(start: datetime, months: int) -> datetime:
-    """Shift by whole months, clamping to the last valid day of the target month
-    so 31 January + 1 month lands on 28/29 February rather than overflowing."""
-    total = start.month - 1 + months
-    year = start.year + total // 12
-    month = total % 12 + 1
-    day = min(start.day, calendar.monthrange(year, month)[1])
-    return start.replace(year=year, month=month, day=day)
-
-
-def _weekday_position(dt: datetime) -> int:
-    """1-based position of dt's weekday within its month — 4 for the 4th Saturday."""
-    return (dt.day - 1) // 7 + 1
-
-
-def _is_last_weekday_of_month(dt: datetime) -> bool:
-    return dt.day + 7 > calendar.monthrange(dt.year, dt.month)[1]
-
-
-def _weekday_day(year: int, month: int, weekday: int, position: int) -> Optional[int]:
-    """Day-of-month of the *position*-th given weekday, or of the last one when
-    position is -1. None if that month has no such day (e.g. no 5th Saturday)."""
-    last = calendar.monthrange(year, month)[1]
-    if position == -1:
-        day = last
-        while datetime(year, month, day).weekday() != weekday:
-            day -= 1
-        return day
-    first_weekday = datetime(year, month, 1).weekday()
-    day = 1 + (weekday - first_weekday) % 7 + (position - 1) * 7
-    return day if day <= last else None
-
-
-def _ordinal(n: int) -> str:
-    if 10 <= n % 100 <= 20:
-        suffix = 'th'
-    else:
-        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
-    return f"{n}{suffix}"
-
-
-def _nth_occurrence(anchor: datetime, recurrence: str, n: int) -> Optional[datetime]:
-    """The nth occurrence counting from the series anchor (n=0 is the anchor).
-
-    None means "this n has no valid date" — for the weekday variants a month may
-    simply lack a 5th Saturday — so callers must skip rather than stop.
-    """
-    if recurrence == 'daily':
-        return anchor + timedelta(days=n)
-    if recurrence == 'weekly':
-        return anchor + timedelta(weeks=n)
-    if recurrence == 'weekly_not_last':
-        candidate = anchor + timedelta(weeks=n)
-        # Returning None makes the caller skip this week and keep walking, which
-        # is exactly the exclusion this pattern needs.
-        return None if _is_last_weekday_of_month(candidate) else candidate
-    if recurrence == 'biweekly':
-        return anchor + timedelta(weeks=2 * n)
-    if recurrence == 'monthly':
-        return _add_months(anchor, n)
-    if recurrence in ('monthly_nth', 'monthly_last'):
-        # Shift the month from the 1st so no day-clamping can move us months.
-        target = _add_months(anchor.replace(day=1), n)
-        position = -1 if recurrence == 'monthly_last' else _weekday_position(anchor)
-        day = _weekday_day(target.year, target.month, anchor.weekday(), position)
-        if day is None:
-            return None
-        return anchor.replace(year=target.year, month=target.month, day=day)
-    return None
-
-
-def _recurrence_text(event) -> Optional[str]:
-    """Human description of an event's recurrence, naming the weekday where the
-    pattern depends on it."""
-    recurrence = event['recurrence']
-    if recurrence not in _RECURRENCE_LABELS:
-        return None
-    anchor = event['recurrence_anchor'] or event['event_time']
-    day = _DAY_NAMES[anchor.weekday()]
-    if recurrence == 'monthly_last':
-        return f"Monthly · last {day} of the month"
-    if recurrence == 'monthly_nth':
-        return f"Monthly · {_ordinal(_weekday_position(anchor))} {day} of the month"
-    if recurrence == 'weekly_not_last':
-        return f"Every {day} except the last one of the month"
-    return _RECURRENCE_LABELS[recurrence]
-
-
-def _next_occurrence(anchor: datetime, recurrence: str, after: datetime) -> Optional[datetime]:
-    """First occurrence strictly after *after*.
-
-    Always measured from the anchor, never from the previous occurrence, so a
-    monthly series stays on its original day and a bot that was offline for
-    weeks catches up to the present in one step instead of posting every
-    missed occurrence.
-    """
-    if recurrence not in _RECURRENCE_LABELS or anchor is None:
-        return None
-    n = 1
-    # Bound the walk so a pathological anchor can't spin forever.
-    while n <= 4000:
-        candidate = _nth_occurrence(anchor, recurrence, n)
-        # None means this month has no matching day (no 5th Saturday, say) —
-        # skip it and keep looking rather than ending the series.
-        if candidate is not None and candidate > after:
-            return candidate
-        n += 1
-    return None
 
 
 def _is_organiser(member: discord.Member, event) -> bool:

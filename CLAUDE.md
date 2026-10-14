@@ -51,6 +51,7 @@ utils/
   killtracker.py        # One OCAP recording → the Kill Tracker's per-player rows. Stdlib only
   campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks, cleaning. Stdlib only
   discordmd.py          # Discord message markdown → HTML, for previewing a drop as Discord shows it. Stdlib only
+  eventtime.py          # Reading a typed time, and walking a repeat: the event date rules. Stdlib only
   objectives_seed.py    # The Objectives Library as first written — what a guild's library is seeded from
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
@@ -105,7 +106,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(671 cases), and almost every one of them covers a module that imports nothing
+(706 cases), and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
 `tests/test_logging.py` parses the whole service with `ast`, and
@@ -128,11 +129,15 @@ for one exception class:
 | `tests/test_schema.py` | the migration list's numbering — versions unique and contiguous from 1, listed in the order they run — that migration 1 is unedited (its source is hashed), and that `init_db()` creates nothing outside the list |
 | `tests/test_nav.py` | the tab bar: who sees which groups, that a group links to its first reachable page and that every page knows its group, that the top row stays within the width it was measured to fit — and that no page heads itself with the guild's name or says who is signed in |
 | `tests/test_wizard_overview.py` | the Overview tab's contract: that it walks `STEPS` rather than a hand-written field list, that only plain fields are editable in place and the template and `campaign.js` agree on which those are, that it does not repeat the step editors' ids, and that a save reply cannot take an open editor away |
+| `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
-The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
-`_add_months()`, `_nth_occurrence()`) is pure and Discord-free, so it is the
-obvious next thing to cover.
+`_parse_responses()` and `_parse_mention_roles()` in `cogs/events.py` are the
+two decision-making functions still uncovered. Neither is Discord-free —
+the first asks `discord.PartialEmoji` whether a token is an emoji, the second
+takes a `discord.Guild` — so covering them means either importing discord.py in
+the tests or splitting the emoji check out, and that is the choice to make
+before writing any.
 
 ---
 
@@ -1187,6 +1192,53 @@ would sit under the root's WARNING and never be seen.
 5. `_start_web()` — starts the web UI when it is configured. Every failure here is non-fatal and only printed: missing dependencies, missing variables, `WEB_ENABLED=0` or a crash in `WebServer.start()` all leave the bot running normally. `close()` stops the server before the Discord connection goes down
 6. `on_ready`: `copy_global_to` + guild sync for each guild (instant, vs up-to-1-hour global sync)
 7. `on_guild_join`: sync immediately when bot joins a new server
+
+---
+
+## Event dates (`utils/eventtime.py`)
+
+Reading a time somebody typed, and working out when a repeat happens next.
+Both halves came out of `cogs/admin.py` and `cogs/events.py` unchanged, and
+they moved for the rule that decides what is testable here at all: a module
+importing nothing but the standard library can be covered, and the two cogs
+pull discord.py and asyncpg in behind them. Both cogs import the functions
+back under the private names they always had, so every call site — in the
+cogs, in `web/service.py`, `web/helpers.py`, `web/app.py` and `cogs/purge.py`
+— is unchanged.
+
+This is the arithmetic nobody can check by reading. A monthly series that
+drifts off the 31st, or a reminder an hour out because a date was read in the
+wrong zone, looks exactly like a correct one until the night it matters.
+
+Two rules to know before touching any of it:
+
+- **A repeat is measured from the series anchor, never from the previous
+  occurrence.** Measuring from the previous one turns a 31 January series into
+  28 February → 28 **March**, losing the 31st for good; anchoring gives 28
+  February → 31 March. It is the same property that makes a bot which was
+  offline for ten weeks post *one* occurrence in the future rather than ten in
+  the past.
+- **`None` from `nth_occurrence()` means "not this time round", not "the series
+  is over".** June has no fifth Saturday; a fifth-Saturday series steps over it
+  and carries on. Every caller skips rather than stops — which is also the
+  whole of how `weekly_not_last` is implemented, and why adding that pattern
+  was three lines.
+
+**`parse_event_time()` falls back to UTC for both ways zoneinfo refuses a
+key.** An unknown name raises `ZoneInfoNotFoundError`; an empty or path-shaped
+one raises a plain `ValueError`, which used to come back out of here — and
+every caller reads a `ValueError` from this function as *I could not read that
+date*, so the person would have been told their perfectly good date was
+unparseable. Not reachable through either surface (the slash command offers a
+fixed list and the web form checks membership in the same list); the fallback
+now matches what its own shape says it does.
+
+`tests/test_eventtime.py` covers all of it. **Every expected date in it was
+worked out from a calendar, not from what these functions return** — the point
+of covering arithmetic this old is lost if the expectations are taken from the
+behaviour being checked. The 2026 calendar the tests assume is written out in
+the file's docstring and checked against `calendar` in its first test, so a
+wrong assumption fails as itself rather than as a confusing date comparison.
 
 ---
 
