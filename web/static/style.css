@@ -1274,6 +1274,68 @@ textarea.cppost { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace
 .cppacklinks .button { padding: 4px 10px; font-size: 14px; }
 .cppackdesc { grid-column: 1 / -1; font-size: 13px; }
 
+/* The overview tab: the whole mission on one page. Its fields are read-only
+   text until clicked, and then the same kind of input as on the step — see
+   `overviewValue()` in campaign.js. */
+.cpstep.cpstepover .cpstepnum { font-weight: 400; opacity: .8; }
+.cpover { display: grid; gap: 4px; }
+.cpovh {
+  margin: 20px 0 6px; font-size: 15px; display: flex; gap: 10px;
+  align-items: baseline; flex-wrap: wrap;
+}
+.cpovh .cpovopen { font-size: 15px; color: var(--text); text-decoration: none; font-weight: 600; }
+.cpovh .cpovopen:hover { color: var(--accent); text-decoration: underline; }
+
+.cpovsched { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13.5px; }
+.cpovrow {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr) repeat(4, auto);
+  gap: 10px; align-items: baseline; padding: 5px 8px; border-radius: 7px;
+}
+.cpovrow:nth-child(odd) { background: var(--panel); }
+.cpovrow.warn .cpovwhen, .cpovrow.crit .cpovwhen { font-weight: 600; }
+.cpovrow.crit .cpovwhen { color: var(--err); }
+.cpovrow.warn .cpovwhen { color: var(--warn); }
+.cpovwhen { color: var(--muted); white-space: nowrap; }
+.cpovwhat { min-width: 0; }
+.cpovrow .muted { font-size: 12px; }
+.cpovrow .linkish { font-size: 12px; }
+@media (max-width: 700px) {
+  .cpovrow { grid-template-columns: 1fr auto; }
+  .cpovwhen { grid-column: 1 / -1; }
+}
+
+/* A step's fields. Two columns on a wide screen, the label beside its value so
+   a half-written mission reads as a list of what is missing. */
+.cpovstep { border-top: 1px solid var(--line); }
+.cpovfields { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px 18px; }
+@media (max-width: 860px) { .cpovfields { grid-template-columns: 1fr; } }
+.cpovfield {
+  display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px;
+  align-items: start; align-self: start; align-content: start;
+  padding: 5px 8px; border-radius: 7px;
+}
+.cpovfield:hover { background: var(--panel); }
+.cpovfield dt { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.cpovfield dd { margin: 0; min-width: 0; }
+.cpovfield dd .cpovedit {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 13.5px;
+  color: var(--text); text-align: left; cursor: text; width: 100%;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  border-bottom: 1px dashed transparent;
+}
+.cpovfield dd .cpovedit:hover, .cpovfield dd .cpovedit:focus-visible { border-bottom-color: var(--line); }
+.cpovfield.empty dd .cpovedit { color: var(--muted); font-style: italic; }
+/* A structural field — the phases, a list, a table, an image — is a count and a
+   way through to its step: those are editors, not values, and nobody fixes one
+   in passing. */
+.cpovfield.structural dd .linkish { font-size: 13.5px; }
+.cpovinput {
+  width: 100%; font: inherit; font-size: 13.5px; padding: 4px 6px;
+  border: 1px solid var(--accent); border-radius: 6px;
+  background: var(--panel-2); color: var(--text);
+}
+textarea.cpovinput { resize: vertical; line-height: 1.45; }
+
 /* Drops and approvals (campaign planner, milestone 4) */
 .button.small { padding: 5px 11px; font-size: 13px; }
 form.inline { display: inline; margin: 0; }
