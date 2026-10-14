@@ -42,6 +42,7 @@ cogs/
   campaigns.py          # Posts the planner's approved drops, pings holds, starts sign-ups — no commands
 utils/
   database.py           # All PostgreSQL queries (asyncpg)
+  migrations.py         # The schema as numbered migrations, applied once each. Stdlib only
   sheets.py             # Google Sheets read/write (gspread)
   roster.py             # One normalised slot, from a sheet or from an ORBAT
   orbat.py              # DB-held ORBATs: the text format, the safe edit, the board
@@ -121,6 +122,7 @@ all:
 | `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO drawn, relabelled or deleted on the campaign map does to the planner's AOs, what an AO map starts from (masked outside its AO), which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_discordmd.py` | that nothing typed becomes HTML, links stay http(s), and headings, quotes, lists, emphasis, code, timestamps and mentions render the way Discord shows them |
 | `tests/test_logging.py` | the logging rules: no `print()` left in the service, no `log.exception()` outside an `except`, every logging module has its own logger, and every package that logs is one `bot.py` raises above WARNING |
+| `tests/test_migrations.py` | the schema's ledger: the numbers are 1..n, an applied migration never runs again, one added below the highest applied one still does, each runs in its own transaction and the advisory lock is let go even when one fails — and, read off the source, that every table the queries name is created by a migration and every statement in one is safe to run twice |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -162,7 +164,71 @@ Railway injects these at runtime; nothing sets them manually. `_railway_restart(
 
 ## Database Schema
 
-All tables live in PostgreSQL. Managed via `utils/database.py`. Schema is created/migrated in `init_db()` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+All tables live in PostgreSQL, queried through `utils/database.py`. The
+schema itself is in **`utils/migrations.py`** — see
+[the schema's migrations](#the-schemas-migrations-utilsmigrationspy).
+
+### The schema's migrations (`utils/migrations.py`)
+
+`init_db()` used to **be** the schema: seven hundred lines of
+`CREATE TABLE IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS`,
+around eighty statements, every one of them executed on every boot. It
+worked, and it said nothing — whether a column was there could only be
+inferred from the statement that would have added it, and a schema change
+arrived as one more line in a function nobody could read as a diff.
+
+They are numbered migrations now. Each runs once, is recorded in
+`schema_version (version, name, applied_at)`, and is a diff somebody can
+review. A boot with nothing to do is one `SELECT version` instead of eighty
+round trips to the database (62 ms → 1 ms against a local Postgres; the real
+saving is proportional to the round-trip time, so it is larger on Railway,
+where the database is a network hop away).
+
+| | |
+|---|---|
+| 1 | `baseline` — the schema as `init_db()` built it, moved here verbatim |
+| 2 | `hot_lookup_indexes` — `requests (operation_id, status)`, `operations (guild_id, is_active)`, `tac_maps (guild_id)` |
+
+Five things about it are deliberate:
+
+- **The module imports nothing.** The connection is passed in, so the
+  ordering rule is a pure function and a migration can be run against a
+  recorder rather than a database — the same bargain `utils/orbat.py`,
+  `utils/tacmap.py` and `utils/campaign.py` make, and the whole reason
+  `tests/test_migrations.py` can pin any of this.
+- **They are functions in one module, not a folder of `.sql` files.** Two of
+  them have to look at `information_schema` before deciding — the
+  `handover_fired` backfill, and lifting `reserved_unit` off the slot onto
+  its squad — which no `.sql` file can do, and a Python function is what a
+  test can call.
+- **Migration 1 is run against the live database, not assumed.** Every
+  statement in it is `IF NOT EXISTS` or guarded, and the running deployment
+  has executed all of them on every boot for months, so it is a no-op there
+  and the whole schema on a fresh one. That is why there is no separate
+  "baseline an existing deployment" path to get wrong. Checked both ways
+  before it shipped: `pg_dump --schema-only` of a fresh database built by the
+  old `init_db()` and by the migrations differ by exactly `schema_version`
+  and the three new indexes, and a database the *old* code built is changed
+  by the first migrated boot in exactly those four ways and no other.
+- **`pending()` compares a set of versions, not a high-water mark.** A
+  migration numbered *below* the highest one applied still runs, which is
+  what happens when two branches each add one and the lower number merges
+  second.
+- **Each migration is its own transaction, under one advisory lock.**
+  Postgres does transactional DDL, so a failure leaves the schema as it was
+  and the version unrecorded, and the next boot tries again. The lock is
+  held across `applied()` and the inserts, or two containers starting
+  together would both read an empty table and both run migration 1.
+
+**Adding one:** append a function and a row to `MIGRATIONS` with the next
+number. Never renumber, and never edit a migration that has shipped — a
+deployment that has recorded it will not run it again, so the edit only
+reaches databases created afterwards. Correct it with the next number.
+
+`requests (operation_id, status)` deliberately does **not** lead with
+`guild_id`: an operation belongs to exactly one guild, so a leading
+`guild_id` would put the index out of reach of the five queries that name no
+guild at all.
 
 ### `operations`
 | Column | Type | Notes |
@@ -238,7 +304,7 @@ The slot roster held here rather than read out of a Google Sheet — see
 | `name` | TEXT | The embed field's heading |
 | `column_side` | INTEGER | 0 = left, 1 = right. What `_build_orbat_embed()` infers from sheet geometry is stated outright here |
 | `exclude_from_count` | INTEGER | 0/1 — replaces the case-insensitive `Reservists` name match |
-| `reserved_unit` | TEXT | The unit the whole squad belongs to, matched by name against `UNIT_ROLES`. It began on the slot; `init_db()` lifts any values entered there up to their squad and drops the slot column |
+| `reserved_unit` | TEXT | The unit the whole squad belongs to, matched by name against `UNIT_ROLES`. It began on the slot; migration 1 lifts any values entered there up to their squad and drops the slot column |
 | `radio` | TEXT | The channel the squad talks on internally, e.g. `343 CHN:3`. Free text — every unit writes these slightly differently |
 | `sort_order` | INTEGER | |
 
@@ -382,7 +448,7 @@ A named group of missions. `kt_campaign_missions (campaign_id, ocap_id)` is by *
 `player` (PK) → `unit`, where the dashboard's guess is wrong. `''` is *Unknown* (the file's `null`); no row is *automatic*. Units are `killtracker.UNITS`, mirroring `UNIT_ORDER` in the dashboard.
 
 ### Campaign planner (`cp_`)
-Created by `_init_campaign_planner()` at the end of `init_db()`, after the tables they reference.
+Created by `_campaign_planner()` at the end of migration 1, after the tables they reference.
 
 | Table | What it holds |
 |---|---|
@@ -1098,7 +1164,9 @@ pins four rules: nothing in `bot.py`, `cogs/`, `utils/` or `web/` calls
 would sit under the root's WARNING and never be seen.
 
 ### Startup sequence
-1. `init_db()`, then `close_dangling_voice_sessions()` — schema first, then voice
+1. `init_db()` — which is now `migrations.run()`, one version query on a
+   start with nothing to do — then `close_dangling_voice_sessions()`: schema
+   first, then voice
    intervals left open by a crash are closed at their last heartbeat before
    anything new is recorded
 2. Load `cogs.slots`, `cogs.admin`, `cogs.gameroles`, `cogs.events`, `cogs.voicelog`,
@@ -2522,7 +2590,7 @@ it, and anything without a picture is not offered.
 - **Everything is keyed by Arma class in lower case** (`picture_key()`):
   `MARKERS['mil_dot']`, `MARKERS['loc_church']`, `UNIT_CLASSES['b_inf']`. That
   is the stored marker, the picture's key and its mask id (`tmk-mil_dot`).
-  `init_db()` renames pictures stored under the first release's short keys
+  migration 1 renames pictures stored under the first release's short keys
   (`dot` → `mil_dot`).
 - **An upload is matched by where the game keeps the picture**
   (`read_marker_icons()`): the last folder and the file name, without `_ca` /
@@ -2783,7 +2851,7 @@ hang anything off, so **`tacmap.place_scope()`** turns both into one key
 (`t:7`, `tem_cham`) and **`tac_places`** is keyed on that. Two maps on the same
 OCAP terrain therefore share one import, which is the whole point.
 
-`tac_terrains.places` still exists and is written on upload; `init_db()` copies
+`tac_terrains.places` still exists and is written on upload; migration 1 copies
 it into `tac_places` once so the one release that stored them there strands
 nothing. A map stores only how much of them to show (`doc['places']`: `show`,
 `groups`, `scale`).
