@@ -42,6 +42,7 @@ cogs/
   campaigns.py          # Posts the planner's approved drops, pings holds, starts sign-ups — no commands
 utils/
   database.py           # All PostgreSQL queries (asyncpg)
+  schema.py             # The schema those queries run against, as numbered migrations
   sheets.py             # Google Sheets read/write (gspread)
   roster.py             # One normalised slot, from a sheet or from an ORBAT
   orbat.py              # DB-held ORBATs: the text format, the safe edit, the board
@@ -104,9 +105,12 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(624 cases), and every one of them covers a module that imports nothing beyond
-the standard library — which is the rule that decides what is testable here at
-all:
+(629 cases), and almost every one of them covers a module that imports nothing
+beyond the standard library — which is the rule that decides what is testable
+here at all. The two exceptions read source rather than call it:
+`tests/test_logging.py` parses the whole service with `ast`, and
+`tests/test_schema.py` reaches into `utils/schema.py`, which imports asyncpg
+for one exception class:
 
 | | what it pins |
 |---|---|
@@ -121,6 +125,7 @@ all:
 | `tests/test_campaign.py` | the planner's rules: drop dates and time zones, what each drop says and where the ORBAT line falls, the 2,000-character split, the approval hash, the settings form, the consistency checks (phase objectives included), what a new mission carries over, what the wizard may store (`clean_fields`, `clean_phases`), image sniffing, the library seed and its pairings, what each briefing pack contains (`document_blocks`), and each drop's state (`drop_state`: approved for one version at one time, held and pinged once, edited after posting), where a test campaign's drops go, when an operation still counts as running, when a mission is over and a campaign may close itself, and the maps: one layer per AO on the campaign map and per phase on an AO map, what an AO drawn, relabelled or deleted on the campaign map does to the planner's AOs, what an AO map starts from (masked outside its AO), which layers an ops trace shows, where it crops and how deep its terrain goes, and after action: which recordings could be a mission, which one links itself, and the numbers and line it gives the AAR |
 | `tests/test_discordmd.py` | that nothing typed becomes HTML, links stay http(s), and headings, quotes, lists, emphasis, code, timestamps and mentions render the way Discord shows them |
 | `tests/test_logging.py` | the logging rules: no `print()` left in the service, no `log.exception()` outside an `except`, every logging module has its own logger, and every package that logs is one `bot.py` raises above WARNING |
+| `tests/test_schema.py` | the migration list's numbering — versions unique and contiguous from 1, listed in the order they run — that migration 1 is unedited (its source is hashed), and that `init_db()` creates nothing outside the list |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
 The date logic in `cogs/events.py` (`_next_occurrence()`, `_weekday_day()`,
@@ -162,7 +167,14 @@ Railway injects these at runtime; nothing sets them manually. `_railway_restart(
 
 ## Database Schema
 
-All tables live in PostgreSQL. Managed via `utils/database.py`. Schema is created/migrated in `init_db()` using `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+All tables live in PostgreSQL. `utils/database.py` holds the queries;
+**`utils/schema.py` holds the shape they run against, as a numbered list of
+migrations** — see [the schema](#the-schema-utilsschemapy). `init_db()` applies
+whatever this database has not run and records it in `schema_version`, so a boot
+with nothing to do is one statement rather than the 127 it used to send.
+
+Everything below describes the schema **as it now stands**, which is what the
+migrations add up to; it is not a description of migration 1.
 
 ### `operations`
 | Column | Type | Notes |
@@ -238,7 +250,7 @@ The slot roster held here rather than read out of a Google Sheet — see
 | `name` | TEXT | The embed field's heading |
 | `column_side` | INTEGER | 0 = left, 1 = right. What `_build_orbat_embed()` infers from sheet geometry is stated outright here |
 | `exclude_from_count` | INTEGER | 0/1 — replaces the case-insensitive `Reservists` name match |
-| `reserved_unit` | TEXT | The unit the whole squad belongs to, matched by name against `UNIT_ROLES`. It began on the slot; `init_db()` lifts any values entered there up to their squad and drops the slot column |
+| `reserved_unit` | TEXT | The unit the whole squad belongs to, matched by name against `UNIT_ROLES`. It began on the slot; migration 1 lifts any values entered there up to their squad and drops the slot column |
 | `radio` | TEXT | The channel the squad talks on internally, e.g. `343 CHN:3`. Free text — every unit writes these slightly differently |
 | `sort_order` | INTEGER | |
 
@@ -382,7 +394,7 @@ A named group of missions. `kt_campaign_missions (campaign_id, ocap_id)` is by *
 `player` (PK) → `unit`, where the dashboard's guess is wrong. `''` is *Unknown* (the file's `null`); no row is *automatic*. Units are `killtracker.UNITS`, mirroring `UNIT_ORDER` in the dashboard.
 
 ### Campaign planner (`cp_`)
-Created by `_init_campaign_planner()` at the end of `init_db()`, after the tables they reference.
+Created by `_init_campaign_planner()` at the end of migration 1, after the tables they reference.
 
 | Table | What it holds |
 |---|---|
@@ -574,6 +586,66 @@ Indexes on `(guild_id, started_at)` and a partial one on the open rows.
 | `count_afk` / `count_solo` | INTEGER | 0/1 — both off by default |
 | `excluded_channels` | TEXT | Comma-separated voice channel ids |
 | `updated_at` | TIMESTAMP | |
+
+---
+
+## The schema (`utils/schema.py`)
+
+`utils/database.py` holds the queries; this holds what they run against. The
+schema used to be one 950-line `init_db()` of `CREATE TABLE IF NOT EXISTS` and
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, every statement of it idempotent
+because every statement of it ran on **every boot** — 127 queries to discover
+that nothing had changed. It is now a numbered list of migrations, applied once
+each and written down in `schema_version`, and a boot with nothing to do is one
+`SELECT`.
+
+### Migration 1 is the old `init_db()`, unchanged
+
+That is the whole reason this was safe to introduce. On a database that already
+has that schema every statement in it is a no-op, exactly as it was on
+yesterday's boot; it is then recorded and never runs again. On an empty one it
+builds everything. So the first boot after this shipped did precisely what the
+boot before it did, and every boot since does nothing.
+
+Verified against a real PostgreSQL 16 before it was merged, and worth repeating
+if the runner is ever touched: a **fresh** database and an **existing populated**
+one end up with byte-identical schemas (`pg_dump --schema-only`), the populated
+one's rows are untouched, and the one data-writing statement in the baseline
+(the `handover_fired` backfill) does not fire a second time.
+
+### Three rules
+
+- **A shipped migration is never edited.** Editing one changes nothing on a
+  database that has already run it, so the code and that database silently
+  disagree from then on. A change to the schema is always a *new* migration.
+  `tests/test_schema.py` hashes migration 1 for exactly this reason — the
+  failure message says to add one instead.
+- **A migration runs inside a transaction**, with `lock_timeout` set.
+  PostgreSQL has transactional DDL, so a migration that fails halfway leaves
+  the database as it was — which the old `init_db()` could not promise. A
+  migration that cannot get its locks fails the boot rather than holding every
+  other query behind it; Railway restarts, and by then the container it was
+  waiting on has gone.
+- **Nothing creates a table outside the list.** Otherwise a database can be
+  up to date and still be missing something. A test reads `init_db()` and
+  checks.
+
+### The lock, and why the table is made inside it
+
+Railway can have the new container up before the old one is down, so `migrate()`
+does its work under a `pg_advisory_lock`: whoever arrives second finds nothing
+left to do.
+
+`schema_version` is created **inside** that lock rather than before it, and that
+is not tidiness. `CREATE TABLE IF NOT EXISTS` checks and then creates, and two
+sessions doing it at the same instant is not a no-op for the loser but
+`duplicate key value violates unique constraint "pg_type_typname_nsp_index"` out
+of the catalogue — a crashed boot. Eight simultaneous boots against an empty
+database is what found it, and is what the fix was checked with.
+
+So the fast path asks for the versions straight out and treats *undefined table*
+as "never migrated": one statement in the steady state, and every write
+serialised behind the lock.
 
 ---
 
@@ -1098,7 +1170,8 @@ pins four rules: nothing in `bot.py`, `cogs/`, `utils/` or `web/` calls
 would sit under the root's WARNING and never be seen.
 
 ### Startup sequence
-1. `init_db()`, then `close_dangling_voice_sessions()` — schema first, then voice
+1. `init_db()` — applies any pending migration (`utils/schema.py`) — then
+   `close_dangling_voice_sessions()`: schema first, then voice
    intervals left open by a crash are closed at their last heartbeat before
    anything new is recorded
 2. Load `cogs.slots`, `cogs.admin`, `cogs.gameroles`, `cogs.events`, `cogs.voicelog`,
@@ -2522,7 +2595,7 @@ it, and anything without a picture is not offered.
 - **Everything is keyed by Arma class in lower case** (`picture_key()`):
   `MARKERS['mil_dot']`, `MARKERS['loc_church']`, `UNIT_CLASSES['b_inf']`. That
   is the stored marker, the picture's key and its mask id (`tmk-mil_dot`).
-  `init_db()` renames pictures stored under the first release's short keys
+  migration 1 renames pictures stored under the first release's short keys
   (`dot` → `mil_dot`).
 - **An upload is matched by where the game keeps the picture**
   (`read_marker_icons()`): the last folder and the file name, without `_ca` /
@@ -2783,7 +2856,7 @@ hang anything off, so **`tacmap.place_scope()`** turns both into one key
 (`t:7`, `tem_cham`) and **`tac_places`** is keyed on that. Two maps on the same
 OCAP terrain therefore share one import, which is the whole point.
 
-`tac_terrains.places` still exists and is written on upload; `init_db()` copies
+`tac_terrains.places` still exists and is written on upload; migration 1 copies
 it into `tac_places` once so the one release that stored them there strands
 nothing. A map stores only how much of them to show (`doc['places']`: `show`,
 `groups`, `scale`).
