@@ -52,6 +52,7 @@ utils/
   campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks, cleaning. Stdlib only
   discordmd.py          # Discord message markdown → HTML, for previewing a drop as Discord shows it. Stdlib only
   eventtime.py          # Reading a typed time, and walking a repeat: the event date rules. Stdlib only
+  eventopts.py          # What an event's responses, pings and two ranges mean: the option rules. Stdlib only
   objectives_seed.py    # The Objectives Library as first written — what a guild's library is seeded from
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap.py             # One tactical map: the symbols, the document, the SVG
@@ -105,8 +106,8 @@ README.md               # User-facing docs — commands, setup, deployment
 CLAUDE.md               # This file
 ```
 
-There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(706 cases), and almost every one of them covers a module that imports nothing
+There is no CI or linter config. The tests are `python -m pytest tests lab/tests`,
+and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
 `tests/test_logging.py` parses the whole service with `ast`, and
@@ -130,14 +131,24 @@ for one exception class:
 | `tests/test_nav.py` | the tab bar: who sees which groups, that a group links to its first reachable page and that every page knows its group, that the top row stays within the width it was measured to fit — and that no page heads itself with the guild's name or says who is signed in |
 | `tests/test_wizard_overview.py` | that the wizard's Overview and the schedule page are **one template** — neither has grown a copy of the schedule, both hand it what it asks for, every form in it comes back to the page it was pressed on, and nothing in it is redrawn in the browser |
 | `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
+| `tests/test_eventopts.py` | what an event's options mean: a response set's labels, emoji, decline flags and distinct keys and the six ways it is refused, the ids and names a mention argument carries — **including that the digits inside a user mention are not a role** — and the two ranges both commands apply. One test holds `is_emoji()` against `discord.PartialEmoji` over 2,000 fuzzed tokens and **skips when discord.py is absent**, so the rest of the file keeps its stdlib-only promise |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
-`_parse_responses()` and `_parse_mention_roles()` in `cogs/events.py` are the
-two decision-making functions still uncovered. Neither is Discord-free —
-the first asks `discord.PartialEmoji` whether a token is an emoji, the second
-takes a `discord.Guild` — so covering them means either importing discord.py in
-the tests or splitting the emoji check out, and that is the choice to make
-before writing any.
+**There is deliberately no case count written down here.** There was one, and
+it was the single line every branch touched — so two PRs open at once conflicted
+on it every time, in a file where a conflict is the most tedious kind to resolve.
+The number is whatever `pytest` prints, it tells nobody anything the command
+does not, and a figure that must be edited by every change is a figure that is
+wrong between changes. The same goes for `lab/tests`' count below: it is there
+because that one has not moved in a year, and it goes the moment it does.
+
+**Every decision-making function in this project is now covered.** The last two
+were `_parse_responses()` and `_parse_mention_roles()` in `cogs/events.py`, and
+the reason they held out for so long was real: one asked
+`discord.PartialEmoji` whether a token was an emoji, the other took a
+`discord.Guild`. Covering them meant either importing discord.py into the tests
+or splitting the emoji check out — and the second is what was done, see
+[event options](#event-options-utilseventoptspy).
 
 ---
 
@@ -1274,6 +1285,50 @@ of covering arithmetic this old is lost if the expectations are taken from the
 behaviour being checked. The 2026 calendar the tests assume is written out in
 the file's docstring and checked against `calendar` in its first test, so a
 wrong assumption fails as itself rather than as a confusing date comparison.
+
+---
+
+## Event options (`utils/eventopts.py`)
+
+What an event's **responses**, **pings** and two numeric ranges mean. It came
+out of `cogs/events.py` for the same reason `utils/eventtime.py` did — a module
+importing nothing but the standard library can be covered, and the cog pulls
+discord.py in behind it — and the cog imports every function straight back
+under the private names it always had, so `web/service.py`'s
+`from cogs.events import _parse_responses, …` and every call site are
+unchanged.
+
+**This is the split the tests table used to say was still to be decided.** The
+two functions were uncovered because `_parse_responses()` asked
+`discord.PartialEmoji` whether a token was an emoji and `_parse_mention_roles()`
+took a `discord.Guild`. Both halves are now separate:
+
+- **`is_emoji()` is a copy of what `PartialEmoji.from_str()` answers**, so this
+  module needs no discord.py. The id length is the part that is easy to get
+  wrong and was got wrong first: Discord's own pattern requires a **13–20 digit**
+  id, so `<:TFP_Logo:1234>` is *not* a custom emoji to it — it falls through to
+  the named-emoji path and is rejected for carrying ASCII letters. A copy can
+  drift when the library is upgraded, so one test holds the two against each
+  other over 2,000 fuzzed tokens (verified at **0 disagreements across 4,037**)
+  and `importorskip`s discord.py, which keeps the rest of the file stdlib-only.
+- **`mention_tokens()` returns ids and names; resolving them stays in the cog.**
+  Turning an id into a role needs a guild, and that is the one part that
+  genuinely needs Discord. `check_resolved_mentions()` is the count and
+  emptiness check applied afterwards.
+
+Two rules in it are load-bearing, and both are now pinned rather than hoped for:
+
+- **Every `<…>` token is stripped before bare snowflakes are scanned for.**
+  Without that, the digits inside a user mention `<@123…>` match the bare-id
+  pattern, get stored as a role, and render as `<@&123…>` — which pings nobody,
+  silently.
+- **A response key must be unique within its event**, because it lands in the
+  button's `custom_id` *and* in `event_signups.response`. Three `Rifleman`
+  options become `rifleman`, `rifleman_2`, `rifleman_3`.
+
+`check_duration()` and `check_repeat_delay()` are here because `event_create`
+and `event_edit` applied the same two ranges in two places, which is how the
+pair drifts.
 
 ---
 
