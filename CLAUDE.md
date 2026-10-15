@@ -106,8 +106,8 @@ README.md               # User-facing docs — commands, setup, deployment
 CLAUDE.md               # This file
 ```
 
-There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(732 cases), and almost every one of them covers a module that imports nothing
+There is no CI or linter config. The tests are `python -m pytest tests lab/tests`,
+and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
 `tests/test_logging.py` parses the whole service with `ast`, and
@@ -133,6 +133,14 @@ for one exception class:
 | `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
 | `tests/test_eventopts.py` | what an event's options mean: a response set's labels, emoji, decline flags and distinct keys and the six ways it is refused, the ids and names a mention argument carries — **including that the digits inside a user mention are not a role** — and the two ranges both commands apply. One test holds `is_emoji()` against `discord.PartialEmoji` over 2,000 fuzzed tokens and **skips when discord.py is absent**, so the rest of the file keeps its stdlib-only promise |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
+
+**There is deliberately no case count written down here.** There was one, and
+it was the single line every branch touched — so two PRs open at once conflicted
+on it every time, in a file where a conflict is the most tedious kind to resolve.
+The number is whatever `pytest` prints, it tells nobody anything the command
+does not, and a figure that must be edited by every change is a figure that is
+wrong between changes. The same goes for `lab/tests`' count below: it is there
+because that one has not moved in a year, and it goes the moment it does.
 
 **Every decision-making function in this project is now covered.** The last two
 were `_parse_responses()` and `_parse_mention_roles()` in `cogs/events.py`, and
