@@ -2,6 +2,8 @@
 
 Moved out of web/app.py unchanged — see register().
 """
+import json
+
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from utils import database
@@ -118,9 +120,33 @@ def register(app, d):
         }, status=status)
 
     async def map_json(request: Request):
-        """The body of a save — a ValueError the editor shows as it is."""
+        """The body of a save — a ValueError the editor shows as it is.
+
+        The body is **capped before it is parsed** (`tacmap.MAX_DOC_BYTES`).
+        `parse()` bounds what a document may hold, but only after the whole
+        request has been read into memory, and the website runs inside the bot:
+        a large enough POST takes the Discord connection down with the page.
+        Both save routes check who is asking first — `require_draw()` or an
+        `edit` share link — so this is a cap on what a Unit Leader or a link
+        holder can send, not on anonymous traffic.
+
+        A declared `Content-Length` is refused outright; a body without one
+        (chunked) is read in pieces and abandoned the moment it goes over, so
+        neither shape can spend more than the cap.
+        """
+        cap = tacmap_lib.MAX_DOC_BYTES
+        declared = request.headers.get('content-length')
+        if declared and declared.isdigit() and int(declared) > cap:
+            raise ValueError('That map is too large to save.')
+
+        body, read = [], 0
+        async for chunk in request.stream():
+            read += len(chunk)
+            if read > cap:
+                raise ValueError('That map is too large to save.')
+            body.append(chunk)
         try:
-            payload = await request.json()
+            payload = json.loads(b''.join(body) or b'null')
         except Exception:
             payload = None
         if not isinstance(payload, dict):
