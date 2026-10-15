@@ -56,6 +56,18 @@ MAX_GLYPH = 4
 MAX_LAYERS = 12
 MAX_LAYER_NAME = 40
 DEFAULT_LAYER = {'id': 'plan', 'name': 'Plan', 'visible': True}
+
+# How big a save may be before it is refused unread. The caps above bound what
+# `parse()` will keep, but the body is read into the bot's own process first —
+# and the website runs inside the bot, so a large enough POST takes the Discord
+# connection down with the page. The number is measured rather than guessed:
+# the largest document `parse()` accepts is 400 freehand lines at the point cap
+# with a full-length label each, which serialises to **1.39 MB**, so this is
+# about three times the real ceiling and thirty times a working map.
+# `tests/test_tacmap.py` builds that document and fails if it ever outgrows
+# this — the first figure written here was a third of the true ceiling and
+# would have refused legitimate saves.
+MAX_DOC_BYTES = 4 * 1024 * 1024
 MIN_SIZE = 0.15
 MAX_SIZE = 4.0
 # What a freshly placed symbol, marker, line, area or label starts at. The

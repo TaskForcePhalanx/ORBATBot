@@ -2118,3 +2118,62 @@ def test_a_marker_turns_on_the_map_and_in_arma():
     assert 'rotate(90.0)' in tacmap.item_svg(item, icons={'mil_arrow'})
     script = tacmap.to_sqf(tacmap.parse(_doc(items=[item])).doc, prefix='m1')
     assert 'setMarkerDir 90.0' in script
+
+
+# -- how big a save may be --------------------------------------------------
+
+def _maxed_document(kind):
+    """The largest document `parse()` will accept, in one item kind.
+
+    Every slot of every cap used: 400 items, each a full-length label on the
+    deepest layer, and for the two kinds that carry geometry a freehand line at
+    the point cap.
+    """
+    items = []
+    for i in range(tacmap.MAX_ITEMS):
+        item = {'layer': 'L%d' % (i % tacmap.MAX_LAYERS),
+                'label': 'W' * tacmap.MAX_LABEL, 'color': '#ff8800'}
+        if kind in ('line', 'area'):
+            item.update(kind=kind, points=[
+                {'x': round(1000 + j * 0.37, 2), 'y': round(900 - j * 0.41, 2)}
+                for j in range(tacmap.MAX_POINTS)])
+            item.update(weight=6, style='dashed', arrow='both') if kind == 'line' \
+                else item.update(fill='hatch', ao=True)
+        else:
+            item.update(kind='unit', x=1234.56, y=789.01, side='friendly',
+                        symbol='infantry', echelon='platoon', size=1.0, rotation=45)
+        items.append(item)
+    return {
+        'layers': [{'id': 'L%d' % n, 'name': 'L' * tacmap.MAX_LAYER_NAME,
+                    'visible': True} for n in range(tacmap.MAX_LAYERS)],
+        'background': {'kind': 'tiles', 'zoom': 4,
+                       'url': 'https://ocap.example.com/maps/tem_cham'},
+        'arma': {'x1': 0, 'y1': 0, 'x2': 8192, 'y2': 8192},
+        'items': items,
+    }
+
+
+def test_the_body_cap_clears_the_largest_document_the_parser_accepts():
+    """`MAX_DOC_BYTES` refuses a save unread, so it has to sit above anything
+    the editor can legitimately produce — otherwise it refuses real work.
+
+    This is the check that was missing the first time the number was chosen:
+    it was set from a guess at a third of the true ceiling, which would have
+    turned a full map into "that map is too large to save".
+    """
+    for kind in ('line', 'area', 'unit'):
+        doc = _maxed_document(kind)
+        assert len(tacmap.parse(doc).doc['items']) == tacmap.MAX_ITEMS, kind
+        size = len(json.dumps(doc).encode())
+        assert size < tacmap.MAX_DOC_BYTES, (
+            '%s: a maxed-out document is %.2f MB, over the %.2f MB cap'
+            % (kind, size / 1048576, tacmap.MAX_DOC_BYTES / 1048576))
+
+
+def test_the_body_cap_still_bounds_what_one_request_can_spend():
+    """It is a cap, not a formality: the website runs inside the bot, so the
+    body is buffered in the process holding the Discord connection."""
+    biggest = max(len(json.dumps(_maxed_document(k)).encode())
+                  for k in ('line', 'area', 'unit'))
+    assert tacmap.MAX_DOC_BYTES < 16 * 1024 * 1024
+    assert tacmap.MAX_DOC_BYTES >= 2 * biggest, 'leave room, but not a tenfold margin'
