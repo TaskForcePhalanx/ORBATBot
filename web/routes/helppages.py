@@ -4,6 +4,7 @@ Moved out of web/app.py unchanged — see register().
 """
 from fastapi import Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from utils import database
 from utils import help as help_lib
 
 def register(app, d):
@@ -51,4 +52,16 @@ def register(app, d):
 
     @app.get('/healthz', response_class=PlainTextResponse)
     async def healthz():
-        return 'ok' if bot.is_ready() else 'starting'
+        """Whether the bot is up, and whether the database answers.
+
+        **The status code stays 200 while the process is alive**, and the body
+        carries the detail. Nothing consumes this today — `railway.json` sets
+        no `healthcheckPath` — so a non-200 would restart nothing; the moment
+        one is wired up, a failing code would restart the container on a
+        momentary database blip, possibly mid-operation. A monitor that wants
+        to alert reads the body.
+        """
+        ready = bot.is_ready()
+        alive = await database.ping()
+        return 'bot %s \u00b7 db %s' % ('ok' if ready else 'starting',
+                                    'ok' if alive else 'unreachable')

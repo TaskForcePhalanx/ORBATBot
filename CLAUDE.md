@@ -106,7 +106,7 @@ CLAUDE.md               # This file
 ```
 
 There is no CI or linter config. The tests are `python -m pytest tests lab/tests`
-(704 cases), and almost every one of them covers a module that imports nothing
+(706 cases), and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
 `tests/test_logging.py` parses the whole service with `ast`, and
@@ -118,7 +118,7 @@ for one exception class:
 | `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
-| `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, units and markers drawn from uploaded pictures, how an upload is matched and how old maps read, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
+| `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, units and markers drawn from uploaded pictures, how an upload is matched and how old maps read, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, the body cap measured against the largest document the parser accepts, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
 | `tests/test_tiles.py` | what an uploaded archive keeps and what it drops |
 | `tests/test_webconfig.py` | which origin a link gets — the page's own host, or the canonical one |
 | `tests/test_killtracker.py` | the counting rules (crew kills and distance, end-of-mission teamkills, disconnect "suicides", shots, hits, Zeus), JavaScript-style rounding, and that the streaming reader agrees with the in-memory path at every buffer size |
@@ -1175,6 +1175,41 @@ pins four rules: nothing in `bot.py`, `cogs/`, `utils/` or `web/` calls
 `NoneType: None` under the message; every module that logs defines its own
 `log`; and every package that logs is named in `LOG_LEVELS`, or its INFO lines
 would sit under the root's WARNING and never be seen.
+
+### One process, and what assumes it
+
+**The bot runs as a single instance, and at least seven things depend on
+that.** Nothing enforces it, nothing warns about it, and the way it surfaces
+is a campaign drop posted twice to a public channel on the night somebody
+scales the Railway service to two replicas. Written down here because it is
+invisible in every file that relies on it:
+
+| | What a second process would do |
+|---|---|
+| `cogs/campaigns.py` — the per-mission `_lock` | Two processes hold two locks, so the same drop posts twice. The approval hash does not save you: both see the same valid approval |
+| `cogs/campaigns.py` — `_failed` / `FAILURE_BACKOFF` | A failing drop is stood down in memory, so the other process retries it every minute anyway |
+| `cogs/killtracker.py` — the poll loop | Both poll, both download the same recordings and both write them |
+| `bot.py reminder_task`, `EventsCog.event_task` | Every reminder DM and every channel ping goes out twice; `reminder_fired` narrows the window but does not close it |
+| `cogs/voicelog.py` — `_lock` | Both recompute "is anybody still in this channel" from the same stale view, so intervals are double-counted |
+| `web/guilds.resolve_member()` — the 60 s cache | Doubles the REST calls, and `forget_member()` after a role change only clears the replica that served the form |
+| `web/reddit.py remember_posts()` — `RECENT_TTL` | **Announce** on the catch-up page reads one process's copy of the feed while the other's is stale |
+
+Underneath all of it: two processes signed in as the same bot both receive
+every gateway event and both act on it. Making the service multi-instance is
+therefore not a deployment setting but a piece of work — advisory locks around
+the loops, the caches moved to the database or dropped — and until it is done,
+**keep Railway at one replica**.
+
+### `/healthz` reports, it does not judge
+
+It answers `bot ok · db ok`, with `starting` before the bot is ready and
+`unreachable` when `database.ping()`'s `SELECT 1` does not come back — and
+**the status code stays 200 while the process is alive**. Nothing consumes it
+today: `railway.json` sets no `healthcheckPath` and compose's only healthcheck
+is on postgres, so a non-200 would restart nothing. The moment one is wired
+up, a failing code would restart the container on a momentary database blip,
+possibly mid-operation — which is worse than the thing it would be reporting.
+A monitor that wants to alert reads the body.
 
 ### Startup sequence
 1. `init_db()` — applies any pending migration (`utils/schema.py`) — then
@@ -3040,6 +3075,26 @@ signed in here. Three things follow:
   escaping paths are tested: `render()` escapes into the SVG, and
   `json_payload()` escapes `<` so a `</script>` in a label cannot end the tag
   the document is handed to the page in.
+
+### A save is capped before it is read
+
+`tacmap.MAX_DOC_BYTES` (4 MB) is checked in `map_json()` **before the body is
+parsed**, on both save routes. `parse()` already bounds what a document may
+hold, but only once the whole request is in memory — and the website runs
+inside the bot, so a large enough POST takes the Discord connection down with
+the page. Both routes check who is asking first (`require_draw()`, or an
+`edit` share link), so this bounds what a Unit Leader or a link holder can
+send rather than anonymous traffic.
+
+**The number is measured, and the measurement is a test.** The largest
+document `parse()` accepts — 400 freehand lines at the 120-point cap, each
+with a 48-character label — serialises to **1.39 MB**;
+`test_the_body_cap_clears_the_largest_document_the_parser_accepts` builds that
+document and fails if it ever outgrows the cap. It is there because the first
+figure proposed for this was 1 MB, *below* the real ceiling, which would have
+refused a legitimately full map. A declared `Content-Length` over the cap is
+refused outright; a chunked body with none is read in pieces and abandoned the
+moment it goes over, so neither shape can spend more than the cap.
 
 ### The background is a picture, a terrain from OCAP, or one you upload
 

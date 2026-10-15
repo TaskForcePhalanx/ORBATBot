@@ -18,6 +18,23 @@ async def get_pool():
     return _pool
 
 
+async def ping() -> bool:
+    """Can the database be reached right now?
+
+    One `SELECT 1` on a pooled connection. Used by `/healthz`, which reports it
+    rather than failing on it: a momentary blip must not look like a reason to
+    restart the container (see *Deployment* in CLAUDE.md).
+    """
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            await db.fetchval('SELECT 1')
+        return True
+    except Exception:
+        log.exception('⚠️ healthz: the database did not answer')
+        return False
+
+
 async def init_db():
     """Bring the database up to date — see `utils/schema.py` for what that is.
 
