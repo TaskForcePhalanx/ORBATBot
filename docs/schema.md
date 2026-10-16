@@ -450,6 +450,12 @@ after the tables it writes" untrue; allowing sideways imports generally would
 make the grouping mean nothing. `tests/test_database_package.py` names that one
 edge and fails on a second.
 
+**The `__init__` re-export list is generated**, not hand-maintained:
+`python scripts/gen_exports.py` writes it from the modules and `--check` says
+when it has fallen behind, which is a test. A name missing from it is an
+AttributeError in whichever cog or route wanted that query — possibly on a page
+nobody opens until it matters.
+
 **Nine section banners carried real rules in their prose** — why the event
 queries compare against `NOW() AT TIME ZONE 'UTC'` rather than
 `CURRENT_TIMESTAMP`, why the embed writer sets every column outright instead of
@@ -576,6 +582,11 @@ inside the boot — so a row it refuses takes the bot down for everybody:
   either, so that map already opened empty; its text goes to `doc_unreadable`
   and `'{}'` takes its place. Keeping the original matters — blanking it
   outright would be destroying somebody's plan on the strength of a guess.
+  **And it says so in the log, naming each map and its guild.** It used to
+  `RAISE WARNING`, which reached nobody: asyncpg drops server notices unless a
+  connection has `add_log_listener()` attached and `init_db()` attaches none —
+  checked against a real server both ways. Setting a map's text aside rather
+  than failing the boot is only defensible if somebody finds out.
 
 Checked against a real PostgreSQL 16, which is the only way any of the above
 is knowable: a **fresh** database and one **upgraded from version 2** end with

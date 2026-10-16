@@ -27,6 +27,22 @@ def _modules():
     return files
 
 
+def test_the_re_export_list_is_generated_and_current():
+    """`python scripts/gen_exports.py --check`, as a test.
+
+    The list used to be maintained by hand, and the test below — every name a
+    module defines is on `database` — is what caught an omission. This is the
+    other half: the list is written from the modules, so there is nothing to
+    remember, and falling behind is a red test rather than an AttributeError
+    somewhere later. Same bargain `gen_help.py` makes with the README.
+    """
+    import subprocess
+    import sys
+    out = subprocess.run([sys.executable, 'scripts/gen_exports.py', '--check'],
+                         capture_output=True, text=True, cwd=str(ROOT))
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
 def test_every_name_a_module_defines_is_re_exported():
     """`__init__` is a hand-maintained list, and a name missing from it is an
     AttributeError in whichever cog or route wanted that query."""

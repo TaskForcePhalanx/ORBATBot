@@ -53,9 +53,14 @@ whether the function or the module wins depends on import order inside
 that works by luck.
 
 `tests/test_tacmap_package.py` pins what this can quietly break — above all
-that **every name a submodule defines is re-exported**, since `__init__` is 270
-lines of hand-maintained imports and forgetting one is an AttributeError in
-whichever caller wanted it.
+that **every name a submodule defines is re-exported**, since forgetting one is
+an AttributeError in whichever caller wanted it. The list is **generated** by
+`scripts/gen_exports.py`, the same bargain `gen_help.py` makes with the README,
+so there is nothing to remember and a stale list is a red test. `import *` is
+not the alternative it looks like: it skips underscore-prefixed names, and four
+of those are used outside the package (`_INK_DARK`, `_INK_LIGHT`, `_arma_type`,
+`_colour`, all in `tests/test_tacmap.py`), so every module would need an
+`__all__` listing them — the same list, fragmented across six files.
 
 ### The document is the map
 

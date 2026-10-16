@@ -1131,20 +1131,39 @@ async def _v3_tac_maps_doc_jsonb(db):
     # Per row, and only the ones that fail: `pg_input_is_valid()` would say the
     # same thing in one statement but arrived in PostgreSQL 16, and a migration
     # should not be the thing that decides the minimum server version.
-    await db.execute("""
+    #
+    # **It reports through `log`, not `RAISE WARNING`.** It did raise one, and
+    # that warning reached nobody: asyncpg drops server notices unless a
+    # connection has `add_log_listener()` attached, and `init_db()` attaches
+    # none — checked against a real server, where the same `RAISE WARNING` is
+    # invisible without a listener and arrives as `PostgresWarning:` with one.
+    # Setting a map's text aside rather than failing the boot is only
+    # defensible if somebody finds out, so the ids come back and are logged
+    # here.
+    await db.execute('''
         DO $$
         DECLARE r RECORD;
         BEGIN
-          FOR r IN SELECT id, doc FROM tac_maps LOOP
+          FOR r IN SELECT id, doc FROM tac_maps WHERE doc_unreadable IS NULL LOOP
             BEGIN
               PERFORM r.doc::jsonb;
             EXCEPTION WHEN others THEN
               UPDATE tac_maps SET doc_unreadable = r.doc, doc = '{}' WHERE id = r.id;
-              RAISE WARNING 'tac_maps %: doc was not valid JSON, kept in doc_unreadable', r.id;
             END;
           END LOOP;
         END $$;
-    """)
+    ''')
+    setaside = await db.fetch('SELECT id, guild_id, name FROM tac_maps '
+                              'WHERE doc_unreadable IS NOT NULL ORDER BY id')
+    if setaside:
+        log.warning(
+            '⚠️ migration 3: %d map(s) held a document that was not valid JSON. '
+            'The text is kept in tac_maps.doc_unreadable and the map opens '
+            'empty, which is what it already did — tacmap.parse() could not '
+            'read it either. Maps: %s',
+            len(setaside),
+            ', '.join('#%s %r (guild %s)' % (r['id'], r['name'], r['guild_id'])
+                      for r in setaside))
 
     await db.execute('ALTER TABLE tac_maps ALTER COLUMN doc TYPE JSONB USING doc::jsonb')
 
