@@ -26,7 +26,7 @@ from cogs.slots import (
     clear_slot_request,
     deny_slot_request,
 )
-from utils import database, roster
+from utils import approvals, database, roster
 
 MAX_REASON = 200
 
@@ -69,11 +69,12 @@ async def queue(guild, member) -> dict:
 
     # Two people can want the same slot. Marking that on the row is what turns
     # "approve" from a decision about one request into a choice between several.
-    counts = {}
+    # The counting moved to `utils/approvals.py` when `/my-approvals` needed the
+    # same answer: a bulk approve must not make that choice by arriving first,
+    # so the rule is one tested function rather than a copy on each surface.
+    contested = approvals.contested_keys(pending)
     for entry in pending:
-        counts[entry['key']] = counts.get(entry['key'], 0) + 1
-    for entry in pending:
-        entry['contested'] = counts[entry['key']] > 1
+        entry['contested'] = entry['key'] in contested
 
     pending.sort(key=lambda e: (e['slot_label'], e['created_at']))
     approved.sort(key=lambda e: e['slot_label'])

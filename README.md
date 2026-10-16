@@ -160,7 +160,7 @@ Per-player kills, deaths, kill distance, shots and more for every Arma mission, 
 
 Short how-tos for everything the bot does, one per thing you might want to do. The bot serves the same text at **`/help`** — the **?** in the site header, and next to each page’s heading.
 
-**Slots and operations** — [Request a slot](#request-a-slot) · [Change, cancel or leave](#change-cancel-or-leave) · [Approve or deny a request](#approve-or-deny-a-request) · [Put somebody on a slot directly](#put-somebody-on-a-slot-directly) · [Take somebody off a slot](#take-somebody-off-a-slot) · [Start an operation](#start-an-operation) · [Set the start time and reminder](#set-the-start-time-and-reminder) · [Post or re-post the ORBAT board](#post-or-re-post-the-orbat-board) · [Announce the operation](#announce-the-operation) · [Empty the approval queue](#empty-the-approval-queue) · [Check what the bot is reading](#check-what-the-bot-is-reading)
+**Slots and operations** — [Request a slot](#request-a-slot) · [Change, cancel or leave](#change-cancel-or-leave) · [Approve or deny a request](#approve-or-deny-a-request) · [See just your own unit, and clear the easy ones](#see-just-your-own-unit-and-clear-the-easy-ones) · [Put somebody on a slot directly](#put-somebody-on-a-slot-directly) · [Take somebody off a slot](#take-somebody-off-a-slot) · [Start an operation](#start-an-operation) · [Set the start time and reminder](#set-the-start-time-and-reminder) · [Post or re-post the ORBAT board](#post-or-re-post-the-orbat-board) · [Announce the operation](#announce-the-operation) · [Empty the approval queue](#empty-the-approval-queue) · [Check what the bot is reading](#check-what-the-bot-is-reading)
 
 **ORBATs and rosters** — [Build an ORBAT](#build-an-orbat) · [Edit an ORBAT without unseating anybody](#edit-an-orbat-without-unseating-anybody) · [Rename, copy or delete an ORBAT](#rename-copy-or-delete-an-orbat) · [Export an ORBAT to a Google Sheet](#export-an-orbat-to-a-google-sheet) · [Run the operation on an ORBAT](#run-the-operation-on-an-orbat) · [Run the operation on a Google Sheet](#run-the-operation-on-a-google-sheet)
 
@@ -232,6 +232,26 @@ Decide who gets the slot, in the channel or in the browser — both do exactly t
 > Old requests stay clickable after a new operation starts, and are always decided against the operation they were made for.
 
 See also: [Take somebody off a slot](#take-somebody-off-a-slot) · [Put somebody on a slot directly](#put-somebody-on-a-slot-directly)
+
+#### See just your own unit, and clear the easy ones
+
+**Who:** Unit Leader or Admin · **Where:** Discord — `/my-approvals`
+
+A private list of the open requests you can actually decide, with one press for the ones nobody is competing over.
+
+1. Run `/my-approvals`. The reply is only visible to you and lists the open requests from your own unit — admins see all of them.
+2. Press **Approve all uncontested** to approve every request in that list that only one person has asked for. It tells you what it did, slot by slot.
+3. Anything marked ⚠️ is left alone: more than one person wants that slot, so it stays in **#slot-approvals** to be decided there.
+
+> It shows less than #slot-approvals does; it does not let you do anything you could not already do. The same unit check runs on every decision, wherever you make it.
+>
+> The list is a snapshot. If somebody asks for one of those slots between the list appearing and you pressing the button, that slot is skipped rather than decided for you, and the reply says so.
+>
+> Approving in bulk is not all-or-nothing. If one fails — a sheet that will not write, say — the rest still go through and the reply names the ones that did not.
+>
+> Denying still happens one at a time, in #slot-approvals, because a denial takes a reason.
+
+See also: [Approve or deny a request](#approve-or-deny-a-request) · [Take somebody off a slot](#take-somebody-off-a-slot)
 
 #### Put somebody on a slot directly
 

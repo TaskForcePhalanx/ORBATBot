@@ -187,6 +187,75 @@ board kept showing 🟡 and nobody could action the request any more.
 
 ---
 
+## `/my-approvals` — the queue narrowed to one unit
+
+An ephemeral list of the open requests the caller may actually decide, with one
+button: **Approve all uncontested**. It exists because `#slot-approvals` is one
+channel for five units, and at five to eight a Unit Leader is reading past four
+other units' embeds to find their own.
+
+**It shows less and grants nothing.** Every decision still goes through
+`approve_slot_request()` and therefore `_can_action_request()`, exactly as the
+button does. That is worth stating plainly because the view *feels* private
+while the shared channel is still there, and the next person to read this will
+be tempted to treat the narrower list as the access control. It is not: the
+rule is `approvals.may_action()` and it runs per request, so the command would
+be safe even if the filter that built the list were wrong.
+
+### What came out of two surfaces to make it possible
+
+Two decisions were previously unreachable from the tests, and the bulk case is
+what made that intolerable — a warning label a human reads past is one thing, a
+button that acts on several requests at once is another.
+
+- *May this person decide this request?* lived inside `_can_action_request()`,
+  which takes a `discord.Member`. The rule is now `approvals.may_action()`,
+  taking role names and an admin flag; `_can_action_request()` is the adapter.
+- *Is this slot contested?* was computed inline in `web/slots.queue()` and used
+  only to put a badge on a row. It is now `approvals.contested_keys()`.
+
+`utils/approvals.py` imports nothing, which is the point —
+`tests/test_approvals.py` holds both rules without a database or a gateway, the
+same split that put `is_emoji()` in `utils/eventopts.py`.
+
+### The two things that are easy to get wrong
+
+**Contention is counted over the whole queue, not over the rows this approver
+may action.** Filter first and a slot that TFP and CNTO both want looks
+uncontested to TFP's leader — so one press would approve it and auto-deny
+CNTO's request as a side effect, which is a decision about another unit made by
+a button labelled *uncontested*. `bulk_approvable()` counts first and filters
+second for exactly that case, and `test_bulk_leaves_a_slot_another_unit_also_wants`
+is what stops it being quietly reversed.
+
+**The list is a snapshot, so the set is worked out again on the press.** A
+second request for one of those slots can arrive between the list rendering and
+the button being pressed, which turns an uncontested slot into a choice. On
+confirm the queue is re-read and `approvals.still_approvable()` intersects the
+rule's fresh answer with the ids that were actually shown, in the order they
+were shown. Both halves of that are load-bearing: nothing that became contested
+is approved, because arriving first is not how that gets decided, and nothing
+the member never saw is approved either, even if it would now qualify. The
+reply says how many were left alone and why.
+
+### What it deliberately does not do
+
+- **No per-request Approve or Deny.** Those already exist on the embeds, a
+  denial needs its reason modal, and a contested slot is a choice between
+  members that belongs where both requests are visible. This view does the
+  boring half.
+- **It is not all-or-nothing.** `approve_slot_request()` raises per request and
+  rolls back its own failed sheet write, so the loop catches each one and
+  carries on. The reply is a *report* — "6 approved, 2 failed" — rather than a
+  confirmation, because the loop cannot be atomic and saying otherwise would be
+  worse than admitting it.
+- **Nothing is re-registered after a restart.** The view is ephemeral with a
+  two-minute timeout; unlike `ApprovalView` there is nothing for
+  `setup_hook()` to restore, and nothing that needs restoring — the member runs
+  the command again.
+
+---
+
 ## Running an operation (`cogs/admin.py`)
 
 `start_operation()`, `set_operation_time()` and `build_announcement_embed()` are

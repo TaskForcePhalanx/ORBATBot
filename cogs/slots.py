@@ -1,11 +1,14 @@
 import asyncio
+import logging
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import database, roster
+from utils import approvals, database, roster
+
+log = logging.getLogger(__name__)
 
 APPROVAL_CHANNEL_NAME = 'slot-approvals'
 
@@ -52,10 +55,11 @@ async def guild_channel(guild: discord.Guild, kind: str, *, create: bool = True)
 # that same role (or has manage_guild / administrator permissions).
 UNIT_ROLES = {'2nd USC', 'CNTO', 'PXG', 'TFP', 'SKUA'}
 
-# The role that may decide a request. It lives here rather than in `cogs/admin.py`
-# because `_can_action_request()` below needs it and admin.py already imports
-# from this module — the other direction would be a cycle.
-UNIT_LEADER_ROLE = 'Unit Leader'
+# The role that may decide a request. Its home is `utils/approvals.py`, which
+# imports nothing, so the web, the cogs and the tests can all reach it without
+# importing each other; it is re-exported here because `cogs/admin.py` takes it
+# from this module and `cogs/gameroles.py` takes it from admin.
+UNIT_LEADER_ROLE = approvals.UNIT_LEADER_ROLE
 
 
 def _get_unit_role(member: discord.Member) -> Optional[str]:
@@ -226,28 +230,41 @@ async def _update_orbat(bot: commands.Bot, guild: discord.Guild, op, raise_error
 
 
 def _can_action_request(approver: discord.Member, unit_role: Optional[str]) -> bool:
-    """
-    Returns True if *approver* is allowed to approve, deny or clear a request
-    that belongs to *unit_role*.
+    """Whether *approver* may approve, deny or clear a request belonging to
+    *unit_role*.
 
-    Rules:
-    - Admins (manage_guild or administrator) can always action any request.
-    - Otherwise the approver needs the Unit Leader role **and** must share the
-      requester's unit.
-    - A request with no unit role can be actioned by any Unit Leader.
-
-    The Unit Leader check is not optional: the buttons in #slot-approvals are
-    visible to everyone who can read the channel, so without it any member of a
-    unit could approve their own request by pressing the button on it.
+    The rule itself is `approvals.may_action()`, which takes role names rather
+    than a `discord.Member` and is therefore the only version of it the tests
+    can reach. This is the adapter: it reads the permissions and the role names
+    off the member and asks. Three callers share it — the buttons in
+    `#slot-approvals`, the web queue, and `/my-approvals` — and a second copy
+    of the rule in any of them is how a member ends up able to approve their
+    own request.
     """
     perms = approver.guild_permissions
-    if perms.manage_guild or perms.administrator:
-        return True
-    if not any(r.name == UNIT_LEADER_ROLE for r in approver.roles):
-        return False
-    if unit_role is None:
-        return True
-    return any(r.name == unit_role for r in approver.roles)
+    return approvals.may_action(
+        unit_role,
+        [role.name for role in approver.roles],
+        is_admin=bool(perms.manage_guild or perms.administrator),
+    )
+
+
+async def pending_requests_for(operation_id: int) -> list:
+    """Every pending request on this operation, each carrying its roster key.
+
+    `utils/approvals.py` reasons about the key rather than a row's slot id and
+    sheet coordinates, so that it needs nothing from `utils/roster.py` — which
+    imports gspread, and would have put the rules back out of the tests' reach.
+    Attaching the key is therefore the caller's job, and this is the caller.
+
+    The rows come back as plain dicts because an asyncpg `Record` cannot be
+    added to.
+    """
+    rows = await database.get_active_requests(operation_id)
+    pending = [dict(row) for row in rows if row['status'] == 'pending']
+    for row in pending:
+        row['key'] = roster.request_key(row)
+    return pending
 
 
 # ---------------------------------------------------------------------------
@@ -1494,6 +1511,147 @@ class SlotsCog(commands.Cog):
             f"✅ ORBAT posted to {target.mention}. It will update automatically when slots are approved.",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name='my-approvals',
+        description="Your unit's open slot requests — and approve the uncontested ones in one press",
+    )
+    async def my_approvals(self, interaction: discord.Interaction):
+        """A private view of the queue, narrowed to what the caller may decide.
+
+        It shows less than `#slot-approvals` does and grants nothing it does
+        not: `_can_action_request()` is still what every decision goes through,
+        here and on the button. The value is that a Unit Leader stops reading
+        past four other units' embeds at five to eight.
+
+        Per-request Approve and Deny are deliberately **not** repeated here.
+        They already exist on the embeds, a denial needs its reason modal, and
+        a contested slot is a choice between members that should be made where
+        both requests are visible. This view does the boring half.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        op = await database.get_active_operation(str(interaction.guild_id))
+        if not op:
+            await interaction.followup.send("❌ No active operation.", ephemeral=True)
+            return
+
+        pending = await pending_requests_for(op['id'])
+        perms = interaction.user.guild_permissions
+        is_admin = bool(perms.manage_guild or perms.administrator)
+        roles = [role.name for role in interaction.user.roles]
+
+        mine = approvals.actionable(pending, roles, is_admin)
+        if not mine:
+            await interaction.followup.send(
+                f"✅ Nothing waiting for you on **{op['name']}**.", ephemeral=True
+            )
+            return
+
+        contested = approvals.contested_keys(pending)
+        bulk = approvals.bulk_approvable(pending, roles, is_admin)
+
+        # Ordered so the ones needing a human decision are not buried under the
+        # ones a single press will clear.
+        mine.sort(key=lambda row: (row['key'] not in contested, row['slot_label']))
+        shown, overflow = mine[:25], max(0, len(mine) - 25)
+        lines = []
+        for row in shown:
+            mark = '⚠️ ' if row['key'] in contested else ''
+            unit = f" · {row['unit_role']}" if row['unit_role'] else ''
+            lines.append(f"{mark}**{row['slot_label']}** — <@{row['member_id']}>{unit}")
+        if overflow:
+            lines.append(f"…and {overflow} more.")
+
+        note = ''
+        if any(row['key'] in contested for row in mine):
+            note = ("\n\n⚠️ marks a slot more than one person has asked for. Those "
+                    f"stay in {APPROVAL_CHANNEL_NAME} — picking between members is "
+                    "a decision, not a formality.")
+
+        embed = discord.Embed(
+            title=f"📋 Open requests you can decide — {op['name']}",
+            description='\n'.join(lines) + note,
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text=f"{len(mine)} waiting · {len(bulk)} uncontested")
+
+        if not bulk:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        bot_ref = self.bot
+
+        class ApproveAllView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=120)
+
+            @discord.ui.button(label=f'Approve all uncontested ({len(bulk)})',
+                               style=discord.ButtonStyle.success, emoji='✅')
+            async def approve_all(self, btn_interaction: discord.Interaction,
+                                  button: discord.ui.Button):
+                self.stop()
+                await btn_interaction.response.defer(ephemeral=True)
+
+                # The list above is a snapshot. A second request for one of
+                # these slots can arrive between the press and now, which turns
+                # an uncontested slot into a choice — so the set is worked out
+                # again and intersected with what was actually shown. Nothing
+                # the member did not see gets approved, and nothing that became
+                # contested does either.
+                fresh = await pending_requests_for(op['id'])
+                targets = approvals.still_approvable(bulk, fresh, roles, is_admin)
+                withdrawn = len(bulk) - len(targets)
+
+                approved, failed = [], []
+                for request_id in targets:
+                    try:
+                        result = await approve_slot_request(
+                            bot_ref, btn_interaction.guild, request_id,
+                            btn_interaction.user,
+                        )
+                    except ActionError as e:
+                        failed.append(str(e))
+                    except Exception:
+                        # One bad request must not strand the rest: a sheet
+                        # write that times out half way through would otherwise
+                        # leave the member guessing which slots went through.
+                        log.exception('Bulk approve failed for request %s', request_id)
+                        failed.append(f"Request {request_id}: unexpected error — see the log.")
+                    else:
+                        approved.append(result['request']['slot_label'])
+
+                # A report rather than a confirmation, because the loop cannot
+                # be atomic and claiming otherwise is worse than saying so.
+                out = []
+                if approved:
+                    out.append(f"✅ Approved **{len(approved)}**: "
+                               + ', '.join(approved))
+                if withdrawn:
+                    out.append(f"⏭️ Left **{withdrawn}** alone — someone else asked "
+                               "for the same slot while you were looking.")
+                if failed:
+                    out.append(f"⚠️ **{len(failed)}** could not be approved:\n"
+                               + '\n'.join(f"• {message}" for message in failed))
+                if not out:
+                    out.append("Nothing left to approve — the queue changed while "
+                               "you were looking. Run the command again.")
+                await btn_interaction.followup.send(
+                    '\n'.join(out)[:1900], ephemeral=True
+                )
+
+            @discord.ui.button(label='Close', style=discord.ButtonStyle.secondary,
+                               emoji='✖️')
+            async def close(self, btn_interaction: discord.Interaction,
+                            button: discord.ui.Button):
+                self.stop()
+                await btn_interaction.response.send_message(
+                    "Nothing approved.", ephemeral=True
+                )
+
+        await interaction.followup.send(embed=embed, view=ApproveAllView(),
+                                        ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SlotsCog(bot))
