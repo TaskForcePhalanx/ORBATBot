@@ -124,6 +124,36 @@ def test_points_come_back_as_pairs_however_they_were_written():
     assert result.doc['items'][0]['points'] == [[1.0, 2.0], [3.0, 4.0]]
 
 
+def test_a_nul_in_a_label_never_reaches_the_column():
+    """`tac_maps.doc` is `jsonb`, and `jsonb` refuses `\\u0000` outright where
+    `text` and Python's `json` both take it without complaint.
+
+    A label is typed by anybody with an edit link, so a NUL in one used to
+    store fine and would now fail every later save of that map — and it would
+    have failed migration 3's conversion of the column, which fails the boot.
+    `_text()` is the one place every string in a document goes through, which
+    is why stripping it there covers all twelve of them.
+    """
+    import json
+    result = tacmap.parse(_doc(items=[unit(label='a\x00b')]))
+    label = result.doc['items'][0]['label']
+    assert label == 'ab'
+    assert '\\u0000' not in json.dumps(result.doc)
+
+
+def test_control_characters_go_but_newline_and_tab_stay():
+    """The rest of the C0 controls are junk in a label too. Newline and tab are
+    not: `_label_svg()` and `_sqf_string()` both handle a label with newlines,
+    so they are expected rather than noise.
+    """
+    result = tacmap.parse(_doc(items=[
+        unit(label='a\x01\x02\x1fb'),
+        unit(label='two\nlines\there'),
+    ]))
+    assert result.doc['items'][0]['label'] == 'ab'
+    assert result.doc['items'][1]['label'] == 'two\nlines\there'
+
+
 def test_a_label_is_cut_to_length_and_a_glyph_is_shouted():
     result = tacmap.parse(_doc(items=[
         unit(label='x' * 500),
