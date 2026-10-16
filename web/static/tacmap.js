@@ -65,6 +65,9 @@
     drag: null,
     pan: null,
     undo: [],
+    redo: [],
+    nudging: false,
+    pinch: null,
     dirty: false
   };
   var editable = app.dataset.editable === '1';
@@ -1360,6 +1363,10 @@
   function snapshot() {
     state.undo.push(JSON.stringify(state.doc));
     if (state.undo.length > 40) state.undo.shift();
+    // A new change drops the redo stack. Keeping it would let Ctrl+Y replay a
+    // future that no longer follows from this document — the classic way a
+    // redo puts back an item somebody has since deleted.
+    state.redo.length = 0;
   }
 
   function touched() {
@@ -1462,8 +1469,97 @@
 
   svg.addEventListener('pointerleave', function () { lastPointer = null; });
 
+  /* -- two fingers: pinch to zoom, and pan at the same time ---------------- */
+
+  // The sheet is `touch-action: none` so the browser does nothing with a
+  // second finger, which means without this a pinch does nothing at all.
+  var touches = {};
+
+  function pinchPair() {
+    var ids = Object.keys(touches);
+    return ids.length === 2 ? ids : null;
+  }
+
+  function pinchSpan() {
+    var ids = pinchPair();
+    if (!ids) return null;
+    var a = touches[ids[0]];
+    var b = touches[ids[1]];
+    return {
+      // Never zero: two fingers reported at the same pixel would divide by it.
+      dist: Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1),
+      mid: { clientX: (a.clientX + b.clientX) / 2,
+             clientY: (a.clientY + b.clientY) / 2 }
+    };
+  }
+
+  // By the time the second finger lands the first has already started a
+  // stroke, a drag or a box, so entering a pinch has to put that back. A drag
+  // that already moved is rewound from the starts it kept: the snapshot it
+  // took is spent, which costs an undo level — cheaper than a plan quietly
+  // nudged sideways by what the member meant as a zoom.
+  function abandonGesture() {
+    if (state.drag && state.drag.moved) {
+      state.drag.indices.forEach(function (index, n) {
+        state.doc.items[index] = JSON.parse(state.drag.starts[n]);
+      });
+      redrawItems(state.drag.indices);
+    }
+    state.draft = null;
+    state.drag = null;
+    state.marquee = null;
+    state.handle = null;
+    state.box = null;
+    state.pan = null;
+    state.ruler = null;
+    overlay.innerHTML = '';
+    drawSelection();
+  }
+
+  function startPinch() {
+    abandonGesture();
+    var span = pinchSpan();
+    state.pinch = { dist: span.dist, mid: span.mid };
+  }
+
+  function movePinch() {
+    var span = pinchSpan();
+    if (!span) return;
+    // Where the sheet is under the fingers now, read before the view moves.
+    var held = at(state.pinch.mid);
+    var factor = state.pinch.dist / span.dist;
+    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20),
+                         state.doc.width * 3);
+    var scale = width / view.w;
+    view.w = width;
+    view.h = view.h * scale;
+    applyView();
+    // Then slide the view until that same spot sits under the fingers' new
+    // middle, which is what makes a pinch a pan as well — there is no separate
+    // two-finger drag to write. Asking the sheet where a screen point lands
+    // (`at()`, the screen CTM) rather than working it out from the element's
+    // box is what keeps this honest when the max-height clamp letterboxes the
+    // SVG inside its element.
+    var now = at(span.mid);
+    view.x += held.x - now.x;
+    view.y += held.y - now.y;
+    applyView();
+    state.pinch = { dist: span.dist, mid: span.mid };
+    drawSelection();
+  }
+
   svg.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return;
+    if (event.pointerType === 'touch') {
+      touches[event.pointerId] = { clientX: event.clientX, clientY: event.clientY };
+      if (pinchPair()) {
+        startPinch();
+        return;
+      }
+      // A third finger joining must not fall through and start a stroke with
+      // the pinch still running — it is a clumsy pinch, not a new gesture.
+      if (state.pinch) return;
+    }
     var point = at(event);
     var group = event.target.closest ? event.target.closest('.tm-item') : null;
 
@@ -1606,6 +1702,13 @@
   });
 
   svg.addEventListener('pointermove', function (event) {
+    if (event.pointerType === 'touch' && touches[event.pointerId]) {
+      touches[event.pointerId] = { clientX: event.clientX, clientY: event.clientY };
+      if (state.pinch) {
+        movePinch();
+        return;
+      }
+    }
     var where = at(event);
     lastPointer = where;
     if (state.ruler && state.ruler.live !== false) {
@@ -1731,7 +1834,21 @@
     }
   });
 
-  svg.addEventListener('pointerup', function () {
+  svg.addEventListener('pointerup', function (event) {
+    if (event && event.pointerType === 'touch') {
+      delete touches[event.pointerId];
+      // A finger lifted ends the pinch rather than letting it carry on as a
+      // one-finger gesture: the midpoint would jump to wherever the remaining
+      // finger is and take the sheet with it.
+      if (state.pinch) {
+        // Unless a third had joined and they are back down to two — then take
+        // the pinch up again from where those two are now, rather than leaving
+        // the gesture dead until they lift off and start over.
+        if (pinchPair()) startPinch();
+        else state.pinch = null;
+        return;
+      }
+    }
     if (state.ruler && state.ruler.live !== false) {
       // The measurement stays on screen until the next one, or Esc.
       state.ruler.live = false;
@@ -1782,7 +1899,14 @@
 
   // Letting go outside the sheet still ends the stroke; without this the
   // draft would hang around and the next click would extend it.
-  svg.addEventListener('pointercancel', function () {
+  svg.addEventListener('pointercancel', function (event) {
+    if (event && event.pointerType === 'touch') {
+      delete touches[event.pointerId];
+      if (state.pinch) {
+        state.pinch = null;
+        return;
+      }
+    }
     if (state.draft) finishDraft();
     if (state.box) finishBox();
     state.handle = null;
@@ -2846,15 +2970,29 @@
 
   document.getElementById('tmsave').addEventListener('click', function () { save(); });
   document.getElementById('tmundo').addEventListener('click', undo);
+  document.getElementById('tmredo').addEventListener('click', redo);
 
-  function undo() {
-    var previous = state.undo.pop();
+  // Undo and redo are the same step in opposite directions: pop one stack,
+  // push what is on screen onto the other. `snapshot()` is what clears the
+  // redo stack, so neither of these has to think about it.
+  function undo() { stepHistory(state.undo, state.redo, 'undo'); }
+  function redo() { stepHistory(state.redo, state.undo, 'redo'); }
+
+  // Not `step`: two drawing helpers already keep a local of that name, so a
+  // plain `step()` here would be silently shadowed inside them.
+  function stepHistory(from, to, what) {
+    var previous = from.pop();
     if (!previous) {
-      say('Nothing left to undo.');
+      say('Nothing left to ' + what + '.');
       return;
     }
+    to.push(JSON.stringify(state.doc));
     state.doc = JSON.parse(previous);
+    // The restored document may hold fewer items than the selection pointed
+    // at, so both halves of it go rather than leaving `extra` indexing items
+    // that are no longer there.
     state.selected = -1;
+    state.extra = [];
     touched();
     refreshLayers();
     render();
@@ -2872,6 +3010,33 @@
   var SHORTCUTS = { v: 'select', u: 'unit', m: 'point', l: 'line', a: 'area', t: 'text',
                     r: 'rect', e: 'ellipse', o: 'ao', d: 'measure', p: 'phase' };
 
+  var NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+                ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+  // A nudge is a fraction of what is on screen rather than a fixed number of
+  // map units, the way the duplicate offset already is: a step in map units is
+  // a hair at terrain zoom and a jump when zoomed into one compound, and the
+  // whole point of the arrow keys is lining something up with what you can see.
+  function nudge(dx, dy, far) {
+    // Never below the 0.01 that round() keeps, or a nudge zoomed right into one
+    // compound would round away to nothing and the keys would look broken.
+    var amount = Math.max(view.w / (far ? 40 : 400), 0.01);
+    var picked = selection();
+    // Holding an arrow key repeats keydown, and a snapshot per repeat would
+    // fill all 40 undo levels with single nudges — so one run of nudges is one
+    // undo step, closed by the keyup below.
+    if (!state.nudging) {
+      snapshot();
+      state.nudging = true;
+    }
+    picked.forEach(function (index) {
+      state.doc.items[index] = shifted(state.doc.items[index], dx * amount, dy * amount);
+    });
+    redrawItems(picked);
+    drawSelection();
+    touched();
+  }
+
   // Letting go of Shift fixes the straight segment where it is. Clearing the
   // anchor on the next freehand move is not enough: tapping Shift again
   // without moving in between left the old anchor standing, so the next
@@ -2879,6 +3044,9 @@
   // corners came out as two points. That is the rhythm somebody drawing a
   // boundary actually uses, so it is the one that has to work.
   document.addEventListener('keyup', function (event) {
+    // Letting go of an arrow key closes the run of nudges, so the next one
+    // takes its own snapshot and is its own undo step.
+    if (NUDGE[event.key]) state.nudging = false;
     if (event.key === 'Shift' && state.draft) state.draft.anchor = null;
     // Letting go of Ctrl ends a line plotted with Ctrl+click, as in Arma.
     if ((event.key === 'Control' || event.key === 'Meta') && state.draft &&
@@ -2912,7 +3080,13 @@
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
-      undo();
+      if (event.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      redo();
       return;
     }
     if ((event.ctrlKey || event.metaKey) && !state.draft) {
@@ -2997,6 +3171,9 @@
         event.preventDefault();
         removeSelected();
       }
+    } else if (NUDGE[event.key] && editable && selection().length) {
+      event.preventDefault();
+      nudge(NUDGE[event.key][0], NUDGE[event.key][1], event.shiftKey);
     } else if (SHORTCUTS[event.key.toLowerCase()]) {
       setTool(SHORTCUTS[event.key.toLowerCase()]);
     }

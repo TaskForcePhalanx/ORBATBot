@@ -845,6 +845,15 @@ _MAPS: tuple[Topic, ...] = (
             'ground selects by box; move them together by dragging any of them. '
             '**Ctrl**+**C** and **Ctrl**+**V** copy and paste — into another map '
             'too — and **Ctrl**+**D** duplicates.',
+            'Scroll to zoom and drag the background to pan. On a tablet or a '
+            'phone, **pinch** to zoom — the same two fingers pan at the same '
+            'time, so you can frame a compound in one gesture.',
+            'The **arrow keys** nudge whatever is selected, and **Shift** with an '
+            'arrow moves it ten times as far, for lining a symbol up by eye. '
+            '**Undo** and **Redo** sit next to Save: **Ctrl**+**Z** steps back, '
+            '**Ctrl**+**Y** (or **Ctrl**+**Shift**+**Z**) steps forward again. '
+            'Drawing something new after stepping back clears the way forward, so '
+            'Redo can never put back an item you have since deleted.',
             'The corner of the map shows the six-figure grid reference under the '
             'pointer, and the length and bearing of what you are drawing. The '
             '**Measure** tool measures without drawing; the inspector shows a '
