@@ -375,6 +375,27 @@ They are counted and reported, because silence there would read as data loss.
 
 Place names are **never exported to Arma** — the game already draws its own.
 
+### What a label may not contain
+
+`_text()` is the one place every string in a document goes through — all
+twelve of them, labels included — which is why it is where control characters
+are stripped rather than at each field.
+
+**One of them the column cannot survive.** `tac_maps.doc` is `jsonb`, and
+`jsonb` refuses `\u0000` outright ("unsupported Unicode escape sequence")
+where `text` and Python's `json` both accept it without complaint. A label is
+text anybody with an edit link can type, so before this a single NUL in one
+stored perfectly well and would then have failed every later save of that map
+— and it would have failed the conversion of the column itself, which happens
+inside a migration, inside the boot
+([docs/schema.md](schema.md#the-column-that-had-to-be-searched)).
+
+The other C0 controls go too: they are junk in a label and the same class of
+problem. **Newline and tab stay**, because `_label_svg()` and `_sqf_string()`
+both already handle a label with newlines in it, so those are expected rather
+than noise. `utils/reddit.py` drops the characters XML forbids for the same
+reason — a feed must not be lost to one stray byte in a title.
+
 ### The share link is the whole credential
 
 `/m/{token}` opens a map with no session and no Discord — which is the point,

@@ -1086,7 +1086,82 @@ async def _v2_guild_indexes(db):
                      'ON tac_maps (guild_id)')
 
 
+async def _v3_tac_maps_doc_jsonb(db):
+    """`tac_maps.doc` becomes `jsonb`, so the column can be asked questions.
+
+    It held the whole map as **text**, which meant the one query that has to
+    search inside it did so with a substring match:
+
+        WHERE doc LIKE '%' || '"/t/7"' || '%'
+
+    That is `tac_terrain_usage()`, and it decides whether deleting a terrain is
+    refused — so it is the thing standing between an admin and every plan drawn
+    on that terrain rendering on an empty sheet. Two problems with asking it
+    that way. A leading wildcard cannot use an index, so it reads every map in
+    the table. And it matches the characters rather than the structure: a
+    *label* somebody typed containing `"/t/7"` counts as usage, while a
+    background stored any other way would not count at all. As `jsonb` the
+    query asks what it means — `doc->'background'->>'url' = '/t/7'` — and the
+    index below answers it.
+
+    **Converting a column the whole product keeps its work in is the risk
+    here, so the two ways the cast can fail are dealt with before it runs.**
+
+    `jsonb` refuses `\u0000` ("unsupported Unicode escape sequence") where
+    `text` and Python's `json` both accept it. A label is typed by anybody with
+    an edit link and `utils/tacmap._text()` did not strip control characters
+    until this shipped, so a stored map may carry one — and a single such row
+    would fail this migration, which fails the boot, which takes the bot down
+    for everybody. Those rows are repaired first; `_text()` is what stops new
+    ones.
+
+    Anything *still* not valid JSON afterwards is not a map: `tacmap.parse()`
+    cannot read it either, so that map already opens empty. Its text is moved
+    to `doc_unreadable` and `'{}'` put in its place, which loses nothing that
+    worked and keeps the column convertible. Blanking it without keeping the
+    original would be destroying somebody's plan on the strength of a guess.
+    """
+    # The escape, not the character: json.dumps() writes a NUL as the six
+    # characters \u0000, and that is what the column holds.
+    await db.execute(r"""UPDATE tac_maps SET doc = replace(doc, '\u0000', '')
+                          WHERE doc LIKE '%\u0000%'""")
+
+    await db.execute('ALTER TABLE tac_maps ADD COLUMN IF NOT EXISTS doc_unreadable TEXT')
+
+    # Per row, and only the ones that fail: `pg_input_is_valid()` would say the
+    # same thing in one statement but arrived in PostgreSQL 16, and a migration
+    # should not be the thing that decides the minimum server version.
+    await db.execute("""
+        DO $$
+        DECLARE r RECORD;
+        BEGIN
+          FOR r IN SELECT id, doc FROM tac_maps LOOP
+            BEGIN
+              PERFORM r.doc::jsonb;
+            EXCEPTION WHEN others THEN
+              UPDATE tac_maps SET doc_unreadable = r.doc, doc = '{}' WHERE id = r.id;
+              RAISE WARNING 'tac_maps %: doc was not valid JSON, kept in doc_unreadable', r.id;
+            END;
+          END LOOP;
+        END $$;
+    """)
+
+    await db.execute('ALTER TABLE tac_maps ALTER COLUMN doc TYPE JSONB USING doc::jsonb')
+
+    # What tac_terrain_usage() now asks.
+    #
+    # **Not partial.** The obvious `WHERE … LIKE '/t/%'` — index only the maps
+    # on a terrain this bot serves — makes an index the query cannot use:
+    # PostgreSQL will not infer that `= '/t/7'` implies `LIKE '/t/%'`, so it
+    # ignores the index and reads the table. Measured on 20,008 maps: a plain
+    # expression index turns that scan into an index lookup, while the partial
+    # one left it a sequential scan it could not tell apart from before.
+    await db.execute("""CREATE INDEX IF NOT EXISTS idx_tac_maps_background_url
+                          ON tac_maps ((doc -> 'background' ->> 'url'))""")
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
+    Migration(3, 'tac_maps.doc is jsonb', _v3_tac_maps_doc_jsonb),
 ]

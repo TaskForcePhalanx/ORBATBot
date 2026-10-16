@@ -634,8 +634,23 @@ def _clamp(value, low, high):
     return low if value < low else (high if value > high else value)
 
 
+# Control characters a document has no use for, and one of them it cannot
+# survive: PostgreSQL's `jsonb` refuses `\u0000` outright ("unsupported Unicode
+# escape sequence") where `text` and Python's `json` both accept it happily. A
+# label is typed by anybody with an edit link, so without this a single NUL in
+# one would fail every later save of that map — and `tac_maps.doc` is `jsonb`
+# (migration 3), so it would have failed the conversion too. `utils/reddit.py`
+# drops the characters XML forbids for the same class of reason.
+#
+# Newline and tab are kept: `_label_svg()` and `_sqf_string()` both handle a
+# label with newlines in it, so they are expected rather than junk.
+_CONTROLS = re.compile(r'[^\S\n\t]*[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+')
+
+
 def _text(value, limit: int) -> str:
-    return (value or '').strip()[:limit] if isinstance(value, str) else ''
+    if not isinstance(value, str):
+        return ''
+    return _CONTROLS.sub('', value or '').strip()[:limit]
 
 
 _HEX_COLOUR = re.compile(r'^#[0-9a-fA-F]{6}$')

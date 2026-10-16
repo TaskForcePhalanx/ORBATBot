@@ -2716,7 +2716,7 @@ async def create_tac_map(guild_id: str, name: str, description: str, doc: str,
             '''INSERT INTO tac_maps
                (guild_id, name, description, doc, created_by, created_by_name,
                 updated_by_name)
-               VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id''',
+               VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6) RETURNING id''',
             guild_id, name, description, doc, created_by, created_by_name,
         )
         return row['id']
@@ -2727,7 +2727,7 @@ async def save_tac_map_doc(map_id: int, doc: str, updated_by_name: str = None):
     async with pool.acquire() as db:
         await db.execute(
             '''UPDATE tac_maps
-                  SET doc = $2, updated_by_name = COALESCE($3, updated_by_name),
+                  SET doc = $2::jsonb, updated_by_name = COALESCE($3, updated_by_name),
                       updated_at = CURRENT_TIMESTAMP, doc_rev = doc_rev + 1
                 WHERE id = $1''',
             map_id, doc, updated_by_name,
@@ -2744,7 +2744,7 @@ async def save_tac_map_doc_if(map_id: int, doc: str, updated_by_name: str,
     async with pool.acquire() as db:
         return await db.fetchval(
             '''UPDATE tac_maps
-                  SET doc = $2, updated_by_name = COALESCE($3, updated_by_name),
+                  SET doc = $2::jsonb, updated_by_name = COALESCE($3, updated_by_name),
                       updated_at = CURRENT_TIMESTAMP, doc_rev = doc_rev + 1
                 WHERE id = $1 AND doc_rev = $4
             RETURNING doc_rev''',
@@ -2940,13 +2940,22 @@ async def tac_terrain_usage(terrain_id: int) -> list:
     A map points at a terrain by the address it is served from, which is what
     this matches on — the alternative, a column, would be a second place for the
     same fact to live and to go stale.
+
+    **It reads the document's structure, not its characters.** This was a
+    `LIKE '%"/t/7"%'` over the whole column until `doc` became `jsonb`
+    (migration 3), which read every map in the table — a leading wildcard can
+    use no index — and answered about the text rather than the map: a label
+    somebody typed containing `"/t/7"` counted as usage. The answer decides
+    whether deleting a terrain is refused, so being wrong in the lenient
+    direction leaves every plan on that terrain rendering on an empty sheet.
+    `idx_tac_maps_background_url` is the index for exactly this.
     """
     pool = await get_pool()
     async with pool.acquire() as db:
         return await db.fetch(
             '''SELECT id, name FROM tac_maps
-                WHERE doc LIKE '%' || $1 || '%' ORDER BY name''',
-            f'"/t/{terrain_id}"',
+                WHERE doc -> 'background' ->> 'url' = $1 ORDER BY name''',
+            f'/t/{int(terrain_id)}',
         )
 
 

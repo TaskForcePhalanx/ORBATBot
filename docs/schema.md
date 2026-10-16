@@ -153,12 +153,13 @@ One row is one tactical map — see
 | `id` | SERIAL PK | |
 | `guild_id` | TEXT | |
 | `name` / `description` | TEXT | |
-| `doc` | TEXT | **The whole map, as JSON** — background, grid, the Arma corners and every symbol on it. Held as one document rather than a table of items because nothing hangs off a symbol: a save replaces the plan wholesale, the same reasoning as `orbat_nets`. `utils/tacmap.parse()` is what makes the column safe to render, and it runs on the way out as well as in |
+| `doc` | JSONB | **The whole map** — background, grid, the Arma corners and every symbol on it. Held as one document rather than a table of items because nothing hangs off a symbol: a save replaces the plan wholesale, the same reasoning as `orbat_nets`. `utils/tacmap.parse()` is what makes the column safe to render, and it runs on the way out as well as in. **`jsonb` rather than text since migration 3**, so the one query that searches inside it can ask the structure — see [one map per terrain](#the-column-that-had-to-be-searched) |
 | `share_token` | TEXT | The `/m/{token}` link. NULL = never shared. Unique where it is set |
 | `share_mode` | TEXT | `off` / `view` / `edit` — what the link may do |
 | `channel_id` / `message_id` | TEXT | Where the map was last announced |
 | `created_by` / `created_by_name` | TEXT | |
 | `updated_by_name` | TEXT | Who last drew on it — including *someone with the link* |
+| `doc_unreadable` | TEXT | A `doc` that was not valid JSON when migration 3 converted the column, kept rather than discarded. **Always NULL in practice** — `tacmap.parse()` could not read such a row either, so that map already opened empty. NULL on every row the migration found convertible |
 | `doc_rev` | INTEGER | Bumped by every write of `doc`. A save names the revision it was made on and is refused if somebody else saved since |
 | `created_at` / `updated_at` | TIMESTAMP | |
 
@@ -465,6 +466,69 @@ one's rows are untouched, and the one data-writing statement in the baseline
 - **Nothing creates a table outside the list.** Otherwise a database can be
   up to date and still be missing something. A test reads `init_db()` and
   checks.
+
+### The column that had to be searched
+
+`tac_maps.doc` holds a whole map, and one query has to look **inside** it:
+`tac_terrain_usage()`, which decides whether deleting a terrain is refused.
+Getting that wrong in the lenient direction leaves every plan drawn on that
+terrain rendering on an empty sheet, so it is worth being exactly right.
+
+It was a substring match over the text column:
+
+```sql
+WHERE doc LIKE '%' || '"/t/7"' || '%'
+```
+
+Two things wrong with asking it that way, and the second is a bug somebody
+could hit:
+
+- **A leading wildcard can use no index**, so it read every map in the table.
+  Measured on 20,008 maps: 22.5 ms and a sequential scan, against a bitmap
+  index lookup now.
+- **It matched the characters, not the map.** A *label* that is exactly `/t/7`
+  serialises to `"label": "/t/7"`, which contains the pattern — so that map
+  counted as usage and the terrain could never be deleted, with nothing to say
+  why. Verified against PostgreSQL 16 before and after: the old query named
+  that map, the new one does not. (A label like `see "/t/7"` did *not* trigger
+  it, because JSON escapes the quotes — which is what made the bug narrow
+  enough to go unnoticed.)
+
+Migration 3 makes the column `jsonb`, so the query asks what it means —
+`doc -> 'background' ->> 'url' = $1` — behind
+`idx_tac_maps_background_url`.
+
+**Two details decided by measurement rather than by reading:**
+
+- **The index is not partial.** `WHERE … LIKE '/t/%'` — index only the maps on
+  a terrain this bot serves — looks obviously right and produces an index the
+  query cannot use: PostgreSQL does not infer that `= '/t/7'` implies
+  `LIKE '/t/%'`. It stayed a sequential scan, indistinguishable from having no
+  index, which is the kind of thing that is never noticed.
+- **Reads did not change.** asyncpg hands a `jsonb` column back as `str`, the
+  same as `text`, so every reader — `parse()` included — is untouched. The
+  three writers take an explicit `$n::jsonb`.
+
+**What a `jsonb` conversion can fail on, and what was done about it.** The
+cast runs over every row the product has ever stored, inside the migration,
+inside the boot — so a row it refuses takes the bot down for everybody:
+
+- **`jsonb` refuses `\u0000`** ("unsupported Unicode escape sequence") where
+  `text` and Python's `json` both accept it. A label is typed by anybody with
+  an edit link and `tacmap._text()` did not strip control characters until
+  this shipped, so the migration repairs those rows before converting, and
+  `_text()` is what stops new ones
+  ([docs/tacmap.md](tacmap.md#what-a-label-may-not-contain)).
+- **Anything still not valid JSON is not a map.** `parse()` cannot read it
+  either, so that map already opened empty; its text goes to `doc_unreadable`
+  and `'{}'` takes its place. Keeping the original matters — blanking it
+  outright would be destroying somebody's plan on the strength of a guess.
+
+Checked against a real PostgreSQL 16, which is the only way any of the above
+is knowable: a **fresh** database and one **upgraded from version 2** end with
+**byte-identical schemas** (`pg_dump --schema-only`), the upgraded one's rows
+and their `doc_rev` are untouched, a row carrying a NUL converts after repair,
+a row of garbage is set aside, and two further boots change nothing.
 
 ### The lock, and why the table is made inside it
 
