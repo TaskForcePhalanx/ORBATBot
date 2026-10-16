@@ -58,13 +58,28 @@ def test_the_baseline_is_frozen():
         f'(see the docstring). Its digest is now {digest}.')
 
 
+def db_files():
+    """Every module of the `utils/database` package.
+
+    It was one file; the tests that read it as source have to read all of it
+    or they quietly stop covering most of the queries.
+    """
+    files = sorted((ROOT / 'utils' / 'database').glob('*.py'))
+    assert len(files) > 5, 'utils/database lost its modules'
+    return files
+
+
 def test_the_baseline_is_the_old_init_db_and_nothing_calls_it_twice():
     # init_db() is the only caller of migrate(), and it does no DDL of its
     # own: everything about the schema has to go through the list, or a
     # database can be up to date and still be missing something.
-    tree = ast.parse((ROOT / 'utils' / 'database.py').read_text())
-    init = next(n for n in tree.body
-                if isinstance(n, ast.AsyncFunctionDef) and n.name == 'init_db')
+    # `utils/database` is a package; init_db() lives in its core module.
+    init = None
+    for path in db_files():
+        tree = ast.parse(path.read_text())
+        init = next((n for n in tree.body
+                     if isinstance(n, ast.AsyncFunctionDef) and n.name == 'init_db'), init)
+    assert init is not None, 'init_db() is not in utils/database any more'
     sql = [n.value for n in ast.walk(init) if isinstance(n, ast.Constant)
            and isinstance(n.value, str) and 'CREATE TABLE' in n.value.upper()]
     assert not sql, 'init_db() creates something outside the migration list'
@@ -273,12 +288,13 @@ def test_every_table_the_queries_name_is_created_by_a_migration():
             r'CREATE TABLE IF NOT EXISTS\s+([a-z_][a-z0-9_]*)', text, re.IGNORECASE))
 
     wanted = set()
-    for text in sql_of(ROOT / 'utils' / 'database.py'):
-        # `EXTRACT(EPOCH FROM updated_at)` names a column after FROM, and
-        # `ON CONFLICT … DO UPDATE` names no table at all.
-        text = re.sub(r'EXTRACT\s*\([^)]*\)', '', text, flags=re.IGNORECASE)
-        wanted.update(re.findall(
-            r'\b(?:FROM|JOIN|INTO|(?<!DO )UPDATE)\s+([a-z_][a-z0-9_]*)', text))
+    for path in db_files():
+        for text in sql_of(path):
+            # `EXTRACT(EPOCH FROM updated_at)` names a column after FROM, and
+            # `ON CONFLICT … DO UPDATE` names no table at all.
+            text = re.sub(r'EXTRACT\s*\([^)]*\)', '', text, flags=re.IGNORECASE)
+            wanted.update(re.findall(
+                r'\b(?:FROM|JOIN|INTO|(?<!DO )UPDATE)\s+([a-z_][a-z0-9_]*)', text))
     wanted = {name for name in wanted
               if name != 'schema_version' and not name.startswith('information_')}
 

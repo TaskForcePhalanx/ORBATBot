@@ -42,7 +42,7 @@ undone in a minute.
 
 | Changing… | Read |
 |---|---|
-| `utils/database.py`, `utils/schema.py`, or anything about a table or column | [docs/schema.md](docs/schema.md) |
+| `utils/database/`, `utils/schema.py`, or anything about a table or column | [docs/schema.md](docs/schema.md) |
 | `cogs/slots.py`, `cogs/admin.py`, `utils/roster.py`, `utils/sheets.py` — requesting, approving, assigning, the board | [docs/slots.md](docs/slots.md) |
 | `utils/orbat.py`, `web/orbat.py`, `lab/` — the roster editor and its diff | [docs/orbats.md](docs/orbats.md) |
 | `utils/tacmap/`, `web/tacmap.py`, `web/static/tacmap.js`, `utils/tiles.py`, `utils/arma_icons.py`, `web/terrain.py` | [docs/tacmap.md](docs/tacmap.md) |
@@ -96,7 +96,15 @@ cogs/
   killtracker.py        # Polls the OCAP server and counts new recordings — no commands
   campaigns.py          # Posts the planner's approved drops, pings holds, starts sign-ups — no commands
 utils/
-  database.py           # All PostgreSQL queries (asyncpg)
+  database/             # All PostgreSQL queries (asyncpg), one module per feature
+    core.py             #   the pool, the schema runner, and what every query uses
+    slots.py            #   an operation and the requests against it
+    orbats.py           #   the rosters, their squads, slots and nets
+    events.py           #   events, sign-ups, custom responses
+    maps.py             #   tactical maps, terrains, tiles, place names
+    campaigns.py        #   the campaign planner's tables
+    killtracker.py      #   a recording per row, its campaigns, aliases, units
+    reddit.py  voice.py  roles.py  embeds.py  memberlog.py  guilds.py
   schema.py             # The schema those queries run against, as numbered migrations
   sheets.py             # Google Sheets read/write (gspread)
   roster.py             # One normalised slot, from a sheet or from an ORBAT
@@ -193,6 +201,7 @@ for one exception class:
 | `tests/test_wizard_overview.py` | that the wizard's Overview and the schedule page are **one template** — neither has grown a copy of the schedule, both hand it what it asks for, every form in it comes back to the page it was pressed on, and nothing in it is redrawn in the browser |
 | `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
 | `tests/test_eventopts.py` | what an event's options mean: a response set's labels, emoji, decline flags and distinct keys and the six ways it is refused, the ids and names a mention argument carries — **including that the digits inside a user mention are not a role** — and the two ranges both commands apply. One test holds `is_emoji()` against `discord.PartialEmoji` over 2,000 fuzzed tokens and **skips when discord.py is absent**, so the rest of the file keeps its stdlib-only promise |
+| `tests/test_database_package.py` | that the thirteen modules of `utils/database/` stay one namespace: every name a module defines is re-exported by `__init__`, nothing imports sideways between feature modules, and **every global a query references resolves in its own module** — a missing `import json` in one of them would otherwise be a `NameError` the first time that query ran in production, which no test here calls |
 | `tests/test_tacmap_package.py` | that the six files of `utils/tacmap/` stay a layer cake: every name a submodule defines is re-exported by `__init__` (270 lines of hand-maintained imports, and a forgotten one is an AttributeError in whichever caller wanted it), the layers only import downwards, and the package still needs nothing but the standard library |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 
