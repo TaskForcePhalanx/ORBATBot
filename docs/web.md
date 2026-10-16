@@ -519,23 +519,37 @@ has since been deleted is called out rather than quietly showing the default.
 - **Per-user input timezones** — display is already per-user via Discord
   timestamps, but everything typed in is guild-timezone based.
 
-### Slots on the web — what is done and what is left
+### Slots on the web — what is here, and what is not
 
-Done: the tables, the editor at `/g/{guild}/orbats`, `operations.orbat_id`, and
-the provider that makes `cogs/slots.py` blind to where the roster came from. An
-operation runs on an ORBAT today.
+Here: the tables, the editor at `/g/{guild}/orbats`, `operations.orbat_id`, the
+provider that makes `cogs/slots.py` blind to where the roster came from, and
+[the approval queue](#the-approval-queue-webslotspy). An operation runs on an
+ORBAT today.
 
-What remains, in the order it makes sense to do it:
+**Requesting a slot on the web is not coming, and this paragraph is here to stop
+it being added.** It was listed as the next step for a long time — a member
+clicking a slot on the site, posting to `#slot-approvals` as the Discord picker
+does — and that was wrong about who the site is for. Members live in Discord;
+the operation is announced there, the ORBAT board with its **📋 Request a Slot**
+button is there, the DMs that confirm a slot arrive there. A second way in,
+through a browser and an OAuth sign-in, adds a surface to keep in step with the
+first and gives the member nothing they did not already have one click away. The
+site is for the people running the operation. Deciding a request is on it
+because an approval queue is organiser work; making one is not.
+
+So the queue has no member-facing counterpart by design, and `_can_action_request()`
+staying the gate on both surfaces is what keeps that honest — see
+[the approval flow](slots.md#approval--denial-flow).
+
+What genuinely remains:
 
 - Booking someone who is not on Discord — `requests.member_id` is read as a
   snowflake in six places: the two archive-embed mentions in `cogs/slots.py`,
   the `fetch_member()` in `_dm()`, the one in `/clear-slot`, and the fetch plus
   the `<@…>` ping in `bot.py`'s reminder loop. It needs to become nullable with
   each of those guarded (pulling the button callbacks into `_dm()` already
-  removed three of them)
-- Click-a-slot-to-request on the web, posting to `#slot-approvals` as today —
-  approve/deny from the web is done, see
-  [the approval queue](#the-approval-queue-webslotspy)
+  removed three of them). This is organiser work — filling a slot for somebody
+  who is in the unit but not in the server — and is the one still worth doing
 - Importing an existing sheet into an ORBAT once, via `sheets.load_all_slots()`,
   mapping live requests onto the new slots by `slot_label`
 - An operation archive

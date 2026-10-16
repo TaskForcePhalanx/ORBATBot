@@ -19,9 +19,14 @@ request *is* the booking. See
 web UI (`web/`) with Discord OAuth2 login for events, game roles, embeds, the
 member log, voice time, the ORBAT editor, the slot-approval queue and the
 [tactical map](docs/tacmap.md#tactical-maps-utilstacmap--webtacmappy).
-**Next phase:** *requesting* a slot is still Discord-side; approving one is not.
-The remaining steps are listed under
-[Slots on the web](docs/web.md#slots-on-the-web--what-is-done-and-what-is-left).
+**The website is for admins and organisers, and that is a decision rather than
+a stage.** Requesting a slot stays in Discord, where the members already are;
+the site exists so the people *running* an operation have somewhere better than
+a slash command. Deciding a request is on the web as well because an approval
+queue is organiser work — but **a member never needs to open the site at all**,
+and nothing here is aiming to change that. What that rules out, and what is
+actually left, is under
+[Slots on the web](docs/web.md#slots-on-the-web--what-is-here-and-what-is-not).
 
 ---
 
