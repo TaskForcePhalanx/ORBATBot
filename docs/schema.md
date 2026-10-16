@@ -3,7 +3,7 @@
 
 ## Database Schema
 
-All tables live in PostgreSQL. `utils/database.py` holds the queries;
+All tables live in PostgreSQL. `utils/database/` holds the queries;
 **`utils/schema.py` holds the shape they run against, as a numbered list of
 migrations** — see [the schema](#the-schema-utilsschemapy). `init_db()` applies
 whatever this database has not run and records it in `schema_version`, so a boot
@@ -426,9 +426,62 @@ Indexes on `(guild_id, started_at)` and a partial one on the open rows.
 
 ---
 
+## The queries (`utils/database/`)
+
+One module of 3,333 lines and 216 functions — a phone book, where finding the
+one that writes `cp_drops` meant scrolling. It is thirteen modules now, one per
+feature, grouped by **the tables each query touches**, behind an `__init__`
+that re-exports every name: `from utils import database` and
+`database.anything` are unchanged, and nothing outside the package changed.
+
+**The split was safe because the coupling was almost nothing.** Of 233 calls
+between functions in that file, all but 18 were to `get_pool()`, and not one of
+the 18 crossed a feature group — `duplicate_orbat` calls orbat functions,
+`duplicate_tac_map` calls map ones, the planner's helpers call each other. So
+`core` holds the pool, `init_db()`, `ping()` and `_naive()`, and every feature
+module imports from `core` and nothing else.
+
+**With one exception, and it is a real one**: `campaigns` imports
+`_link_kt_campaign` from `killtracker`. That function writes `kt_campaigns` —
+which is why it lives in the Kill Tracker module, grouped by its table — and
+only the campaign planner ever calls it, because a real campaign gets a Kill
+Tracker campaign when it is created. Moving it would make "a module is named
+after the tables it writes" untrue; allowing sideways imports generally would
+make the grouping mean nothing. `tests/test_database_package.py` names that one
+edge and fails on a second.
+
+**Nine section banners carried real rules in their prose** — why the event
+queries compare against `NOW() AT TIME ZONE 'UTC'` rather than
+`CURRENT_TIMESTAMP`, why the embed writer sets every column outright instead of
+through `COALESCE`, why `seen_ids` is a rolling set rather than a high-water
+timestamp, what `heartbeat_at` buys. Those went into the docstring of the
+module that owns the code below them, because dropping them would have lost the
+only place those rules are written down. Every other line of the original
+appears exactly once across the thirteen files: **0 unaccounted for**.
+
+### `SELECT *`, and why most of it stays
+
+51 of the queries are `SELECT *`, which looks like something to fix and mostly
+is not: the callers use the wide rows. The maps list parses every map's
+document because it shows a per-kind item count; the campaign page needs every
+mission's `fields` to work out what is locked and what is due. Two things are
+worth knowing rather than changing:
+
+- **The maps list page parses every document on every view.** `summarise()` is
+  a count per item kind, and `doc` is `jsonb` now, so SQL could count without
+  transferring a single map. It is not done because the count would then come
+  from the raw document while the map is drawn from `parse()`'s — which drops
+  items it will not render — so the list could disagree with the map. At real
+  map sizes the parse is cheap; if maps get big, that is the trade to revisit.
+- **Two of the four `list_cp_missions` callers need three columns**, not every
+  mission's `fields`. Small, and splitting the query in two would be a second
+  thing to keep in step.
+
+---
+
 ## The schema (`utils/schema.py`)
 
-`utils/database.py` holds the queries; this holds what they run against. The
+`utils/database/` holds the queries; this holds what they run against. The
 schema used to be one 950-line `init_db()` of `CREATE TABLE IF NOT EXISTS` and
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, every statement of it idempotent
 because every statement of it ran on **every boot** — 127 queries to discover
