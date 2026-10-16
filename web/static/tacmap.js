@@ -1333,19 +1333,179 @@
       if (document.fullscreenElement) {
         document.exitFullscreen();
       } else if (app.requestFullscreen) {
-        app.requestFullscreen().catch(function () { app.classList.toggle('tm-tall'); });
+        app.requestFullscreen().catch(function () { tallFallback(); });
       } else {
-        app.classList.toggle('tm-tall');
+        // iPhone Safari has no Element.requestFullscreen at all, so this is
+        // the only path a phone ever takes — and `fullscreenchange` never
+        // fires there, which left the button saying "Full screen" after it
+        // had already worked. It read as a dead button.
+        tallFallback();
       }
     });
+    var tallFallback = function () {
+      var on = app.classList.toggle('tm-tall');
+      fullButton.textContent = on ? '✕ Close' : '⛶ Full screen';
+    };
     document.addEventListener('fullscreenchange', function () {
       fullButton.textContent = document.fullscreenElement ? '✕ Close' : '⛶ Full screen';
     });
   }
 
+  /* -- two fingers: pinch to zoom, and pan at the same time ---------------- */
+
+  // The sheet is `touch-action: none` so the browser does nothing with a
+  // second finger, which means without this a pinch does nothing at all.
+  var touches = {};
+
+  function pinchPair() {
+    var ids = Object.keys(touches);
+    return ids.length === 2 ? ids : null;
+  }
+
+  function pinchSpan() {
+    var ids = pinchPair();
+    if (!ids) return null;
+    var a = touches[ids[0]];
+    var b = touches[ids[1]];
+    return {
+      // Never zero: two fingers reported at the same pixel would divide by it.
+      dist: Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1),
+      mid: { clientX: (a.clientX + b.clientX) / 2,
+             clientY: (a.clientY + b.clientY) / 2 }
+    };
+  }
+
+  // By the time the second finger lands the first has already started a
+  // stroke, a drag or a box, so entering a pinch has to put that back. A drag
+  // that already moved is rewound from the starts it kept: the snapshot it
+  // took is spent, which costs an undo level — cheaper than a plan quietly
+  // nudged sideways by what the member meant as a zoom.
+  function abandonGesture() {
+    if (state.drag && state.drag.moved) {
+      state.drag.indices.forEach(function (index, n) {
+        state.doc.items[index] = JSON.parse(state.drag.starts[n]);
+      });
+      redrawItems(state.drag.indices);
+    }
+    state.draft = null;
+    state.drag = null;
+    state.marquee = null;
+    state.handle = null;
+    state.box = null;
+    state.pan = null;
+    state.ruler = null;
+    overlay.innerHTML = '';
+    drawSelection();
+  }
+
+  function startPinch() {
+    abandonGesture();
+    var span = pinchSpan();
+    state.pinch = { dist: span.dist, mid: span.mid };
+  }
+
+  function movePinch() {
+    var span = pinchSpan();
+    if (!span) return;
+    // Where the sheet is under the fingers now, read before the view moves.
+    var held = at(state.pinch.mid);
+    var factor = state.pinch.dist / span.dist;
+    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20),
+                         state.doc.width * 3);
+    var scale = width / view.w;
+    view.w = width;
+    view.h = view.h * scale;
+    applyView();
+    // Then slide the view until that same spot sits under the fingers' new
+    // middle, which is what makes a pinch a pan as well — there is no separate
+    // two-finger drag to write. Asking the sheet where a screen point lands
+    // (`at()`, the screen CTM) rather than working it out from the element's
+    // box is what keeps this honest when the max-height clamp letterboxes the
+    // SVG inside its element.
+    var now = at(span.mid);
+    view.x += held.x - now.x;
+    view.y += held.y - now.y;
+    applyView();
+    state.pinch = { dist: span.dist, mid: span.mid };
+    drawSelection();
+  }
+
+  function zoomBy(factor) {
+    var cx = view.x + view.w / 2;
+    var cy = view.y + view.h / 2;
+    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20), state.doc.width * 3);
+    var scale = width / view.w;
+    view.w = width;
+    view.h = view.h * scale;
+    view.x = cx - view.w / 2;
+    view.y = cy - view.h / 2;
+    applyView();
+    drawSelection();
+  }
+  [['tmzoomin', 1 / 1.4], ['tmzoomout', 1.4]].forEach(function (pair) {
+    var button = document.getElementById(pair[0]);
+    if (button) button.addEventListener('click', function () { zoomBy(pair[1]); });
+  });
+  var fitButton = document.getElementById('tmzoomfit');
+  if (fitButton) fitButton.addEventListener('click', function () { resetView(); drawSelection(); });
+
   /* -- everything below is the editor and only runs when it may draw -------- */
 
   if (!editable) {
+    // A reader gets the same viewport controls an editor does, and needs them
+    // more: there is no wheel on a phone, and reading a plan on the phone you
+    // have to hand before an op is what a share link is *for*. Everything
+    // above this line is shared; everything below is drawing.
+    //
+    // This is where the zoom buttons, the pinch and the drag-to-pan all used
+    // to sit, which meant a shared map on a phone had no way to zoom or pan at
+    // all — the buttons rendered and did nothing. The editor's own pointer
+    // handlers do all this and more, so a reader gets this smaller pair rather
+    // than both sets fighting over the same events.
+    svg.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0) return;
+      if (event.pointerType === 'touch') {
+        touches[event.pointerId] = { clientX: event.clientX, clientY: event.clientY };
+        if (pinchPair()) {
+          startPinch();
+          return;
+        }
+        if (state.pinch) return;
+      }
+      state.pan = { view: { x: view.x, y: view.y },
+                    x: event.clientX, y: event.clientY };
+      svg.setPointerCapture(event.pointerId);
+    });
+
+    svg.addEventListener('pointermove', function (event) {
+      if (event.pointerType === 'touch' && touches[event.pointerId]) {
+        touches[event.pointerId] = { clientX: event.clientX, clientY: event.clientY };
+        if (state.pinch) {
+          movePinch();
+          return;
+        }
+      }
+      if (!state.pan) return;
+      var scale = view.w / svg.getBoundingClientRect().width;
+      view.x = state.pan.view.x - (event.clientX - state.pan.x) * scale;
+      view.y = state.pan.view.y - (event.clientY - state.pan.y) * scale;
+      applyView();
+    });
+
+    var endReaderGesture = function (event) {
+      if (event && event.pointerType === 'touch') {
+        delete touches[event.pointerId];
+        if (state.pinch) {
+          if (pinchPair()) startPinch();
+          else state.pinch = null;
+          return;
+        }
+      }
+      state.pan = null;
+    };
+    svg.addEventListener('pointerup', endReaderGesture);
+    svg.addEventListener('pointercancel', endReaderGesture);
+
     drawLayers();
     render();
     return;
@@ -1468,85 +1628,6 @@
   /* -- pointer handling ----------------------------------------------------- */
 
   svg.addEventListener('pointerleave', function () { lastPointer = null; });
-
-  /* -- two fingers: pinch to zoom, and pan at the same time ---------------- */
-
-  // The sheet is `touch-action: none` so the browser does nothing with a
-  // second finger, which means without this a pinch does nothing at all.
-  var touches = {};
-
-  function pinchPair() {
-    var ids = Object.keys(touches);
-    return ids.length === 2 ? ids : null;
-  }
-
-  function pinchSpan() {
-    var ids = pinchPair();
-    if (!ids) return null;
-    var a = touches[ids[0]];
-    var b = touches[ids[1]];
-    return {
-      // Never zero: two fingers reported at the same pixel would divide by it.
-      dist: Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1),
-      mid: { clientX: (a.clientX + b.clientX) / 2,
-             clientY: (a.clientY + b.clientY) / 2 }
-    };
-  }
-
-  // By the time the second finger lands the first has already started a
-  // stroke, a drag or a box, so entering a pinch has to put that back. A drag
-  // that already moved is rewound from the starts it kept: the snapshot it
-  // took is spent, which costs an undo level — cheaper than a plan quietly
-  // nudged sideways by what the member meant as a zoom.
-  function abandonGesture() {
-    if (state.drag && state.drag.moved) {
-      state.drag.indices.forEach(function (index, n) {
-        state.doc.items[index] = JSON.parse(state.drag.starts[n]);
-      });
-      redrawItems(state.drag.indices);
-    }
-    state.draft = null;
-    state.drag = null;
-    state.marquee = null;
-    state.handle = null;
-    state.box = null;
-    state.pan = null;
-    state.ruler = null;
-    overlay.innerHTML = '';
-    drawSelection();
-  }
-
-  function startPinch() {
-    abandonGesture();
-    var span = pinchSpan();
-    state.pinch = { dist: span.dist, mid: span.mid };
-  }
-
-  function movePinch() {
-    var span = pinchSpan();
-    if (!span) return;
-    // Where the sheet is under the fingers now, read before the view moves.
-    var held = at(state.pinch.mid);
-    var factor = state.pinch.dist / span.dist;
-    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20),
-                         state.doc.width * 3);
-    var scale = width / view.w;
-    view.w = width;
-    view.h = view.h * scale;
-    applyView();
-    // Then slide the view until that same spot sits under the fingers' new
-    // middle, which is what makes a pinch a pan as well — there is no separate
-    // two-finger drag to write. Asking the sheet where a screen point lands
-    // (`at()`, the screen CTM) rather than working it out from the element's
-    // box is what keeps this honest when the max-height clamp letterboxes the
-    // SVG inside its element.
-    var now = at(span.mid);
-    view.x += held.x - now.x;
-    view.y += held.y - now.y;
-    applyView();
-    state.pinch = { dist: span.dist, mid: span.mid };
-    drawSelection();
-  }
 
   svg.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return;
@@ -2864,25 +2945,6 @@
     });
     try { if (window.localStorage.getItem('tmfocus') === '1') setFocus(true); } catch (e) { /* none */ }
   }
-
-  function zoomBy(factor) {
-    var cx = view.x + view.w / 2;
-    var cy = view.y + view.h / 2;
-    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20), state.doc.width * 3);
-    var scale = width / view.w;
-    view.w = width;
-    view.h = view.h * scale;
-    view.x = cx - view.w / 2;
-    view.y = cy - view.h / 2;
-    applyView();
-    drawSelection();
-  }
-  [['tmzoomin', 1 / 1.4], ['tmzoomout', 1.4]].forEach(function (pair) {
-    var button = document.getElementById(pair[0]);
-    if (button) button.addEventListener('click', function () { zoomBy(pair[1]); });
-  });
-  var fitButton = document.getElementById('tmzoomfit');
-  if (fitButton) fitButton.addEventListener('click', function () { resetView(); drawSelection(); });
 
   /* -- saving --------------------------------------------------------------- */
 

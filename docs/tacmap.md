@@ -825,6 +825,21 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes
   everything shown. Dragging any selected item moves them all; Delete removes
   them all; the inspector hides while more than one is selected.
+- **The viewport controls live above the read-only gate, and that is
+  load-bearing.** `tacmap.js` returns early for anyone without an edit link,
+  and everything below that line is the editor. The zoom buttons, the pinch
+  and the drag-to-pan were all written *below* it while the buttons themselves
+  render for everyone — so a shared plan opened on a phone had **no way to
+  zoom or pan at all**: no wheel, buttons that rendered and did nothing, and no
+  gesture. Nothing failed; the controls were simply inert, on exactly the
+  device the feature existed for. A reader now gets a small pair of pointer
+  handlers of their own inside that branch rather than both sets fighting over
+  the same events, and `tests/test_static_ids.py` pins the ordering, which is
+  invisible in a diff.
+  - **iPhone Safari has no `Element.requestFullscreen`**, so ⛶ Full screen
+    always takes the `tm-tall` fallback there — and `fullscreenchange` never
+    fires, which left the button still reading *Full screen* after it had
+    worked. The fallback sets the label itself now.
 - **Pinch zooms and pans in one gesture.** The sheet is `touch-action: none`
   so the browser does nothing with a second finger, which meant a pinch did
   nothing at all. Two touch pointers start `state.pinch`; each move scales the
