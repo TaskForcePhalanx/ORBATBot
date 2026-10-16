@@ -789,6 +789,20 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes
   everything shown. Dragging any selected item moves them all; Delete removes
   them all; the inspector hides while more than one is selected.
+- **Pinch zooms and pans in one gesture.** The sheet is `touch-action: none`
+  so the browser does nothing with a second finger, which meant a pinch did
+  nothing at all. Two touch pointers start `state.pinch`; each move scales the
+  viewBox by how the span between them changed, then slides it until the spot
+  the fingers were holding sits back under their new middle — which is where
+  the pan comes from, so there is no separate two-finger drag. Both reads go
+  through `at()` (the screen CTM) rather than the element's bounding box,
+  because the `max-height` clamp can letterbox the SVG inside its element and
+  a box-derived mapping would drift. Two things that are easy to get wrong and
+  are handled: the first finger has **already** started a stroke or a drag by
+  the time the second lands, so `abandonGesture()` puts it back — rewinding a
+  moved drag from the starts it kept, at the cost of one spent undo level — and
+  a **third** finger neither starts a stroke nor restarts the pinch, it just
+  pauses it until they are back down to two.
 - **Undo and redo** are one function, `stepHistory(from, to)`, run in opposite
   directions: pop one stack, push what is on screen onto the other. Each entry
   is the whole document as JSON and forty are kept, which is the cost of

@@ -67,6 +67,7 @@
     undo: [],
     redo: [],
     nudging: false,
+    pinch: null,
     dirty: false
   };
   var editable = app.dataset.editable === '1';
@@ -1468,8 +1469,97 @@
 
   svg.addEventListener('pointerleave', function () { lastPointer = null; });
 
+  /* -- two fingers: pinch to zoom, and pan at the same time ---------------- */
+
+  // The sheet is `touch-action: none` so the browser does nothing with a
+  // second finger, which means without this a pinch does nothing at all.
+  var touches = {};
+
+  function pinchPair() {
+    var ids = Object.keys(touches);
+    return ids.length === 2 ? ids : null;
+  }
+
+  function pinchSpan() {
+    var ids = pinchPair();
+    if (!ids) return null;
+    var a = touches[ids[0]];
+    var b = touches[ids[1]];
+    return {
+      // Never zero: two fingers reported at the same pixel would divide by it.
+      dist: Math.max(Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), 1),
+      mid: { clientX: (a.clientX + b.clientX) / 2,
+             clientY: (a.clientY + b.clientY) / 2 }
+    };
+  }
+
+  // By the time the second finger lands the first has already started a
+  // stroke, a drag or a box, so entering a pinch has to put that back. A drag
+  // that already moved is rewound from the starts it kept: the snapshot it
+  // took is spent, which costs an undo level — cheaper than a plan quietly
+  // nudged sideways by what the member meant as a zoom.
+  function abandonGesture() {
+    if (state.drag && state.drag.moved) {
+      state.drag.indices.forEach(function (index, n) {
+        state.doc.items[index] = JSON.parse(state.drag.starts[n]);
+      });
+      redrawItems(state.drag.indices);
+    }
+    state.draft = null;
+    state.drag = null;
+    state.marquee = null;
+    state.handle = null;
+    state.box = null;
+    state.pan = null;
+    state.ruler = null;
+    overlay.innerHTML = '';
+    drawSelection();
+  }
+
+  function startPinch() {
+    abandonGesture();
+    var span = pinchSpan();
+    state.pinch = { dist: span.dist, mid: span.mid };
+  }
+
+  function movePinch() {
+    var span = pinchSpan();
+    if (!span) return;
+    // Where the sheet is under the fingers now, read before the view moves.
+    var held = at(state.pinch.mid);
+    var factor = state.pinch.dist / span.dist;
+    var width = Math.min(Math.max(view.w * factor, state.doc.width / 20),
+                         state.doc.width * 3);
+    var scale = width / view.w;
+    view.w = width;
+    view.h = view.h * scale;
+    applyView();
+    // Then slide the view until that same spot sits under the fingers' new
+    // middle, which is what makes a pinch a pan as well — there is no separate
+    // two-finger drag to write. Asking the sheet where a screen point lands
+    // (`at()`, the screen CTM) rather than working it out from the element's
+    // box is what keeps this honest when the max-height clamp letterboxes the
+    // SVG inside its element.
+    var now = at(span.mid);
+    view.x += held.x - now.x;
+    view.y += held.y - now.y;
+    applyView();
+    state.pinch = { dist: span.dist, mid: span.mid };
+    drawSelection();
+  }
+
   svg.addEventListener('pointerdown', function (event) {
     if (event.button !== 0) return;
+    if (event.pointerType === 'touch') {
+      touches[event.pointerId] = { clientX: event.clientX, clientY: event.clientY };
+      if (pinchPair()) {
+        startPinch();
+        return;
+      }
+      // A third finger joining must not fall through and start a stroke with
+      // the pinch still running — it is a clumsy pinch, not a new gesture.
+      if (state.pinch) return;
+    }
     var point = at(event);
     var group = event.target.closest ? event.target.closest('.tm-item') : null;
 
@@ -1612,6 +1702,13 @@
   });
 
   svg.addEventListener('pointermove', function (event) {
+    if (event.pointerType === 'touch' && touches[event.pointerId]) {
+      touches[event.pointerId] = { clientX: event.clientX, clientY: event.clientY };
+      if (state.pinch) {
+        movePinch();
+        return;
+      }
+    }
     var where = at(event);
     lastPointer = where;
     if (state.ruler && state.ruler.live !== false) {
@@ -1737,7 +1834,21 @@
     }
   });
 
-  svg.addEventListener('pointerup', function () {
+  svg.addEventListener('pointerup', function (event) {
+    if (event && event.pointerType === 'touch') {
+      delete touches[event.pointerId];
+      // A finger lifted ends the pinch rather than letting it carry on as a
+      // one-finger gesture: the midpoint would jump to wherever the remaining
+      // finger is and take the sheet with it.
+      if (state.pinch) {
+        // Unless a third had joined and they are back down to two — then take
+        // the pinch up again from where those two are now, rather than leaving
+        // the gesture dead until they lift off and start over.
+        if (pinchPair()) startPinch();
+        else state.pinch = null;
+        return;
+      }
+    }
     if (state.ruler && state.ruler.live !== false) {
       // The measurement stays on screen until the next one, or Esc.
       state.ruler.live = false;
@@ -1788,7 +1899,14 @@
 
   // Letting go outside the sheet still ends the stroke; without this the
   // draft would hang around and the next click would extend it.
-  svg.addEventListener('pointercancel', function () {
+  svg.addEventListener('pointercancel', function (event) {
+    if (event && event.pointerType === 'touch') {
+      delete touches[event.pointerId];
+      if (state.pinch) {
+        state.pinch = null;
+        return;
+      }
+    }
     if (state.draft) finishDraft();
     if (state.box) finishBox();
     state.handle = null;
