@@ -1,8 +1,8 @@
 """The parser and the diff are pure, so they are the one part of this project
 that is cheap to test -- and the part where a bug silently deletes slots."""
 
-from lab import diff as diffing
-from lab import parser
+from utils import orbat as parser
+from utils import orbat as diffing
 
 
 def parse(text):

@@ -480,17 +480,6 @@ async def set_cp_phase_layers(layers: dict):
                              [(k, v) for k, v in layers.items()])
 
 
-async def cp_campaign_map_ids(campaign_id: int) -> list:
-    """The campaign map and every AO map — the maps the planner made."""
-    pool = await get_pool()
-    async with pool.acquire() as db:
-        rows = await db.fetch(
-            """SELECT map_id FROM cp_campaigns WHERE id = $1 AND map_id IS NOT NULL
-               UNION SELECT map_id FROM cp_aos WHERE campaign_id = $1 AND map_id IS NOT NULL""",
-            campaign_id)
-    return [r['map_id'] for r in rows]
-
-
 async def set_cp_mission_recording(mission_id: int, ocap_id, *, manual: bool):
     """Say which recording a mission is (None for none) and keep the campaign's
     Kill Tracker campaign in step: the new recording is added to it, and the

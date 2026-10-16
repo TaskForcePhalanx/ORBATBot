@@ -159,18 +159,6 @@ async def kt_exclusions(ocap_id: int = None) -> dict:
     return out
 
 
-async def kt_struck_kills() -> list:
-    """Everything struck so far, newest first, with what it was."""
-    pool = await get_pool()
-    async with pool.acquire() as db:
-        return await db.fetch(
-            '''SELECT e.ocap_id, e.kill_key, e.killer, e.victim, e.weapon, e.distance,
-                      e.struck_by_name, e.struck_at, m.label, m.name_override
-                 FROM kt_kill_exclusions e JOIN kt_missions m USING (ocap_id)
-                ORDER BY e.struck_at DESC'''
-        )
-
-
 async def kt_set_exclusions(changes, by_name: str) -> int:
     """Strike or restore kills. `changes` is `[(ocap_id, kill_key, struck, info)]`.
 

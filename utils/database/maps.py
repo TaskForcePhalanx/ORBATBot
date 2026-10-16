@@ -222,16 +222,6 @@ async def get_tac_places(guild_id: str, scope: str):
         )
 
 
-async def get_guild_tac_places(guild_id: str) -> list:
-    """Every terrain this guild has names for, for the list page."""
-    pool = await get_pool()
-    async with pool.acquire() as db:
-        return await db.fetch(
-            'SELECT * FROM tac_places WHERE guild_id = $1 ORDER BY scope',
-            str(guild_id),
-        )
-
-
 async def set_tac_places(guild_id: str, scope: str, places: str,
                          label: str = None, source: str = None,
                          updated_by_name: str = None) -> None:
