@@ -146,7 +146,7 @@ the violation into a `ValueError`, so it is a message rather than a 500.
 
 ### `tac_maps`
 One row is one tactical map — see
-[Tactical maps](tacmap.md#tactical-maps-utilstacmappy--webtacmappy).
+[Tactical maps](tacmap.md#tactical-maps-utilstacmap--webtacmappy).
 
 | Column | Type | Notes |
 |---|---|---|

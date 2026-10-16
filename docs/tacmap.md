@@ -1,12 +1,61 @@
 <!-- Part of ORBATBot's documentation. The rules every session needs
      are in ../CLAUDE.md, which says when to read this file. -->
 
-## Tactical maps (`utils/tacmap.py` + `web/tacmap.py`)
+## Tactical maps (`utils/tacmap/` + `web/tacmap.py`)
 
 The plan, drawn on the terrain — unit symbols, movement lines, objectives and
 boundaries — built in the browser and shared with a link, the way the mission
 planners in this hobby already work. Reading one is open to every member;
 drawing, sharing and posting need the same rights as creating an event.
+
+### One module, six files
+
+`utils/tacmap` was one module of 3,257 lines. It is a package now — `base`,
+`doc`, `places`, `drawing`, `arma`, `icons` — whose `__init__` re-exports every
+name, so `from utils import tacmap` and `tacmap.anything` are exactly what they
+were. Nothing outside changed, and no test changed.
+
+**The layers only ever import downwards**, in that order: `base` depends on
+nothing, `doc` on `base`, and so on up to `arma`. That is what keeps six files
+a layer cake rather than a knot, and it is self-enforcing — every upward import
+tried, at module level and lazily inside a function, fails at import time as a
+circular import, because `base`'s own tables are built by calling its own
+functions while every other module reads `base` at module level.
+
+**It looked circular at first and was not**, which is the thing worth knowing
+before moving anything back. Four per-item predicates — `item_colour`,
+`is_ao`, `marker_key`, `line_size` — were sitting among the drawing code, and
+four place constants among the place names, so measured by where things lived,
+`base` depended on `drawing` and `doc` on `places`. They are in `base` now,
+where everything may reach them. Moving one of them back out would make the
+package cyclic again.
+
+Two things about how the split was done, because they are the reason to trust
+it:
+
+- **Not a line was retyped.** Every item was lifted as its exact source span,
+  comments included, and runs of items that were adjacent stay adjacent so
+  their own spacing survives. Every line of the original appears exactly once
+  across the six files — **0 unaccounted for** — bar ten section-banner
+  comments the module docstrings replace.
+- **Behaviour was fingerprinted before and after.** Every public entry point
+  over 60 generated documents — `parse`, `render`, `to_sqf` both ways,
+  `export_report`, `json_payload`, `ordered_items`, the coordinate and grid
+  functions, `import_arma_markers`, `parse_map_index`, `parse_places`,
+  `catalog` — hashed to **`cb3c261e…` on both sides**. The only names that
+  left the namespace are the nine incidental stdlib imports (`re`, `json`,
+  `escape` …), which were never API.
+
+`drawing.py` is called that rather than `render.py` because `render` is also
+a function: a submodule of the same name sits in the package namespace and
+whether the function or the module wins depends on import order inside
+`__init__`. It happened to work; a name that cannot collide is better than one
+that works by luck.
+
+`tests/test_tacmap_package.py` pins what this can quietly break — above all
+that **every name a submodule defines is re-exported**, since `__init__` is 270
+lines of hand-maintained imports and forgetting one is an AttributeError in
+whichever caller wanted it.
 
 ### The document is the map
 
@@ -868,10 +917,11 @@ it stays current while the plan is still being edited.
 
 ### Notes for future changes
 
-- **`utils/tacmap.py` imports nothing but the standard library**, like
-  `utils/orbat.py` and `utils/reddit.py`. Keep it that way: it is the only
-  reason the document rules and the escaping are tested at all
-  (`tests/test_tacmap.py`).
+- **`utils/tacmap/` imports nothing but the standard library**, like
+  `utils/orbat.py` and `utils/reddit.py` (`utils/arma_icons.py` is the one
+  exception, and is itself stdlib-only — names and paths, never artwork). Keep
+  it that way: it is the only reason the document rules and the escaping are
+  tested at all (`tests/test_tacmap.py`), and a test now says so.
 - **The marker list is the game's.** A new vanilla marker is one row in
   `utils/arma_icons.py` (class, label, group, the game's path); a unit symbol
   is one entry in `SYMBOLS` naming the Arma type. `catalog()` puts either in
