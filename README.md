@@ -2147,7 +2147,7 @@ All of them are open to everyone and need no login.
 
 How-tos for each are under [How-tos](#how-tos) → Kill Tracker.
 
-Set `OCAP_BASE_URL` if the OCAP server is not `https://ocap.taskforcephalanx.com`, and `KT_SYNC=0` to stop the polling. A rule change is a code change: bump `RULES_VERSION` in `utils/killtracker.py` and the bot counts every mission again by itself. How it counts, and why, is in `CLAUDE.md`.
+Set `OCAP_BASE_URL` if the OCAP server is not `https://ocap.taskforcephalanx.com`, and `KT_SYNC=0` to stop the polling. A rule change is a code change: bump `RULES_VERSION` in `utils/killtracker.py` and the bot counts every mission again by itself. How it counts, and why, is in `docs/killtracker.md`.
 
 ---
 

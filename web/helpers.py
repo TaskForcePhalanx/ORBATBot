@@ -1,6 +1,6 @@
 """Small shared helpers for the web UI — mostly time.
 
-Stored times are naive UTC (see CLAUDE.md). The Discord messages render as
+Stored times are naive UTC (see docs/schema.md). The Discord messages render as
 `<t:…>` timestamps, which every client localises on its own; a web page has no
 such luxury, so everything here converts to the guild's configured timezone
 before it is shown or read back.
