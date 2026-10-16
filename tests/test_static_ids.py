@@ -130,53 +130,90 @@ def test_the_jinja_hole_admits_its_own_prefix_and_no_more():
 # The other thing about these scripts that is checkable without a browser
 # ---------------------------------------------------------------------------
 
-# Everything a person needs to move around the map rather than draw on it. Each
-# is matched by a piece of its source that occurs exactly once.
-VIEW_CONTROLS = (
-    ('the zoom buttons', "[['tmzoomin'"),
-    ('the zoom helper they call', 'function zoomBy('),
-    ('pinch to zoom and two-finger pan', 'var touches = {}'),
-)
-
 _READER_GATE = 'if (!editable) {'
+_CANVAS = ROOT / 'web' / 'templates' / '_tacmap_canvas.html'
+_TACMAP_JS = ROOT / 'web' / 'static' / 'tacmap.js'
+_JINJA_IF = re.compile(r'\{%-?\s*(if|endif)\b([^%]*)%\}')
 
 
-def test_the_viewport_controls_are_above_the_read_only_gate():
+def _ids_by_audience():
+    """Every id the canvas renders, split by whether a viewer sees it.
+
+    An id inside any `{% if editable %}` is the editor's; everything else is
+    rendered for anyone who can open the map, share link included.
+    """
+    editor, viewer, stack = set(), set(), []
+    for line in _CANVAS.read_text(encoding='utf-8').split('\n'):
+        for kind, rest in _JINJA_IF.findall(line):
+            if kind == 'if':
+                stack.append('editable' in rest)
+            elif stack:
+                stack.pop()
+        for name in _ID_ATTR.findall(line):
+            if '{{' in name or '{%' in name:
+                continue
+            (editor if any(stack) else viewer).add(name)
+    return editor, viewer
+
+
+def test_the_audience_split_is_read_correctly():
+    """The proof the check below is not vacuous.
+
+    It rests on reading Jinja conditionals out of a template, and the failure
+    mode of that is silent: mis-read them so everything looks editor-only, and
+    the real test passes having examined nothing.
+    """
+    editor, viewer = _ids_by_audience()
+    assert 'tmundo' in editor, 'Undo sits inside {% if editable %}'
+    assert 'tmredo' in editor
+    assert 'tmzoomin' in viewer, 'the zoom buttons render for everyone'
+    assert 'tmfull' in viewer
+    assert not (editor & viewer)
+
+
+def test_every_control_a_viewer_can_see_is_wired_before_the_editor_begins():
     """A reader must be able to move around the map, not only look at it whole.
 
     `tacmap.js` returns early for anyone without an edit link, and everything
     below that line is the editor. The zoom buttons, the pinch and the
-    drag-to-pan were all below it while the buttons themselves render for
-    everyone — so a shared plan opened on a phone had **no way to zoom or pan
-    at all**: no wheel, dead buttons, no gesture. That is the one case the
-    feature existed for, and nothing failed; the controls were simply inert.
+    drag-to-pan were all written *below* it while the buttons themselves
+    render for everyone — so a shared plan opened on a phone had **no way to
+    zoom or pan at all**: no wheel, dead buttons, no gesture. Nothing failed;
+    the controls were simply inert, on exactly the device the feature existed
+    for.
 
-    Ordering in a file is a strange thing to pin, which is the point — it is
+    The rule is the id's **first mention anywhere** in the script rather than
+    its `getElementById`, because the zoom buttons are wired through an array
+    literal — an earlier version of this test looked for the call, and so
+    never examined the two controls that started all this.
+
+    Ordering in a file is a strange thing to pin, which is the point: it is
     invisible in a diff, and the only symptom is on a device the suite cannot
     reach.
     """
-    source = (ROOT / 'web' / 'static' / 'tacmap.js').read_text(encoding='utf-8')
-    assert source.count(_READER_GATE) == 1, 'the read-only gate moved'
-    gate = source.index(_READER_GATE)
+    js = _TACMAP_JS.read_text(encoding='utf-8')
+    assert js.count(_READER_GATE) == 1, 'the read-only gate moved'
+    gate = js.index(_READER_GATE)
+    _, viewer = _ids_by_audience()
 
     late = []
-    for name, needle in VIEW_CONTROLS:
-        assert source.count(needle) == 1, f'{name}: {needle!r} is not unique'
-        if source.index(needle) > gate:
+    for name in sorted(viewer):
+        hits = [m.start() for m in re.finditer(r"['\"]%s['\"]" % re.escape(name), js)]
+        if hits and min(hits) > gate:
             late.append(name)
 
     assert not late, (
-        'these are below the read-only gate, so a shared map cannot use them: '
-        + ', '.join(late))
+        "these render for a viewer but are only wired in the editor's half of "
+        'the script, so a shared map cannot use them: ' + ', '.join(late))
 
 
 def test_a_reader_still_gets_pointer_handlers_of_their_own():
     """The editor's handlers sit below the gate and do far more than a reader
     needs, so the reader has a smaller pair rather than both sets fighting
     over the same events. If those go, panning goes with them silently."""
-    source = (ROOT / 'web' / 'static' / 'tacmap.js').read_text(encoding='utf-8')
-    gate = source.index(_READER_GATE)
-    reader = source[gate:source.index('drawLayers();', gate)]
+    js = _TACMAP_JS.read_text(encoding='utf-8')
+    gate = js.index(_READER_GATE)
+    reader = js[gate:js.index('drawLayers();', gate)]
     for event in ('pointerdown', 'pointermove', 'pointerup', 'pointercancel'):
         assert f"addEventListener('{event}'" in reader, (
             f'the read-only branch no longer handles {event}')
