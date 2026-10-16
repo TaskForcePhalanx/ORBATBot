@@ -177,6 +177,40 @@ _SLOTS: tuple[Topic, ...] = (
         related=('clear-a-slot', 'assign-a-slot'),
     ),
     Topic(
+        key='my-approvals',
+        title='See just your own unit, and clear the easy ones',
+        group='slots',
+        audience=UNIT_LEADER,
+        where='Discord — `/my-approvals`',
+        summary="A private list of the open requests you can actually decide, "
+                "with one press for the ones nobody is competing over.",
+        steps=(
+            'Run `/my-approvals`. The reply is only visible to you and lists '
+            'the open requests from your own unit — admins see all of them.',
+            'Press **Approve all uncontested** to approve every request in that '
+            'list that only one person has asked for. It tells you what it did, '
+            'slot by slot.',
+            'Anything marked ⚠️ is left alone: more than one person wants that '
+            'slot, so it stays in **#slot-approvals** to be decided there.',
+        ),
+        notes=(
+            'It shows less than #slot-approvals does; it does not let you do '
+            'anything you could not already do. The same unit check runs on '
+            'every decision, wherever you make it.',
+            'The list is a snapshot. If somebody asks for one of those slots '
+            'between the list appearing and you pressing the button, that slot '
+            'is skipped rather than decided for you, and the reply says so.',
+            'Approving in bulk is not all-or-nothing. If one fails — a sheet '
+            'that will not write, say — the rest still go through and the reply '
+            'names the ones that did not.',
+            'Denying still happens one at a time, in #slot-approvals, because a '
+            'denial takes a reason.',
+        ),
+        commands=('/my-approvals',),
+        page='slots',
+        related=('approve-a-request', 'clear-a-slot'),
+    ),
+    Topic(
         key='assign-a-slot',
         title='Put somebody on a slot directly',
         group='slots',

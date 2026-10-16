@@ -121,6 +121,7 @@ utils/
   discordmd.py          # Discord message markdown → HTML, for previewing a drop as Discord shows it. Stdlib only
   eventtime.py          # Reading a typed time, and walking a repeat: the event date rules. Stdlib only
   eventopts.py          # What an event's responses, pings and two ranges mean: the option rules. Stdlib only
+  approvals.py          # Who may decide a slot request, and which are safe to decide in bulk. Stdlib only
   objectives_seed.py    # The Objectives Library as first written — what a guild's library is seeded from
   ocap.py               # The OCAP server's list and downloads, and which recordings are due
   tacmap/               # One tactical map: the symbols, the document, the SVG
@@ -207,6 +208,7 @@ for one exception class:
 | `tests/test_nav.py` | the tab bar: who sees which groups, that a group links to its first reachable page and that every page knows its group, that the top row stays within the width it was measured to fit — and that no page heads itself with the guild's name or says who is signed in |
 | `tests/test_wizard_overview.py` | that the wizard's Overview and the schedule page are **one template** — neither has grown a copy of the schedule, both hand it what it asks for, every form in it comes back to the page it was pressed on, and nothing in it is redrawn in the browser |
 | `tests/test_static_ids.py` | that every element id the site's two scripts reach for is one a template actually renders. Neither script is reachable from pytest — one DOM-bound IIFE apiece — and that is the one failure mode it leaves completely uncovered: a handler wired to a button nobody added throws on load and, because it is a single IIFE, takes the **whole editor** down with it. An id built by a Jinja expression is matched as a pattern; one that is nothing but an expression vouches for nothing and is dropped, or it would make the check pass for any id at all |
+| `tests/test_approvals.py` | who may decide a request and what is safe to decide in bulk — the two rules `/my-approvals` made load-bearing. **Contention is counted over the whole queue, not over the rows the approver may action**: count after filtering and a slot two units both want looks uncontested, so one press would approve it and auto-deny the other unit's request. A request with no roster key counts as contested, because bulk approval is the one caller acting with nobody reading the row. And `still_approvable()` for the press itself: the fresh answer intersected with what was actually shown, so a slot that became contested in between is left alone **and** a request that arrived after the list is not approved either. Every rule here was mutation-tested |
 | `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
 | `tests/test_eventopts.py` | what an event's options mean: a response set's labels, emoji, decline flags and distinct keys and the six ways it is refused, the ids and names a mention argument carries — **including that the digits inside a user mention are not a role** — and the two ranges both commands apply. One test holds `is_emoji()` against `discord.PartialEmoji` over 2,000 fuzzed tokens and **skips when discord.py is absent**, so the rest of the file keeps its stdlib-only promise |
 | `tests/test_database_package.py` | that the thirteen modules of `utils/database/` stay one namespace: the `__init__` re-export list is generated and current (`scripts/gen_exports.py --check`) and every name a module defines is on `database`, nothing imports sideways between feature modules bar the one named edge, and **every global a query references resolves in its own module** — a missing `import json` in one of them would otherwise be a `NameError` the first time that query ran in production, which no test here calls |
@@ -284,7 +286,11 @@ needs one of these three channels must go through it**; a fresh
 **Unit roles** (defined in `cogs/slots.py` as `UNIT_ROLES`):
 `2nd USC`, `CNTO`, `PXG`, `TFP`, `SKUA`
 
-**Unit Leader role name:** `Unit Leader` (defined in `cogs/admin.py` as `UNIT_LEADER_ROLE`)
+**Unit Leader role name:** `Unit Leader` — `UNIT_LEADER_ROLE` in `utils/approvals.py`,
+re-exported by `cogs/slots.py` (which is where it used to live) and from there by
+`cogs/admin.py`, so the existing imports all still resolve. It sits in a module
+that imports nothing because the cogs, the web and the tests all need it and
+none of them should have to reach sideways for it.
 
 ### Access matrix
 
@@ -294,6 +300,7 @@ needs one of these three channels must go through it**; a fresh
 | `/clear-slot` — or **Release** / **Withdraw** on the web | ❌ | ✅ own unit | ✅ |
 | `/assign-slot` — or **Assign** on the web | ❌ | ✅ own unit | ✅ |
 | Approve / Deny — in `#slot-approvals` or on the web | ❌ | ✅ own unit | ✅ |
+| `/my-approvals` — the open requests you may decide, and approve-all for the uncontested ones | ❌ | ✅ own unit | ✅ all units |
 | `/clear-requests`, `/post-orbat`, `/set-event-time`, `/set-timezone`, `/post-event` — all on the web's **Operation** tab | ❌ | ❌ | ✅ |
 | `/setup-slots`, `/current-operation`, `/debug-slots` — likewise | ❌ | ❌ | ✅ |
 | Choosing the ORBAT / approvals / archive channels — web only | ❌ | ❌ | ✅ |
@@ -315,7 +322,7 @@ needs one of these three channels must go through it**; a fresh
 | Campaign planner settings — web only | ❌ | ❌ | ✅ |
 
 **Admin** = `manage_guild` or `administrator` Discord permission.
-**Unit gating:** `_can_action_request()` in `slots.py` — admins bypass all unit checks; anyone else needs the `Unit Leader` role **and** the requester's unit role; a request with no unit role can be actioned by any Unit Leader. The Unit Leader half is not optional: the buttons in `#slot-approvals` are visible to everyone who can read the channel, so without it any member of a unit could approve their own request by pressing the button on it.
+**Unit gating:** the rule is `approvals.may_action()` — admins bypass all unit checks; anyone else needs the `Unit Leader` role **and** the requester's unit role; a request with no unit role can be actioned by any Unit Leader. The Unit Leader half is not optional: the buttons in `#slot-approvals` are visible to everyone who can read the channel, so without it any member of a unit could approve their own request by pressing the button on it. `_can_action_request()` in `slots.py` is the adapter that reads the permissions and role names off a `discord.Member` and asks — **three surfaces share it** (the buttons, the web queue, `/my-approvals`), and a second copy of the rule in any of them is how that last sentence stops being true. `/my-approvals` shows a narrower list and grants nothing: see [per-unit approvals](docs/slots.md#my-approvals--the-queue-narrowed-to-one-unit).
 
 **Unit roles and `Unit Leader` can never become game roles** — `PROTECTED_ROLE_NAMES` in `cogs/gameroles.py` blocks it, so members can't self-assign their way into approval rights.
 
