@@ -789,6 +789,27 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes
   everything shown. Dragging any selected item moves them all; Delete removes
   them all; the inspector hides while more than one is selected.
+- **Undo and redo** are one function, `stepHistory(from, to)`, run in opposite
+  directions: pop one stack, push what is on screen onto the other. Each entry
+  is the whole document as JSON and forty are kept, which is the cost of
+  letting any change be undone without every tool having to describe its own
+  inverse — a 400-item map is roughly 16 MB of history. A per-item diff
+  (`{index, before, after}`) would be far cheaper and is the obvious next
+  move, but it has to cover the changes that are not one item — a layer
+  deleted with its items, an AO redrawing the grey cover — so it is not the
+  swap it first looks like. `snapshot()` is also what **clears the redo
+  stack**: keeping it would let Ctrl+Y replay a future that no longer follows
+  from this document, which is how a redo puts back an item somebody has since
+  deleted. Ctrl+Z undoes, Ctrl+Y or Ctrl+Shift+Z redoes.
+- **The arrow keys nudge** the selection, Shift ten times as far, through the
+  same `shifted()` the drag uses and the same narrow `redrawItems()` — there is
+  no second mover to keep in step. The step is a fraction of what is on screen
+  (`view.w / 400`) rather than a number of map units, as the duplicate offset
+  already is: a fixed step in map units is a hair at terrain zoom and a jump
+  when zoomed into one compound, and lining something up with what you can see
+  is the whole point of the keys. **One run of nudges is one undo step** —
+  holding a key repeats `keydown`, and a snapshot per repeat would fill all
+  forty levels with single nudges; the run is closed on the arrow key's keyup.
 - **Copy and paste** go through `localStorage` (`tmclip`) as well as memory,
   so a plan copied on one map pastes into another — under the pointer when it
   is over the map. A pasted copy is never an AO and never lands on a planner

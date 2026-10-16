@@ -20,7 +20,10 @@
         <span class="tmstatus" id="tmstatus"></span>
         <label class="tmcheck tmauto" title="Save by itself a moment after each change">
           <input type="checkbox" id="tmautosave"> Autosave</label>
-        <button type="button" class="button" id="tmundo">Undo</button>
+        <button type="button" class="button" id="tmundo"
+                title="Undo — Ctrl+Z">Undo</button>
+        <button type="button" class="button" id="tmredo"
+                title="Redo — Ctrl+Y or Ctrl+Shift+Z">Redo</button>
         <button type="button" class="button primary" id="tmsave">Save</button>
         <button type="button" class="button" id="tmfocus"
                 title="Give the map the whole window — Esc to come back">⤢ Whole window</button>
@@ -276,8 +279,12 @@
             <li>Rectangle and ellipse: drag corner to corner, <kbd>Shift</kbd> for a
               square or circle; drag a corner handle to resize, the round one to
               turn (<kbd>Shift</kbd> snaps to 15°)</li>
+            <li>Selected: the arrow keys nudge it, <kbd>Shift</kbd> and an arrow
+              moves it ten times as far</li>
             <li><kbd>Del</kbd> removes the selection · <kbd>Ctrl</kbd>+<kbd>Z</kbd>
-              undoes · <kbd>Ctrl</kbd>+<kbd>S</kbd> saves</li>
+              undoes, <kbd>Ctrl</kbd>+<kbd>Y</kbd> or
+              <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redoes ·
+              <kbd>Ctrl</kbd>+<kbd>S</kbd> saves</li>
             <li>Scroll to zoom, drag the background to pan</li>
           </ul>
         </details>
