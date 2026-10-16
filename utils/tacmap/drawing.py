@@ -33,11 +33,14 @@ from .base import (
     _INK_DARK,
     _INK_LIGHT,
     _rgb,
+    distance_label,
     is_ao,
     item_colour,
     line_size,
     marker_key,
+    metres_per_unit,
     picture_key,
+    scale_bar,
     unit_class,
 )
 from .doc import (ordered_items)
@@ -610,9 +613,111 @@ def _grid_svg(doc: dict) -> str:
             f'{"".join(lines)}</g>')
 
 
+# The chrome's sizes are in pixels of the finished picture. `px` turns them into
+# sheet units, the same way an item's line width is handled — a bar that scaled
+# with the sheet would be a hairline on one crop and a slab on another.
+# Sized against the real thing: an ops trace is TRACE_WIDTH = 1600 px wide and
+# goes onto an A4 page, where 13 px of label is about 0.8% of the width and
+# disappears. These were set by rendering one and looking at it.
+CHROME_INSET = 28
+CHROME_TEXT = 22
+CHROME_TICK = 10
+CHROME_RULE = 3
+CHROME_ARROW_H = 44
+CHROME_ARROW_W = 13
+
+
+def _chrome_text(text: str, x: float, y: float, size: float,
+                 anchor: str = 'middle') -> str:
+    """Chrome's own label: the same ink-over-backing trick the map's labels
+    use, but at a size in picture pixels rather than one derived from an
+    item's size."""
+    colour = DEFAULT_INK
+    return (
+        f'<text{_attrs(x=round(x, 2), y=round(y, 2), text_anchor=anchor)} '
+        f'font-size="{round(size, 1)}" font-family="{ARMA_FONT}" '
+        f'font-weight="700" fill="{colour}" stroke="{ink_backing(colour)}" '
+        f'stroke-opacity="0.65" stroke-width="{round(size * 0.14, 2)}" '
+        f'paint-order="stroke" stroke-linejoin="round">{escape(text)}</text>'
+    )
+
+
+def chrome_svg(doc: dict, box: tuple, px: float = 1.0) -> str:
+    """A north arrow and a scale bar for a picture that cannot be zoomed.
+
+    Both are read off *box*, the crop actually being drawn, not off the sheet:
+    an AO map and a phase's ops trace show different amounts of ground, so a
+    bar sized from the whole terrain would be wrong on every one of them.
+
+    **North is straight up and the arrow is a fixed glyph**, because the sheet
+    has no rotation — `to_world()` only flips the vertical axis. The arrow is
+    there so a printed trace reads as a map, not because it varies.
+
+    Nothing is drawn when the sheet has no Arma corners to measure against, or
+    when the crop is too small for any round distance: a bar labelled `0 m` is
+    worse than no bar.
+    """
+    across, _ = metres_per_unit(doc)
+    if across <= 0 or box[2] <= 0:
+        return ''
+    metres, label = scale_bar(box[2] * across)
+    if not metres:
+        return ''
+
+    inset = CHROME_INSET * px
+    base = box[1] + box[3] - inset
+    text = CHROME_TEXT * px
+    tick = CHROME_TICK * px
+    stroke = round(CHROME_RULE * px, 2)
+    ink = DEFAULT_INK
+
+    length = metres / across
+    left = box[0] + inset
+    right = left + length
+    rules = (
+        f'<line x1="{round(left, 2)}" y1="{round(base, 2)}" '
+        f'x2="{round(right, 2)}" y2="{round(base, 2)}"/>'
+        f'<line x1="{round(left, 2)}" y1="{round(base - tick, 2)}" '
+        f'x2="{round(left, 2)}" y2="{round(base, 2)}"/>'
+        f'<line x1="{round(right, 2)}" y1="{round(base - tick, 2)}" '
+        f'x2="{round(right, 2)}" y2="{round(base, 2)}"/>'
+    )
+    # Drawn twice: a wider pass in the opposite tone, then the ink over it.
+    # `paint-order` does this for the text and the arrow because both have a
+    # fill, but a bare stroke has nothing to put a stroke under — and a dark
+    # rule on a night or forest terrain is invisible without it.
+    bar = (
+        f'<g fill="none" stroke-linecap="butt">'
+        f'<g stroke="{ink_backing(ink)}" stroke-opacity="0.65" '
+        f'stroke-width="{round(stroke + 2 * px, 2)}">{rules}</g>'
+        f'<g stroke="{ink}" stroke-width="{stroke}">{rules}</g>'
+        f'</g>'
+        + _chrome_text(label, (left + right) / 2, base - tick - text * 0.5, text)
+    )
+
+    # The arrow sits at the other end, so neither can land on top of the other
+    # however narrow the crop is.
+    cx = box[0] + box[2] - inset
+    height = CHROME_ARROW_H * px
+    half = CHROME_ARROW_W * px
+    top = base - height
+    arrow = (
+        f'<polygon points="{round(cx, 2)},{round(top, 2)} '
+        f'{round(cx - half, 2)},{round(base, 2)} '
+        f'{round(cx, 2)},{round(base - height * 0.3, 2)} '
+        f'{round(cx + half, 2)},{round(base, 2)}" '
+        f'fill="{ink}" stroke="{ink_backing(ink)}" '
+        f'stroke-opacity="0.65" stroke-width="{stroke}" '
+        f'paint-order="stroke"/>'
+        + _chrome_text('N', cx, top - text * 0.35, text)
+    )
+    return f'<g id="tm-chrome" pointer-events="none">{bar}{arrow}</g>'
+
+
 def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
            places: list = None, view: tuple = None, tile_zoom: int = None,
-           tile_href=None, size: tuple = None, marker_images: dict = None) -> str:
+           tile_href=None, size: tuple = None, marker_images: dict = None,
+           chrome: bool = False) -> str:
     """The whole map as one `<svg>` element.
 
     This is what the read-only page, the share link and the no-JavaScript
@@ -626,6 +731,13 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
 
     `marker_images` (picture key → href) are the game's own pictures, which a
     guild uploads; a marker or unit with none is drawn as a placeholder.
+
+    `chrome` adds a north arrow and a scale bar, and is **off unless the
+    picture cannot be zoomed**. Every page that shows this SVG binds a wheel
+    handler, including the read-only one, and the viewBox then changes in the
+    browser without the bar knowing — so on an interactive page the bar would
+    quietly start lying about the distance it names. Only `web/maptrace.py`
+    turns it on, which is the one caller that produces a fixed PNG.
     """
     classes = ('tacmap ' + extra_class).strip()
     namespace = ' xmlns="http://www.w3.org/2000/svg"' if standalone else ''
@@ -650,5 +762,6 @@ def render(doc: dict, *, standalone: bool = False, extra_class: str = '',
         f'{_background_svg(doc, zoom=tile_zoom, view=view, href=tile_href)}'
         f'{_grid_svg(doc)}{names}</g>'
         f'<g id="tm-mask">{mask_svg(doc)}</g>'
-        f'<g class="tm-items">{body}</g></svg>'
+        f'<g class="tm-items">{body}</g>'
+        f'{chrome_svg(doc, box, px) if chrome else ""}</svg>'
     )

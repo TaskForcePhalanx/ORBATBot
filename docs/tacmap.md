@@ -773,6 +773,42 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   right-click to delete one (never below two, or three for an area).
   **Handles answer only the Select tool** — with a drawing tool in hand a
   click on a corner starts a new line there, which is what Snap is for.
+- **The north arrow and scale bar** (`chrome_svg()`) are drawn **only when the
+  picture cannot be zoomed**, which in practice means only
+  `web/maptrace.py`'s ops traces and the briefing packs built from them. The
+  gate is the point of the feature, not a limitation of it: every page that
+  shows this SVG binds a wheel handler — the read-only one included, because
+  that handler is registered above the `if (!editable) return` — so the
+  viewBox changes in the browser without the bar knowing, and a bar that
+  names a distance it no longer spans is worse than no bar. On a fixed PNG it
+  cannot drift.
+  - Both read the **crop** (`box`), never the sheet. An AO map and a phase's
+    trace show different amounts of ground, so a bar sized from the whole
+    terrain would be wrong on every one of them.
+  - `scale_bar()` picks the largest round number — 1, 2 or 5 times a power of
+    ten — that **fits** its fifth of the width, rather than the nearest one. A
+    bar allowed to overrun creeps across the plan on exactly the crops where
+    the plan is busiest.
+  - The sizes are in pixels of the finished picture, turned into sheet units
+    by `px` the way line widths are. They were set by rendering a trace at the
+    real `TRACE_WIDTH` and looking at it; 13 px of label, which looked fine on
+    a 900 px test, is 0.8% of an A4 trace and disappears.
+  - The bar's rules are drawn **twice**, a wider pass in the opposite tone and
+    then the ink over it. `paint-order` does that for the text and the arrow
+    because both have a fill, but a bare stroke has nothing to put a stroke
+    under, and a dark rule on a night or forest terrain is invisible without
+    it.
+  - **North is straight up and the arrow is a fixed glyph.** The sheet has no
+    rotation — `to_world()` only flips the vertical axis — so the arrow is
+    there to make a printed trace read as a map, not because it varies.
+  - `metres_per_unit()` moved from `arma.py` down into `base.py` to make this
+    possible: the renderer needs it and **the renderer sits below the Arma
+    export** in the layer cake. `arma.py` takes it from `base`, which is the
+    direction the layers allow and `tests/test_tacmap_package.py` enforces.
+  - **No JavaScript was added.** The editor's `render()` only replaces the
+    contents of `#tm-back`, `#tm-mask`, `.tm-items` and the overlay, so a
+    sibling group would survive every edit — but it would also stop being
+    true the moment somebody zoomed, which is why the editor does not get one.
 - **Measuring** reads the sheet's Arma corners (`metres_per_unit()`,
   `length_m()`, `grid_ref()`). The readout in the map's top corner shows the
   6-figure grid reference under the pointer for everybody, and while drawing

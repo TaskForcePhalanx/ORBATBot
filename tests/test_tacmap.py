@@ -2207,3 +2207,111 @@ def test_the_body_cap_still_bounds_what_one_request_can_spend():
                   for k in ('line', 'area', 'unit'))
     assert tacmap.MAX_DOC_BYTES < 16 * 1024 * 1024
     assert tacmap.MAX_DOC_BYTES >= 2 * biggest, 'leave room, but not a tenfold margin'
+
+
+# ---------------------------------------------------------------------------
+# The north arrow and scale bar
+# ---------------------------------------------------------------------------
+
+def _extent_doc(width=1000, metres=30720):
+    doc = tacmap.blank_doc(width, width)
+    doc['arma'] = {'terrain': 'x', 'left': 0.0, 'bottom': 0.0,
+                   'right': float(metres), 'top': float(metres)}
+    return doc
+
+
+def test_a_scale_bar_is_only_ever_a_round_number():
+    """The whole point of a bar is reading a distance off it without doing
+    arithmetic, so 1, 2 or 5 times a power of ten and nothing else."""
+    for span in range(200, 40000, 137):
+        metres, label = tacmap.scale_bar(span)
+        assert metres > 0, span
+        digits = f'{metres:g}'.lstrip('0.').rstrip('0') or '0'
+        assert digits.lstrip('0') in ('1', '2', '5'), (span, metres)
+        assert label
+
+
+def test_a_scale_bar_never_overruns_the_share_it_is_given():
+    """Largest that *fits*, not nearest. A bar allowed to overrun creeps
+    across the plan on exactly the crops where the plan is busiest."""
+    for span in range(200, 40000, 97):
+        metres, _ = tacmap.scale_bar(span)
+        assert metres <= span * tacmap.SCALE_BAR_SHARE + 1e-9, span
+
+
+def test_a_scale_bar_takes_a_useful_part_of_the_width():
+    """And is not so cautious it becomes a stub: never under a tenth."""
+    for span in range(200, 40000, 97):
+        metres, _ = tacmap.scale_bar(span)
+        assert metres >= span * tacmap.SCALE_BAR_SHARE / 2.5, span
+
+
+def test_a_span_of_nothing_gives_no_bar():
+    assert tacmap.scale_bar(0) == (0, '')
+    assert tacmap.scale_bar(-5) == (0, '')
+
+
+def test_distances_read_the_way_a_map_reader_expects():
+    assert tacmap.distance_label(500) == '500 m'
+    assert tacmap.distance_label(999) == '999 m'
+    assert tacmap.distance_label(1000) == '1 km'
+    assert tacmap.distance_label(1500) == '1.5 km'
+    assert tacmap.distance_label(2000) == '2 km'
+    assert tacmap.distance_label(10000) == '10 km'
+
+
+def test_metres_per_unit_still_answers_from_its_new_home():
+    """It moved from `arma` down to `base` so the renderer could reach it —
+    the layers only import upwards-to-downwards, and drawing sits below arma."""
+    doc = _extent_doc(1000, 30720)
+    assert tacmap.metres_per_unit(doc) == (30.72, 30.72)
+
+
+def test_there_is_no_chrome_unless_the_picture_is_asked_for_it():
+    """Off by default, because every page showing this SVG binds a wheel
+    handler and the viewBox then changes without the bar knowing."""
+    doc = _extent_doc()
+    assert 'tm-chrome' not in tacmap.render(doc)
+    assert 'tm-chrome' not in tacmap.render(doc, size=(800, 800))
+    assert 'tm-chrome' in tacmap.render(doc, size=(800, 800), chrome=True)
+
+
+def test_the_bar_measures_the_crop_and_not_the_sheet():
+    """An AO map and a phase's trace show different amounts of ground. A bar
+    sized from the whole terrain would be wrong on every one of them."""
+    doc = _extent_doc(1000, 30720)          # 30.72 m per unit
+    whole = tacmap.render(doc, size=(1600, 1600), chrome=True)
+    quarter = tacmap.render(doc, view=(0, 0, 250, 250), size=(1600, 1600),
+                            chrome=True)
+    assert '>5 km<' in whole               # 30,720 m across
+    assert '>1 km<' in quarter             # 7,680 m across
+    assert '>5 km<' not in quarter
+
+
+def test_a_sheet_with_no_ground_to_measure_gets_no_chrome():
+    doc = _extent_doc()
+    doc['arma'] = {'terrain': '', 'left': 0.0, 'bottom': 0.0,
+                   'right': 0.0, 'top': 0.0}
+    assert 'tm-chrome' not in tacmap.render(doc, size=(800, 800), chrome=True)
+
+
+def test_the_chrome_cannot_be_clicked_through_to():
+    """It is drawn over the plan, and the editor hit-tests the items under it."""
+    svg = tacmap.render(_extent_doc(), size=(800, 800), chrome=True)
+    chrome = svg[svg.index('<g id="tm-chrome"'):]
+    assert 'pointer-events="none"' in chrome[:60]
+
+
+def test_the_chrome_is_the_last_thing_drawn():
+    """Over the plan rather than under it: a trace with a busy centre still
+    has a readable bar."""
+    svg = tacmap.render(_extent_doc(), size=(800, 800), chrome=True)
+    assert svg.index('tm-chrome') > svg.index('class="tm-items"')
+
+
+def test_the_bar_label_is_escaped_like_every_other_label():
+    """It is generated rather than typed, but it goes through the same writer
+    as the labels that are not."""
+    svg = tacmap.render(_extent_doc(), size=(800, 800), chrome=True)
+    chrome = svg[svg.index('<g id="tm-chrome"'):]
+    assert '<text' in chrome and 'font-family=' in chrome

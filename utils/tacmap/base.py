@@ -16,6 +16,7 @@ Part of `utils/tacmap`, split out of one 3,257-line module. The package's
 `__init__` re-exports every name, so `from utils import tacmap` and
 `tacmap.anything` work exactly as they did.
 """
+import math
 import re
 
 
@@ -469,6 +470,66 @@ ARMA_TERRAINS = (
 )
 DEFAULT_EXTENT = {'terrain': '', 'left': 0.0, 'bottom': 0.0,
                   'right': 30720.0, 'top': 30720.0}
+
+
+def metres_per_unit(doc: dict) -> tuple:
+    """How many metres one sheet unit is across and down, from the sheet's
+    Arma corners — what lengths, grid references and the scale bar measure
+    with.
+
+    It lives in the base layer rather than beside the Arma export it was
+    written for, because the renderer needs it too and the renderer sits
+    *below* that export: the layers only import downwards. `arma.py` takes it
+    from here, which is the direction that is allowed.
+    """
+    arma = doc.get('arma') or DEFAULT_EXTENT
+    return (abs(arma['right'] - arma['left']) / doc['width'],
+            abs(arma['top'] - arma['bottom']) / doc['height'])
+
+
+# How much of the picture's width the scale bar aims to take up. A fifth is
+# long enough to read a round number off and short enough to sit in a corner
+# without crossing the plan.
+SCALE_BAR_SHARE = 0.2
+
+# The only lengths a scale bar is ever drawn as, times a power of ten. Anything
+# else is a bar you have to do arithmetic on, which defeats the point of it.
+SCALE_BAR_STEPS = (1, 2, 5)
+
+
+def distance_label(metres: float) -> str:
+    """A ground distance as a map reader expects to see it: `500 m`, `1 km`,
+    `1.5 km`. Never `1.0 km`, and never `1500 m`."""
+    if metres < 1000:
+        return f'{int(round(metres))} m'
+    km = metres / 1000
+    return f'{km:g} km'
+
+
+def scale_bar(span_m: float) -> tuple:
+    """`(metres, label)` for a bar across a picture spanning *span_m* on the
+    ground — the largest round number that fits its share of the width.
+
+    Largest that *fits*, not nearest: a bar allowed to overrun its share
+    creeps across the plan on exactly the crops where the plan is busiest.
+    A span too small for any round number at all gives `(0, '')`, and the
+    renderer draws nothing rather than a bar labelled `0 m`.
+    """
+    target = span_m * SCALE_BAR_SHARE
+    if target <= 0:
+        return (0, '')
+    power = 10 ** math.floor(math.log10(target))
+    best = 0
+    for step in SCALE_BAR_STEPS:
+        if step * power <= target:
+            best = step * power
+    if not best:
+        # log10's floor can land a power just above the target through floating
+        # point; the step below is always small enough.
+        best = power / 10
+    if best <= 0:
+        return (0, '')
+    return (best, distance_label(best))
 
 
 # How much of the terrain's own place names one map shows. `groups` empty means

@@ -131,7 +131,8 @@ async def draw(guild_id: str, doc: dict, layer_id: str) -> bytes | None:
     svg = tacmap.render(rules.trace_doc(doc, layer_id), standalone=True, places=places,
                         view=view, tile_zoom=zoom, tile_href=href,
                         marker_images=await marker_images_inline(guild_id),
-                        size=(width, round(width / rules.TRACE_ASPECT)))
+                        size=(width, round(width / rules.TRACE_ASPECT)),
+                        chrome=True)
     return await asyncio.to_thread(_rasterise, svg)
 
 

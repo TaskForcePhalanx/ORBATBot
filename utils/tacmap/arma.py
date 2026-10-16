@@ -28,6 +28,7 @@ from .base import (
     LINE_COLOURS,
     LINE_LABEL_MARKER,
     LINE_LABEL_SIZE,
+    metres_per_unit,
     MARKERS,
     MAX_DASHES,
     MAX_LABEL,
@@ -221,14 +222,6 @@ def to_world(doc: dict, x: float, y: float) -> tuple:
     world_x = arma['left'] + (x / doc['width']) * (arma['right'] - arma['left'])
     world_y = arma['top'] - (y / doc['height']) * (arma['top'] - arma['bottom'])
     return (round(world_x, 2), round(world_y, 2))
-
-
-def metres_per_unit(doc: dict) -> tuple:
-    """How many metres one sheet unit is across and down, from the sheet's
-    Arma corners — what lengths and grid references are measured with."""
-    arma = doc.get('arma') or DEFAULT_EXTENT
-    return (abs(arma['right'] - arma['left']) / doc['width'],
-            abs(arma['top'] - arma['bottom']) / doc['height'])
 
 
 def length_m(doc: dict, points: list, closed: bool = False) -> float:
