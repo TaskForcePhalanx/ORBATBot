@@ -179,13 +179,20 @@ the cap rather than eight-and-a-bit: 8 × 3 + 1 is exactly 25.
 ### Notes for future changes
 
 - **`utils/orbat.py` imports nothing.** No discord.py, no FastAPI, no asyncpg —
-  which is why the parser and the diff are the only tested code in this repo
-  (`lab/tests`, 47 cases). Keep it that way: these are the two places where a
-  bug silently deletes slots.
-- **`lab/` is the same code.** The standalone playground that prototyped this
-  re-exports `utils/orbat.py` rather than keeping a second copy; a drifting
-  parser would be the worst possible bug here. It has no other reason to exist
-  and can be deleted whenever.
+  which is why the parser and the diff were the first tested code in this repo
+  (`tests/test_orbat_parser.py` and `tests/test_orbat_diff.py`, 47 cases).
+  Keep it that way: these are the two places where a bug silently deletes
+  slots.
+- **The playground it was prototyped in is gone.** `lab/` held a standalone
+  ORBAT editor — a dev server, a store, a seed, its own templates — plus three
+  modules (`parser.py`, `diff.py`, `render.py`) that were nothing but
+  re-exports of `utils/orbat.py`, so that the playground kept working after
+  the parser graduated into the bot. Its 47 tests were the valuable part and
+  they moved into `tests/`, importing the real module directly; the rest was
+  about 650 lines nothing in the service referenced and a second test root
+  (`pytest tests lab/tests`) that every contributor had to remember. Checked
+  before it went: stubbing `build_diff()` fails 12 of those tests from their
+  new home, so they still cover what they always covered.
 - **The editor page steps outside the 900px column** via `.widepage`, because
   the text field and the preview do not fit side by side inside it. It is the
   only page that does.

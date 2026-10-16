@@ -1,7 +1,8 @@
 """What the diff has to get right: an edit must not silently unseat anybody."""
 
-from lab import diff as diffing
-from lab import parser
+from utils import orbat as parser
+from utils import orbat as diffing
+from utils import orbat as render
 
 
 def stored(*squads):
@@ -133,7 +134,6 @@ def test_new_orbat_from_nothing_is_all_additions():
 # -- the board ---------------------------------------------------------------
 
 def board_of(text, nets_text=''):
-    from lab import render
     parsed = parser.parse(text)
     assert parsed.ok, parsed.errors
     nets = parser.parse_nets(nets_text)

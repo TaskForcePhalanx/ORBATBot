@@ -125,6 +125,26 @@ def test_every_doc_says_where_it_came_from():
         assert 'CLAUDE.md' in head, '%s does not point back at CLAUDE.md' % path.name
 
 
+def test_the_documented_test_command_is_what_ci_runs():
+    """One command, written down in one place and run in another.
+
+    It was `pytest tests lab/tests` while the ORBAT tests lived in a
+    playground, so both CLAUDE.md and the workflow had to say the same two
+    paths — and when the playground went, either could have been left behind.
+    A workflow running a narrower command than the docs promise is a suite
+    that passes while covering less.
+    """
+    claude = CLAUDE.read_text()
+    workflow = (ROOT / '.github' / 'workflows' / 'deploy.yml').read_text()
+    runs = re.findall(r'pytest ([^\n]*)', workflow)
+    assert runs, 'the workflow no longer runs pytest'
+    paths = {p for p in runs[-1].split() if not p.startswith('-')}
+    assert paths == {'tests'}, 'CI runs pytest over %s' % sorted(paths)
+    assert '`python -m pytest tests`' in claude, 'CLAUDE.md names a different command'
+    for stale in ('lab/tests', 'lab/'):
+        assert stale not in workflow, 'the workflow still names %s' % stale
+
+
 def test_claude_md_has_not_grown_back():
     """The file is loaded in full by every session, so its length is a cost
     paid on every turn before any work starts. It was 4,124 lines once.

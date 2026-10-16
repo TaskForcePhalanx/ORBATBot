@@ -44,7 +44,7 @@ undone in a minute.
 |---|---|
 | `utils/database/`, `utils/schema.py`, or anything about a table or column | [docs/schema.md](docs/schema.md) |
 | `cogs/slots.py`, `cogs/admin.py`, `utils/roster.py`, `utils/sheets.py` — requesting, approving, assigning, the board | [docs/slots.md](docs/slots.md) |
-| `utils/orbat.py`, `web/orbat.py`, `lab/` — the roster editor and its diff | [docs/orbats.md](docs/orbats.md) |
+| `utils/orbat.py`, `web/orbat.py` — the roster editor and its diff | [docs/orbats.md](docs/orbats.md) |
 | `utils/tacmap/`, `web/tacmap.py`, `web/static/tacmap.js`, `utils/tiles.py`, `utils/arma_icons.py`, `web/terrain.py` | [docs/tacmap.md](docs/tacmap.md) |
 | `utils/campaign.py`, `web/campaigns.py`, `cogs/campaigns.py`, `web/static/campaign.js`, `web/exports.py`, `web/maptrace.py` | [docs/campaigns.md](docs/campaigns.md) |
 | anything under `web/` — the app, the routes, auth, the nav, the front end | [docs/web.md](docs/web.md) |
@@ -155,8 +155,6 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   invites.py            # Invite labels — where each link was published
   helpers.py            # Guild-timezone formatting and datetime-local parsing
   templates/ static/    # Jinja2 templates, one stylesheet, two scripts (the map editor, the mission wizard)
-lab/                    # Standalone ORBAT-editor playground — no Discord, no Postgres
-  # (inside scripts/ below)
 dashboard/              # The Kill Tracker's public page — static, hosted on GitHub Pages, not by the bot
   index.html tracker.js # Reads everything from the bot's /kt/api/* — no Google Sheet
   *.json                # campaigns / player_aliases / unit_overrides — the fallback the bot's API replaces
@@ -176,7 +174,10 @@ README.md               # User-facing docs — commands, setup, deployment
 CLAUDE.md               # This file
 ```
 
-There is no CI or linter config. The tests are `python -m pytest tests lab/tests`,
+There is no linter config. `.github/workflows/deploy.yml` runs the tests on
+every push and pull request, and the deploy step after them is skipped unless
+`RAILWAY_TOKEN` is set — so the suite is the gate whether or not that token
+exists. The tests are `python -m pytest tests`,
 and almost every one of them covers a module that imports nothing
 beyond the standard library — which is the rule that decides what is testable
 here at all. The two exceptions read source rather than call it:
@@ -186,7 +187,7 @@ for one exception class:
 
 | | what it pins |
 |---|---|
-| `lab/tests` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot |
+| `tests/test_orbat_parser.py`, `tests/test_orbat_diff.py` | `utils/orbat.py`'s parser and diff — the two places where a bug silently deletes somebody's slot. They lived in `lab/tests` and reached the real module through re-export shims; the playground is gone and they import it directly |
 | `tests/test_reddit.py` | feed parsing, templating, and how a refusal is told apart from a broken feed |
 | `tests/test_redditfeed.py` | what `check_feed()` promises: a post is announced exactly once |
 | `tests/test_tacmap.py` | the document rules, lines (weights, dashes cut into Arma markers, arrows, phase-line names), measuring and grid references, reading markers back from Arma and the export report, the SVG and SQF escaping, units and markers drawn from uploaded pictures, how an upload is matched and how old maps read, shapes (their parsing, hatching and Arma area markers), the grey mask and its AO holes, the tile layout, the body cap measured against the largest document the parser accepts, and the place-name parser and geometry (the renderer's crop and tile swapping are pinned in `test_campaign.py`, which is what uses them) |
@@ -211,8 +212,7 @@ it was the single line every branch touched — so two PRs open at once conflict
 on it every time, in a file where a conflict is the most tedious kind to resolve.
 The number is whatever `pytest` prints, it tells nobody anything the command
 does not, and a figure that must be edited by every change is a figure that is
-wrong between changes. The same goes for `lab/tests`' count below: it is there
-because that one has not moved in a year, and it goes the moment it does.
+wrong between changes.
 
 **Every decision-making function in this project is now covered.** The last two
 were `_parse_responses()` and `_parse_mention_roles()` in `cogs/events.py`, and
