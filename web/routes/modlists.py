@@ -121,16 +121,16 @@ def register(app, d):
         published = set(await database.get_modlist_guild_ids())
         guilds = [g for g in bot.guilds if str(g.id) in published]
         if len(guilds) == 1:
-            return RedirectResponse(f'/m/{guilds[0].id}', status_code=303)
+            return RedirectResponse(f'/mods/{guilds[0].id}', status_code=303)
         if not guilds:
             return Response('No modlists have been published yet.', status_code=404)
-        links = ''.join(f'<li><a href="/m/{g.id}">{html.escape(g.name)}</a></li>'
+        links = ''.join(f'<li><a href="/mods/{g.id}">{html.escape(g.name)}</a></li>'
                         for g in guilds)
         return HTMLResponse(f'<!doctype html><meta charset="utf-8">'
                             f'<meta name="viewport" content="width=device-width">'
                             f'<title>Mods</title><h1>Mods</h1><ul>{links}</ul>')
 
-    @app.get('/m/{guild_id}', response_class=HTMLResponse)
+    @app.get('/mods/{guild_id}', response_class=HTMLResponse)
     async def modlist_selector(request: Request, guild_id: str):
         guild = public_guild(guild_id)
         if guild is None:
@@ -144,7 +144,7 @@ def register(app, d):
             'key_of': modlist.key_of,
         })
 
-    @app.get('/m/{guild_id}/preset.html')
+    @app.get('/mods/{guild_id}/preset.html')
     async def modlist_selection(request: Request, guild_id: str, operation: str = ''):
         guild = public_guild(guild_id)
         if guild is None:
@@ -157,7 +157,7 @@ def register(app, d):
         return Response(body, media_type='text/html; charset=utf-8', headers={
             'Content-Disposition': f'attachment; filename="{modlist.filename_for(name)}"'})
 
-    @app.get('/m/{guild_id}/v/{modlist_id}/preset.html')
+    @app.get('/mods/{guild_id}/v/{modlist_id}/preset.html')
     async def modlist_version(request: Request, guild_id: str, modlist_id: int):
         """One stored version, as the event post links it."""
         guild = public_guild(guild_id)

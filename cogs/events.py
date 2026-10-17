@@ -190,7 +190,7 @@ async def _event_mods(bot: commands.Bot, event):
     if web is not None:
         try:
             url = web.config.public_url(
-                f"/m/{event['guild_id']}/v/{version['id']}/preset.html")
+                f"/mods/{event['guild_id']}/v/{version['id']}/preset.html")
         except Exception:
             url = ''
     return {'name': version['name'], 'count': len(version['mods']), 'url': url}
