@@ -4,7 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.034 — 2026-10-17 (latest)
+## v1.035 — 2026-10-17 (latest)
+
+### Added
+- **Multikill** — the most enemies a player killed inside any 10 seconds, as a column in the infantry table and the per-mission breakdown (the best one of a player's missions) and on the player page. The crew of a shot-down vehicle does not count. Missions the bot has not counted again yet show a dash
+
+---
+
+## v1.034 — 2026-10-17
 
 ### Added
 - **Downed** — how often a player went unconscious (ACE), as a column next to *Deaths* in the infantry table and the per-mission breakdown, and as *Times Unconscious* on the player page. The bot counts it from the recordings (two new CSV columns); missions it has not counted again yet show a dash

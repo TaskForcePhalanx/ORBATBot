@@ -40,7 +40,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # are real) and every player's own longest one, not just the mission's farthest.
 # 4 = two more columns: the weapon the longest kill was made with.
 # 5 = two more columns: how often a player went unconscious, and for how long.
-RULES_VERSION = 5
+# 6 = one more column: the most enemy kills inside any 10 seconds.
+RULES_VERSION = 6
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -69,6 +70,8 @@ HEADER = [
     "Longest Kill Weapon (On Foot)", "Longest Kill Weapon (In Vehicle)",
     # And after those: ACE unconsciousness, read from the alive state (2)
     "Times Unconscious", "Time Unconscious (s)",
+    # And the most kills inside MULTIKILL_WINDOW_S seconds
+    "Best Multikill",
 ]
 
 # --- counting thresholds (the Apps Script's constants, unchanged) -----------
@@ -101,6 +104,8 @@ EOM_BURST_COUNT = 3          # TKs inside the window that make a burst
 EOM_BURST_MAX_FROMEND_S = 600  # the burst rule only applies in the last 10 minutes
 # `positions[i][2]` is 0 dead, 1 alive, 2 unconscious (ACE).
 STATE_UNCONSCIOUS = 2
+# A multikill is this many seconds of game time wide, edges included.
+MULTIKILL_WINDOW_S = 10
 # An unnamed entity with less playtime than this is noise, not a player.
 MIN_UNKNOWN_PLAYTIME_S = 3600
 
@@ -419,7 +424,7 @@ class _Player:
                  'vkills_foot', 'vkills_veh', 'shots_veh', 'hits_taken_veh',
                  'hits_dealt_veh', 'kill_dist_veh', 'longest_foot_weapon', 'longest_veh_weapon', 'weapon_kills', 'vehicle_kills',
                  'suicides', 'is_unknown', 'is_zeus', 'time_played', 'distance_run',
-                 'times_unconscious', 'time_unconscious')
+                 'times_unconscious', 'time_unconscious', 'kill_frames')
 
     def __init__(self, ent: Entity, name: str, capture_delay):
         self.ent = ent
@@ -443,6 +448,7 @@ class _Player:
         self.time_played = ent.n * capture_delay
         self.distance_run = 0
         self.times_unconscious = self.time_unconscious = 0
+        self.kill_frames = []
 
     def zero(self) -> None:
         """A Zeus has no combat stats."""
@@ -454,6 +460,7 @@ class _Player:
         self.suicides = 0
         self.distance_run = 0
         self.times_unconscious = self.time_unconscious = 0
+        self.kill_frames = []
         self.kill_dist_foot = []
         self.kill_dist_veh = []
         self.longest_foot_weapon = self.longest_veh_weapon = ''
@@ -495,6 +502,19 @@ def is_indirect_fire(weapon) -> bool:
 
 def is_pistol(weapon) -> bool:
     return bool(weapon) and bool(_PISTOL.search(weapon))
+
+
+def best_multikill(frames, capture) -> int:
+    """The most kills inside any `MULTIKILL_WINDOW_S` seconds: `frames` are the
+    frame numbers of one player's kills, `capture` the seconds per frame."""
+    width = MULTIKILL_WINDOW_S / (capture or 1)
+    frames = sorted(f for f in frames if isinstance(f, (int, float)))
+    best = lo = 0
+    for hi, f in enumerate(frames):
+        while f - frames[lo] > width:
+            lo += 1
+        best = max(best, hi - lo + 1)
+    return best
 
 
 def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
@@ -726,6 +746,10 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
                     plausible = (not crew and not is_indirect_fire(weapon_name)
                                  and not (is_pistol(weapon_name) and distance > MAX_PISTOL_KILL_DIST)
                                  and (killer_in_vehicle or distance <= MAX_FOOT_KILL_DIST))
+                    if not crew:
+                        # A shot-down helicopter's crew all die in one frame and
+                        # would be a multikill nobody earned.
+                        killer_p.kill_frames.append(frame)
                     key = kill_key(frame, killer_id, victim_id)
                     struck = key in exclude
                     # Only an infantryman's shot is worth checking: a vehicle's
@@ -833,6 +857,7 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
             p.longest_veh_weapon if p.kill_dist_veh else '',
             p.times_unconscious,
             js_round(p.time_unconscious),
+            best_multikill(p.kill_frames, capture),
         ])
 
     rows.sort(key=lambda r: r[7], reverse=True)  # stable, like the script's sort
