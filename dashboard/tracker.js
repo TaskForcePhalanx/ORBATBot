@@ -4,7 +4,7 @@
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-17";
-const VERSION      = "1.038";
+const VERSION      = "1.039";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -106,15 +106,14 @@ let zeusFilter = "all";
 //   1. WEAPON_RENAMES, for the names that say nothing ("Rifle" is a SCAR-H);
 //   2. a vehicle's weapon ("AH-64D: MASTERSAFE") is kept as it is, minus the magazine;
 //   3. otherwise the first model designation in the name: letters and the number
-//      after them (HK416N -> HK416, AK-74M -> AK-74, Mk 18 Mod 1 -> Mk 18);
+//      after them, plus an A-revision (HK416N -> HK416, AK-74M -> AK-74, M249E2 -> M249,
+//      Mk 18 Mod 1 -> Mk 18, but M4A1 and M4A3 stay two guns);
 //   4. a name with no such designation (PKM, Grenade) is kept, minus magazine and brackets.
-// The family can only be as exact as the name: M4A1 and M4A3 are both "M4". To show
-// a family under a better name, add a line to WEAPON_RENAMES: [matches the raw name
-// or the family, shown name].
+// To show a family under a better name, add a line to WEAPON_RENAMES: [matches the raw
+// name or the family, shown name].
 const WEAPON_RENAMES = [
   [/^Rifle \[.*SCAR-H/i,  "FN SCAR-H STD"],
   [/^FN SCAR-H/i,         "FN SCAR-H STD"],
-  [/^M4$/,                "M4A1"],
 ];
 function weaponName(raw) {
   raw = String(raw || "").trim();
@@ -131,7 +130,7 @@ function weaponName(raw) {
     .trim();
   if (plain.includes(':')) return plain.replace(/\s*\([^)]*\)/g, '').trim();
   const bare = plain.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
-  const family = bare.match(/[A-Za-z]+[-. ]?\d+/);
+  const family = bare.match(/[A-Za-z]+[-. ]?\d+(?:A\d)?/);
   return rename(family ? family[0].replace(/\s+/, ' ') : bare);
 }
 
