@@ -173,3 +173,43 @@ def test_merge_keeps_a_mod_once():
 def test_filename_is_safe():
     assert modlist.filename_for('../../etc/pa ss"wd') == 'etc_pa_ss_wd.html'
     assert modlist.filename_for('') == 'Modlist.html'
+
+
+def _lists():
+    def m(name, wid):
+        return {'name': name, 'id': wid, 'source': 'steam',
+                'link': f'https://steamcommunity.com/sharedfiles/filedetails/?id={wid}'}
+    return {
+        'weekly': [m('CBA_A3', '450814997'), m('RHS', '1')],
+        'jointop': [m('Jo', '2')],
+        'core': [m('ace', '3'), m('acre', '4')],
+        'optional': [m('Look', '5')],
+    }
+
+
+def test_selection_takes_an_operation_list_whole():
+    out = modlist.build_selection(_lists(), 'weekly')
+    assert [x['name'] for x in out] == ['CBA_A3', 'RHS']
+
+
+def test_selection_adds_picks_and_cba_first():
+    out = modlist.build_selection(_lists(), '', {'core': {'3'}, 'optional': {'5'}})
+    assert [x['name'] for x in out] == ['CBA_A3', 'ace', 'Look']
+
+
+def test_selection_dedupes_across_lists():
+    out = modlist.build_selection(_lists(), 'weekly', {'core': {'450814997', '3'}})
+    assert [x['name'] for x in out].count('CBA_A3') == 1
+
+
+def test_selection_ignores_stale_picks_and_unknown_operations():
+    assert modlist.build_selection(_lists(), 'bogus', {'core': {'999'}}) == []
+
+
+def test_nothing_selected_is_empty_not_a_lone_cba():
+    assert modlist.build_selection(_lists()) == []
+
+
+def test_picks_for_an_operation_slot_are_not_honoured():
+    # Only core and optional are chosen from; a forged `weekly` pick adds nothing.
+    assert modlist.build_selection(_lists(), '', {'weekly': {'1'}}) == []

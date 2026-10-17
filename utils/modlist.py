@@ -342,3 +342,26 @@ def filename_for(name: str) -> str:
     """A download name that is safe in a header and on every filesystem."""
     base = re.sub(r'[^A-Za-z0-9._-]+', '_', name or '').strip('._') or 'Modlist'
     return base[:60] + '.html'
+
+
+def build_selection(lists: dict, operation: str = '', picks: dict = None) -> list:
+    """The mods a member ends up with after using the selector.
+
+    `lists` is `{slot: mods}`; `operation` is `'weekly'`, `'jointop'` or empty —
+    an operation list is taken whole, never mod by mod; `picks` is
+    `{'core': keys, 'optional': keys}` for the lists that are chosen from, each
+    key as `key_of()` makes it. A pick that names a mod no longer on the list
+    is ignored, so a link made last week still downloads this week's list.
+
+    Nothing selected is an empty list, not a lone CBA_A3; anything else gets it
+    first, since a preset without it does not load.
+    """
+    picks = picks or {}
+    chosen = []
+    if operation in OPERATION_SLOTS:
+        chosen.append(list(lists.get(operation) or []))
+    for slot in PICKABLE_SLOTS:
+        wanted = set(picks.get(slot) or ())
+        chosen.append([m for m in lists.get(slot) or [] if key_of(m) in wanted])
+    merged = merge(chosen)
+    return with_cba(merged) if merged else []
