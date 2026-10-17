@@ -14,6 +14,12 @@
   version stays, so a bad one can be put back.
 </p>
 
+<p class="hint">
+  Members pick their mods on the public page, no login needed:
+  <a href="/m/{{ guild.id }}">/m/{{ guild.id }}</a>
+  — share that link. (<code>/mods</code> without an id lists the servers that have published a list.)
+</p>
+
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
 <form class="form" method="post" action="/g/{{ guild.id }}/modlists/settings">
