@@ -1028,3 +1028,38 @@ def test_count_progress_separates_done_recount_and_open():
 
 def test_count_progress_of_nothing_is_complete():
     assert kt.count_progress([])['pct'] == 100
+
+
+# -- striking a multikill ------------------------------------------------------
+
+def test_a_struck_multikill_gives_way_to_the_players_next_best():
+    frames = [100, 101, 102, 103, 500, 501]   # four in a row, then two; one second a frame
+    assert kt.best_multikill_struck(frames, 1, 'A', frozenset()) == (4, 100)
+    struck = {kt.multikill_key('A', 100, 1)}
+    assert kt.best_multikill_struck(frames, 1, 'A', struck) == (2, 500)
+
+
+def test_a_struck_multikill_takes_only_that_players_stretch_and_not_another_players():
+    frames = [100, 101, 102]
+    struck = {kt.multikill_key('B', 100, 1)}
+    assert kt.best_multikill_struck(frames, 1, 'A', struck) == (3, 100)
+
+
+def test_striking_every_stretch_leaves_no_multikill():
+    frames = [100, 101, 500, 501]
+    struck = {kt.multikill_key('A', 100, 1), kt.multikill_key('A', 500, 1)}
+    assert kt.best_multikill_struck(frames, 1, 'A', struck) == (0, None)
+
+
+def test_the_multikill_listing_is_biggest_first_and_leaves_out_single_kills():
+    def row(name, n, at):
+        r = [''] * len(kt.HEADER)
+        r[kt.HEADER.index('Username')] = name
+        r[kt.HEADER.index('Best Multikill')] = n
+        r[kt.HEADER.index('Best Multikill At (s)')] = at
+        return r
+    got = kt.multikill_listing([(7, 'Op A', [row('x', 3, 40), row('y', 1, 5), row('z', 5, 90)])])
+    assert [(e['killer'], e['d']) for e in got] == [('z', 5.0), ('x', 3.0)]
+    assert got[0]['id'] == '7|mk:z:90'
+    # and plan_strikes takes it as it takes a far kill
+    assert kt.plan_strikes([e['id'] for e in got], ['7|mk:z:90'], got)[0][:3] == (7, 'mk:z:90', True)

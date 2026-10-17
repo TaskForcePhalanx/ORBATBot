@@ -143,6 +143,8 @@ from .killtracker import (  # noqa: F401
     kt_save_failure,
     kt_missions,
     kt_far_kills,
+    kt_mission_rows,
+    kt_multikill_strikes,
     kt_exclusions,
     kt_set_exclusions,
     kt_rows,

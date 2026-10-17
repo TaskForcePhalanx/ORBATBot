@@ -143,6 +143,27 @@ async def kt_far_kills() -> list:
         )
 
 
+async def kt_mission_rows() -> list:
+    """`(ocap_id, label, name_override, rows JSON)` for every counted mission."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetch(
+            "SELECT ocap_id, label, name_override, rows FROM kt_missions "
+            "WHERE rows <> '[]' ORDER BY ocap_id"
+        )
+
+
+async def kt_multikill_strikes() -> list:
+    """The struck multikills: `(ocap_id, kill_key, killer, distance)`, where
+    `distance` is how many kills it was. They share `kt_kill_exclusions` with the
+    struck distances and are told apart by the `mk:` their key starts with."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetch(
+            "SELECT ocap_id, kill_key, killer, distance FROM kt_kill_exclusions "
+            "WHERE kill_key LIKE 'mk:%' ORDER BY ocap_id")
+
+
 async def kt_exclusions(ocap_id: int = None) -> dict:
     """`{ocap_id: {kill_key, …}}` — the kills struck from the distance statistics,
     for one recording or for all."""
