@@ -1139,6 +1139,7 @@ function renderLeader() {
     document.getElementById("aw-multi-name").textContent = byMulti.name;
     const awMultiStat = document.getElementById("aw-multi-stat");
     awMultiStat.textContent = `${byMulti.bestMulti} kills in 10 s`;
+    if (byMulti.bestMultiRaw) awMultiStat.dataset.avg = byMulti.bestMultiRaw;
   } else {
     document.getElementById("aw-multi-name").textContent = "—";
     document.getElementById("aw-multi-stat").textContent = "";
@@ -1696,18 +1697,17 @@ function openPlayerModal(playerName) {
   document.getElementById('playerModal').classList.add('open');
 }
 
-// Keep a player's best multikill with where it happened: the first mission to reach
-// the best count keeps it. Older rows have no time or position columns.
+// Keep a player's best multikill with when it happened: the first mission to reach
+// the best count keeps it. Older rows have no time column.
 function noteMulti(p, r) {
   const n = NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0");
   if (n <= p.bestMulti) return;
   p.bestMulti = n;
   const at = r["Best Multikill At (s)"] || r["Best Multikill At (s)\r"] || "";
-  const pos = (r["Best Multikill Pos"] || r["Best Multikill Pos\r"] || "").trim();
   const t = at === "" ? null : NUM(at);
   const clock = t == null ? "" : Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
-  p.bestMultiAt = [r["Mission"] || r["Mission\r"] || "", clock && "at " + clock, pos && "pos " + pos]
-    .filter(Boolean).join(" · ").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  p.bestMultiRaw = [r["Mission"] || r["Mission\r"] || "", clock && "at " + clock].filter(Boolean).join(" · ");
+  p.bestMultiAt = p.bestMultiRaw.replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
 
 function mStat(val, lbl, sub) {
