@@ -69,7 +69,7 @@ def killed(frame, victim, killer, weapon='M4', dist=100):
 def test_header_and_rows_have_the_same_width():
     result = rows_of(doc([unit(1, 'Ann'), unit(2, 'Bob', 'EAST', player=0, group='x')],
                          [killed(5, 2, 1)]))
-    assert len(kt.HEADER) == 39    # the sheet's 35, the two weapon columns of the longest kills, two for unconsciousness
+    assert len(kt.HEADER) == 40    # the sheet's 35, the two weapon columns of the longest kills, two for unconsciousness, one multikill
     assert all(len(r) == len(kt.HEADER) for r in result['rows'])
 
 
@@ -358,6 +358,34 @@ def test_unconscious_frames_are_not_distance_run():
     walk = [pos(x=i * 10) for i in range(11)]
     walk[5] = pos(x=50, alive=2)
     assert _walk(walk) == 0.1
+
+
+def _multikill(frames, delay=1):
+    ann = unit(1, 'Ann')
+    foes = [unit(10 + i, f'Foe{i}', 'EAST', player=0) for i in range(len(frames))]
+    evs = [killed(f, 10 + i, 1) for i, f in enumerate(frames)]
+    return row(rows_of(doc([ann] + foes, evs, delay=delay)), 'Ann')[H['Best Multikill']]
+
+
+def test_best_multikill_is_the_most_kills_inside_ten_seconds():
+    assert _multikill([]) == 0
+    assert _multikill([5]) == 1
+    assert _multikill([5, 8, 15, 100]) == 3          # 5..15 is exactly 10 s: edges count
+    assert _multikill([5, 8, 16, 100]) == 2          # 16 is 11 s after 5
+    assert _multikill([5, 6, 50, 52, 53, 54]) == 4   # the later burst wins
+
+
+def test_multikill_window_is_seconds_not_frames():
+    assert _multikill([0, 2, 4, 6], delay=2) == 3    # 10 s = 5 frames: 0, 2, 4
+
+
+def test_crew_of_a_shot_down_vehicle_is_not_a_multikill():
+    ann, heli = unit(1, 'Ann'), {'id': 50, 'type': 'vehicle', 'name': 'Mi-8', 'side': 'EAST',
+                                 'positions': [], 'startFrameNum': 0}
+    crew = [unit(10 + i, f'Foe{i}', 'EAST', player=0) for i in range(3)]
+    evs = [killed(5, 50, 1)] + [killed(5, 10 + i, 1) for i in range(3)]
+    r = row(rows_of(doc([ann, heli] + crew, evs)), 'Ann')
+    assert r[H['Best Multikill']] == 0
 
 
 # ---------------------------------------------------------------------------
