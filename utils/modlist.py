@@ -222,6 +222,22 @@ def parse_keywords(text: str) -> list:
     return out[:20]
 
 
+def keywords_from_form(typed: dict) -> dict:
+    """`{slot: [words]}` from what the settings form typed, one box per list.
+
+    A box left empty is not stored: the list then falls back to
+    `DEFAULT_KEYWORDS`, so clearing a box means "use the defaults" rather than
+    "match nothing" — a list nothing can ever reach would silently turn every
+    post for it into a question.
+    """
+    out = {}
+    for slot in SLOT_KEYS:
+        words = parse_keywords((typed or {}).get(slot))
+        if words:
+            out[slot] = words
+    return out
+
+
 def key_of(mod: dict) -> str:
     return mod.get('id') or 'name:' + _norm(mod.get('name'))
 

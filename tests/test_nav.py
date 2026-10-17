@@ -45,7 +45,7 @@ def test_the_top_row_stays_short_enough_to_fit():
 
 def test_the_admin_only_pages_are_a_group_rather_than_three_tabs():
     built = nav.build('1', **ADMIN)
-    assert pages(built, 'server') == ['embeds', 'logs', 'reddit']
+    assert pages(built, 'server') == ['embeds', 'logs', 'reddit', 'modlists']
     assert 'server' in keys(built)
     # And nobody else sees it at all.
     for who in (LEADER, MEMBER):

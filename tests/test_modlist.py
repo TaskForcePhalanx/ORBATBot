@@ -173,3 +173,9 @@ def test_merge_keeps_a_mod_once():
 def test_filename_is_safe():
     assert modlist.filename_for('../../etc/pa ss"wd') == 'etc_pa_ss_wd.html'
     assert modlist.filename_for('') == 'Modlist.html'
+
+
+def test_an_empty_keyword_box_means_the_defaults_not_no_match():
+    typed = {'weekly': 'saturday, Saturday\n campaign', 'core': '  ', 'optional': None}
+    assert modlist.keywords_from_form(typed) == {'weekly': ['saturday', 'campaign']}
+    assert modlist.keywords_from_form({}) == {}

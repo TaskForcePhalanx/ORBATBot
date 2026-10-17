@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Modlists{% endblock %}
+
+{% block content %}
+{% with active = 'modlists' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Modlists</h1>
+</div>
+
+<p class="hint">
+  Post an Arma 3 Launcher preset (the <code>.html</code> it exports) in the channel below
+  and the bot keeps it as the current version of one of the four lists. Every earlier
+  version stays, so a bad one can be put back.
+</p>
+
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+<form class="form" method="post" action="/g/{{ guild.id }}/modlists/settings">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <label class="field">
+    <span>Channel to read</span>
+    <select name="channel_id">
+      <option value="">None — don't read any channel</option>
+      {% for channel in channels %}
+        <option value="{{ channel.id }}"
+          {% if settings.channel_id and settings.channel_id|int == channel.id %}selected{% endif %}>#{{ channel.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <p class="hint">
+    Which list a post belongs to is read from its text, then the file name, then the
+    preset's own name. Separate words with commas; leave a box empty for the defaults.
+    A post that fits two lists, or none, is asked about rather than guessed.
+  </p>
+  {% for item in lists %}
+    <label class="field">
+      <span>{{ item.label }}</span>
+      <textarea name="keywords_{{ item.slot }}" rows="2"
+                placeholder="{{ item.default_keywords }}">{{ item.keywords }}</textarea>
+    </label>
+  {% endfor %}
+  <button class="button primary" type="submit">Save</button>
+</form>
+
+<div class="pagehead"><h2>Upload a preset</h2></div>
+<form class="form" method="post" enctype="multipart/form-data"
+      action="/g/{{ guild.id }}/modlists/upload">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field">
+    <span>List</span>
+    <select name="slot">
+      {% for item in lists %}<option value="{{ item.slot }}">{{ item.label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span>Preset</span>
+    <input type="file" name="preset" accept=".html,text/html">
+  </label>
+  <button class="button primary" type="submit">Upload</button>
+</form>
+
+{% for item in lists %}
+  <div class="pagehead"><h2>{{ item.label }}</h2></div>
+  {% if item.current %}
+    <p>
+      <strong>{{ item.current.name }}</strong>
+      · {{ item.current.mods|length }} mods
+      <a class="button" href="/g/{{ guild.id }}/modlists/{{ item.current.id }}/preset.html">Download</a>
+    </p>
+  {% else %}
+    <p class="empty">Nothing posted yet.</p>
+  {% endif %}
+  {% if item.versions %}
+    <table class="rolelist">
+      <tbody>
+        {% for v in item.versions %}
+          <tr>
+            <td>
+              <strong>{{ v.name }}</strong>
+              {% if v.is_current %}<span class="chip">current</span>{% endif %}
+              <div class="muted">
+                {{ v.mod_count }} mods · {{ v.summary or '—' }}
+                · {{ relative(v.created_at) }}{% if v.posted_by_name %} · {{ v.posted_by_name }}{% endif %}
+              </div>
+            </td>
+            <td class="rowactions">
+              <a class="button" href="/g/{{ guild.id }}/modlists/{{ v.id }}/preset.html">Download</a>
+              {% if not v.is_current %}
+                <form method="post" action="/g/{{ guild.id }}/modlists/{{ v.id }}/restore">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <button class="button" type="submit">Make current</button>
+                </form>
+                <form method="post" action="/g/{{ guild.id }}/modlists/{{ v.id }}/delete">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <button class="button" type="submit">Delete</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endfor %}
+{% endblock %}
