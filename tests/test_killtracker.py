@@ -804,3 +804,15 @@ def test_a_mission_counted_before_the_weapon_columns_still_makes_a_full_width_cs
     old = json.dumps([[''] * 35])
     lines = kt.csv_from_stored([(old, None)]).strip().split('\n')
     assert len(lines[1].split(',')) == len(kt.HEADER)
+
+
+def test_default_display_prefers_most_missions_then_kills_then_name():
+    known = [
+        {'name': 'Dusty', 'missions': 3, 'kills': 1, 'last': ''},
+        {'name': 'PSGT Dusty', 'missions': 7, 'kills': 0, 'last': ''},
+        {'name': 'Cpl Dusty', 'missions': 7, 'kills': 5, 'last': ''},
+    ]
+    assert kt.default_display(['Dusty', 'PSGT Dusty'], known) == 'PSGT Dusty'
+    assert kt.default_display(['Dusty', 'PSGT Dusty', 'Cpl Dusty'], known) == 'Cpl Dusty'
+    assert kt.default_display(['b', 'A'], []) == 'A'
+    assert kt.default_display([], known) == ''

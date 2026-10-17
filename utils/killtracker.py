@@ -1154,6 +1154,19 @@ def link_names(aliases: dict, names, display: str) -> dict:
     return out
 
 
+def default_display(names, known: list) -> str:
+    """Which of `names` to suggest showing: the one in the most missions, then
+    the most kills, then the first alphabetically. `known` is `known_players()`.
+    A name that is not in the statistics counts as no missions."""
+    stats = {k['name']: k for k in known}
+
+    def key(name):
+        entry = stats.get(name, {})
+        return (-entry.get('missions', 0), -entry.get('kills', 0), name.lower(), name)
+    names = [n for n in names if n]
+    return min(names, key=key) if names else ''
+
+
 def unlink_name(aliases: dict, name: str) -> dict:
     """Take one name out of its person; the person's other names stay linked."""
     return {a: c for a, c in aliases.items() if a != name}

@@ -1337,16 +1337,39 @@ _KILLTRACKER: tuple[Topic, ...] = (
         related=('killtracker-import',),
     ),
     Topic(
+        key='killtracker-players',
+        title='See a player’s missions and map them to Discord',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Players**',
+        summary='See how many missions each player has played and which Discord member they are.',
+        steps=(
+            'Open **📊 Kill Tracker → Players**. Use **Find a player** to narrow the list.',
+            'Each row is one player (linked names count as one) with their missions and kills.',
+            'To say who they are on Discord, type the player’s name under **Map a player to a '
+            'Discord member**, give the member’s id, mention or exact name, and press **Save**.',
+            'Leave the member empty and press **Save** to clear the mapping.',
+        ),
+        notes=(
+            'The mapping stays on this page: the public numbers carry no Discord identity.',
+            'Players who played under several names are joined under **Link names**.',
+        ),
+        page='ktplayers',
+        related=('killtracker-link-names',),
+    ),
+    Topic(
         key='killtracker-link-names',
         title='Link a player’s names',
         group='killtracker',
         audience=ADMIN,
-        where='Web — **📊 Kill Tracker → Players**',
+        where='Web — **📊 Kill Tracker → Link names**',
         summary='Count a player who played under several names as one, and pick the name shown.',
         steps=(
-            'Open **📊 Kill Tracker → Players**. Use **Find a name** to narrow the list.',
-            'In **Link names**, tick every name that is the same person.',
-            'Choose which one to show in the **Show** column and press **Link the ticked names**.',
+            'Open **📊 Kill Tracker → Link names**. Use **Find a name** to narrow the list; '
+            'your ticks stay when you search again.',
+            'Tick every name that is the same person and press **Search / apply ticks**.',
+            'Choose which one to **Show as** (the name with the most missions is suggested), or '
+            '**add them to a player** who is already linked, and press **Link**.',
             'To change the name shown later, press **Show “…”** beside the one you want in the '
             'list of linked players above.',
             'To split a name off again, press **Unlink “…”**.',
@@ -1357,7 +1380,7 @@ _KILLTRACKER: tuple[Topic, ...] = (
             'Linking pulls in everything already linked to any of the names, so there are never '
             'chains: they all end up under the name you picked.',
         ),
-        page='ktplayers',
+        page='ktnames',
         related=('killtracker-units', 'killtracker-import'),
     ),
     Topic(
