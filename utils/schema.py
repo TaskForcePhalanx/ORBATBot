@@ -1179,8 +1179,60 @@ async def _v3_tac_maps_doc_jsonb(db):
                           ON tac_maps ((doc -> 'background' ->> 'url'))""")
 
 
+async def _v4_modlists(db):
+    """Launcher presets posted to a channel, kept as versions.
+
+    A row is one preset as it was posted, never edited afterwards: the current
+    one per list is a flag (`is_current`), so putting an older one back is
+    flipping it rather than re-uploading it. `source_ref` is the Discord
+    message and attachment it came from, which is what makes reading the same
+    message twice (a restart, a catch-up) a no-op instead of a second version.
+
+    `events.modlist_id` hangs one on an event. It points at the *version*, so an
+    event keeps showing the list it was announced with after a newer one is
+    posted; `ON DELETE SET NULL` because a deleted version must not take the
+    event with it.
+    """
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS modlist_settings (
+            guild_id TEXT PRIMARY KEY,
+            channel_id TEXT,
+            keywords JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS modlists (
+            id SERIAL PRIMARY KEY,
+            guild_id TEXT NOT NULL,
+            slot TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            mods JSONB NOT NULL DEFAULT '[]'::jsonb,
+            dlcs JSONB NOT NULL DEFAULT '[]'::jsonb,
+            summary TEXT,
+            source_ref TEXT,
+            channel_id TEXT,
+            message_id TEXT,
+            posted_by TEXT,
+            posted_by_name TEXT,
+            is_current BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""CREATE INDEX IF NOT EXISTS idx_modlists_guild_slot
+                          ON modlists (guild_id, slot, id DESC)""")
+    await db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_modlists_current
+                          ON modlists (guild_id, slot) WHERE is_current""")
+    await db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_modlists_source
+                          ON modlists (guild_id, source_ref)
+                          WHERE source_ref IS NOT NULL""")
+    await db.execute('ALTER TABLE events ADD COLUMN IF NOT EXISTS modlist_id '
+                     'INTEGER REFERENCES modlists(id) ON DELETE SET NULL')
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
     Migration(3, 'tac_maps.doc is jsonb', _v3_tac_maps_doc_jsonb),
+    Migration(4, 'modlists', _v4_modlists),
 ]
