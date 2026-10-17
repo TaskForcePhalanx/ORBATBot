@@ -276,7 +276,7 @@ def _matches(text: str, query: str) -> bool:
     return not query or query.lower() in (text or '').lower()
 
 
-async def players_view(guild, query: str = '', selected=(), roles=None, unmapped=True) -> dict:
+async def players_view(guild, query: str = '', selected=(), roles=None, unmapped=False) -> dict:
     """The names in the statistics, the people already linked, and who is who on Discord."""
     known = killtracker.known_players(await database.kt_rows())
     aliases = await database.kt_aliases()

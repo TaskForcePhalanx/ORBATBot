@@ -160,7 +160,7 @@ def register(app, d):
             roles = params.getlist('role')
         else:
             roles = None
-        unmapped = 'f' not in params or bool(params.get('unmapped'))
+        unmapped = bool(params.get('unmapped'))
         return render(request, 'kt_players.html', {
             **context, **await killtracker_service.players_view(
                 context['guild'], q.strip(), roles=roles, unmapped=unmapped),
