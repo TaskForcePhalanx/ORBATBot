@@ -4,7 +4,7 @@
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-17";
-const VERSION      = "1.034";
+const VERSION      = "1.035";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -279,6 +279,7 @@ function buildAggregates() {
         killDistOnFoot: [], // collect distances for avg/max
         suicides: 0,
         downs: 0,
+        bestMulti: 0,
         distanceRun: 0,
         // In-vehicle
         killsInVeh: 0, deathsInVeh: 0, tkInVeh: 0,
@@ -335,6 +336,7 @@ function buildAggregates() {
     p.hitsDealtOnFoot  += hdof;
     p.suicides     += NUM((r["Suicides"] || r["Suicides\r"] || "0"));
     p.downs        += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
+    p.bestMulti     = Math.max(p.bestMulti, NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0"));
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
@@ -828,7 +830,7 @@ function applyFilters() {
         name,
         missions: new Set(),
         killsOnFoot: 0, deathsOnFoot: 0, tkOnFoot: 0,
-        shotsOnFoot: 0, hitsOnFoot: 0, hitsDealtOnFoot: 0, suicides: 0, downs: 0, distanceRun: 0, timePlayed: 0,
+        shotsOnFoot: 0, hitsOnFoot: 0, hitsDealtOnFoot: 0, suicides: 0, downs: 0, bestMulti: 0, distanceRun: 0, timePlayed: 0,
         maxLongestFoot: 0, avgDistFootSum: 0, avgDistFootN: 0,
         killsInVeh: 0, deathsInVeh: 0, tkInVeh: 0,
         vehKillsFoot: 0, vehKillsVeh: 0,
@@ -872,6 +874,7 @@ function applyFilters() {
     p.shotsOnFoot      += sof; p.hitsOnFoot   += hof; p.hitsDealtOnFoot += hdof;
     p.suicides     += NUM((r["Suicides"] || r["Suicides\r"] || "0"));
     p.downs        += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
+    p.bestMulti     = Math.max(p.bestMulti, NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0"));
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
@@ -1251,6 +1254,7 @@ const SHARED_INF_STAT_COLS = [
   { label: "Shots/Kill",    aggKey: "spkFoot",        missionKey: "_spk", numeric: true,  fmt: v => v != null ? v.toFixed(1) : "—" },
   { label: "Avg Dist (m)",  aggKey: "avgDistFoot",    missionKey: "_ad",  numeric: true,  fmt: v => v ? Math.round(v) : "—" },
   { label: "Longest (m)",   aggKey: "maxLongestFoot", missionKey: "lk",   numeric: true,  fmt: v => v || "—" },
+  { label: "Multikill",     aggKey: "bestMulti",      missionKey: "mk",   numeric: true,  fmt: v => v || "—" },
   { label: "Dist Run (km)", aggKey: "distanceRun",    missionKey: "dr",   numeric: true,  fmt: v => v ? v.toFixed(1) : "—", canAvg: true, afterMissions: true },
   { label: "Time Played",   aggKey: "timePlayed",     missionKey: "tp",   numeric: true,  fmt: v => v ? fmtTime(v) : "—", afterMissions: true },
 ];
@@ -1446,6 +1450,7 @@ function buildCareerStatsHTML(p) {
         ${mStat(p.killsOnFoot, 'Kills')}
         ${mStat(p.deathsOnFoot, 'Deaths')}
         ${mStat(p.downs || 0, 'Times Unconscious')}
+        ${mStat(p.bestMulti || '—', 'Best Multikill', 'most kills in 10 s')}
         ${mStat(p.kdFoot.toFixed(2), 'K/D')}
         ${mStat(p.tkOnFoot, 'Teamkills')}
         ${mStat(p.shotsOnFoot, 'Shots Fired')}
@@ -1544,7 +1549,7 @@ function buildCareerStatsHTML(p) {
     const key = r["Mission"] || r["Source File"] || '—';
     if (!missionMap[key]) missionMap[key] = {
       mission: key,
-      k: 0, vk: 0, d: 0, dn: 0, tk: 0, sui: 0, sh: 0, ht: 0, hd: 0,
+      k: 0, vk: 0, d: 0, dn: 0, mk: 0, tk: 0, sui: 0, sh: 0, ht: 0, hd: 0,
       lk: 0, _adSum: 0, _adN: 0, dr: 0, tp: 0,
       _kd: null, _spk: null, _ad: null
     };
@@ -1555,6 +1560,7 @@ function buildCareerStatsHTML(p) {
     m.vk  += NUM(r["Vehicle Kills (On Foot)"]);
     m.d   += NUM(r["Deaths (On Foot)"]);
     m.dn  += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
+    m.mk   = Math.max(m.mk, NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0"));
     m.tk  += NUM(r["Teamkills (On Foot)"]);
     m.sui += NUM(r["Suicides"] || r["Suicides\r"] || "0");
     m.sh  += NUM(r["Shots (On Foot)"]);
