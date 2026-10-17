@@ -185,14 +185,76 @@ async def promote_members(guild: discord.Guild, user_ids, settings: dict) -> tup
     return promoted, problems
 
 
-async def _tell_admins(guild: discord.Guild, settings: dict, text: str) -> None:
+async def _tell_admins(guild: discord.Guild, settings: dict, text: str, view=None) -> None:
     channel = guild.get_channel(int(settings['channel_id'] or 0))
     if channel is None or not channel.permissions_for(guild.me).send_messages:
         return
     try:
-        await channel.send(text[:2000], allowed_mentions=discord.AllowedMentions.none())
+        await channel.send(text[:2000], view=view,
+                           allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
         log.warning(f'⚠️ killtracker: could not post the promotion note in #{channel.name}')
+
+
+# One message per person, so each has its own Approve / Reject. A first pass over
+# a long backlog posts this many and the rest on the next pass, rather than
+# flooding the channel at once.
+MAX_ASKS_PER_PASS = 15
+
+
+class PromotionButton(discord.ui.DynamicItem[discord.ui.Button],
+                      template=r'ktpromo:(?P<action>approve|reject):(?P<user>\d+)'):
+    """Approve or Reject under a "due for promotion" message.
+
+    A dynamic item rather than a view per message: the member's id is in the
+    button's `custom_id`, so a button keeps working after a restart without
+    anything having to be re-registered for it. Admins only — the channel may be
+    readable by more people than that."""
+
+    def __init__(self, action: str, user_id):
+        approve = action == 'approve'
+        super().__init__(discord.ui.Button(
+            label='Approve' if approve else 'Reject',
+            style=discord.ButtonStyle.success if approve else discord.ButtonStyle.danger,
+            custom_id=f'ktpromo:{action}:{user_id}'))
+        self.action, self.user_id = action, str(user_id)
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match['action'], match['user'])
+
+    async def callback(self, interaction: discord.Interaction):
+        perms = interaction.user.guild_permissions
+        if not (perms.manage_guild or perms.administrator):
+            await interaction.response.send_message(
+                'Only a server admin can decide a promotion.', ephemeral=True)
+            return
+        guild = interaction.guild
+        settings = await database.kt_promotion_settings(guild.id)
+        who = interaction.user.display_name
+        if self.action == 'reject':
+            await database.kt_set_promotion(guild.id, [self.user_id], promotion.DISMISSED)
+            outcome = f'❌ Passed over by {who}.'
+        else:
+            due = {d['user_id'] for d in await due_for_promotion(guild, settings)}
+            if self.user_id not in due:
+                outcome = f'ℹ️ No longer due; nothing done ({who}).'
+            else:
+                promoted, problems = await promote_members(guild, [self.user_id], settings)
+                if not promoted:
+                    await interaction.response.send_message(
+                        ' '.join(problems) or 'That did not work.', ephemeral=True)
+                    return
+                outcome = f'✅ Promoted by {who}.'
+        await interaction.response.edit_message(
+            content=f'{interaction.message.content}\n{outcome}', view=None)
+
+
+def _ask_view(user_id) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(PromotionButton('approve', user_id))
+    view.add_item(PromotionButton('reject', user_id))
+    return view
 
 
 def _names(due: list) -> str:
@@ -223,14 +285,16 @@ async def run_promotions(bot: commands.Bot) -> None:
                 guild.id, [d['user_id'] for d in due if d['user_id'] not in promoted
                            and not d['notified']], promotion.NOTIFIED)
         elif due:
-            fresh = [d for d in due if not d['notified']]
-            if fresh:
+            fresh = [d for d in due if not d['notified']][:MAX_ASKS_PER_PASS]
+            to_role = guild.get_role(int(settings['to_role_id']))
+            for d in fresh:
                 await _tell_admins(
                     guild, settings,
-                    f"🎖️ Due for a promotion ({settings['missions']}+ missions). Review and "
-                    f"promote them on the Kill Tracker's Promotion page:\n" + _names(fresh))
-                await database.kt_set_promotion(
-                    guild.id, [d['user_id'] for d in fresh], promotion.NOTIFIED)
+                    f"🎖️ <@{d['user_id']}> ({d['players'][0]}) has {d['missions']} missions "
+                    f"({settings['missions']} needed) and is due for **{to_role.name}**.",
+                    view=_ask_view(d['user_id']))
+            await database.kt_set_promotion(
+                guild.id, [d['user_id'] for d in fresh], promotion.NOTIFIED)
 
 
 class KillTrackerCog(commands.Cog):
@@ -283,4 +347,5 @@ class KillTrackerCog(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
+    bot.add_dynamic_items(PromotionButton)
     await bot.add_cog(KillTrackerCog(bot))
