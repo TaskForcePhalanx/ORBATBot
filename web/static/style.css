@@ -365,6 +365,7 @@ h3 { font-size: 15px; margin: 0 0 8px; }
 .namegroup li { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; font-size: 13px; }
 .namegroup li span { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
 .namegroup li form { margin: 0; }
+.mapped { color: var(--text, inherit); font-weight: 600; margin-right: 8px; }
 .linkbutton { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; text-decoration: underline; }
 .linkbutton.danger { color: var(--danger, #e5534b); }
 

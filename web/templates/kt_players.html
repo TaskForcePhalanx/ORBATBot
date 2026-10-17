@@ -10,7 +10,7 @@
 <p class="hint">
   Every recording counts as a mission. Linked names are one player here, and a
   recording they share counts once. {{ mapped }} of {{ people|length }} players are
-  mapped to a Discord member. Names that belong together are linked under
+  mapped to a Discord member (<strong>✓</strong>). A <strong>→ button</strong> is only a suggestion until you press it. Names that belong together are linked under
   <a href="/g/{{ guild.id }}/killtracker/names">Link names</a>. The mapping stays on this
   page: the public numbers carry no Discord identity.
 </p>
@@ -33,21 +33,26 @@
           <td>{{ p.missions }}</td>
           <td>{{ p.kills }}</td>
           <td>
-            {% if p.member %}
-              {{ p.member }}
-            {% elif p.user_id %}
-              <span class="muted">{{ p.user_id }} (not on this server)</span>
-            {% else %}
+            {% if p.member or p.user_id %}
+              <span class="mapped">✓ {% if p.member %}{{ p.member }}{% else %}<span class="muted">{{ p.user_id }} (not on this server)</span>{% endif %}</span>
+              <form method="post" action="/g/{{ guild.id }}/killtracker/players/member" style="display:inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="player" value="{{ p.name }}">
+                <input type="hidden" name="member" value="">
+                <button class="linkbutton danger" type="submit" title="Remove the mapping of {{ p.name }}">remove</button>
+              </form>
+            {% elif p.suggestions %}
+              <div class="muted">Suggestion, press to map:</div>
               {% for s in p.suggestions %}
                 <form method="post" action="/g/{{ guild.id }}/killtracker/players/member" style="display:inline">
                   <input type="hidden" name="csrf" value="{{ csrf }}">
                   <input type="hidden" name="player" value="{{ p.name }}">
                   <input type="hidden" name="member" value="{{ s.id }}">
-                  <button class="button" type="submit" title="Map {{ p.name }} to {{ s.name }}">{{ s.name }}</button>
+                  <button class="button" type="submit" title="Map {{ p.name }} to {{ s.name }}">→ {{ s.name }}</button>
                 </form>
-              {% else %}
-                <span class="muted">—</span>
               {% endfor %}
+            {% else %}
+              <span class="muted">not mapped</span>
             {% endif %}
           </td>
         </tr>
