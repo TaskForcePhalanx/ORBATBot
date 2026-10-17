@@ -41,7 +41,7 @@ from decimal import ROUND_HALF_UP, Decimal
 # 4 = two more columns: the weapon the longest kill was made with.
 # 5 = two more columns: how often a player went unconscious, and for how long.
 # 6 = one more column: the most enemy kills inside any 10 seconds.
-RULES_VERSION = 6
+RULES_VERSION = 7
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
