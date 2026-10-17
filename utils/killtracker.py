@@ -1513,7 +1513,7 @@ def plan_strikes(listed, checked, entries) -> list:
 PAGE_ASSETS = '/stats/assets/'
 
 
-def stats_page(template: str, player: str = '') -> str:
+def stats_page(template: str, player: str = '', icon: str = '') -> str:
     """`dashboard/index.html` as the bot serves it, for one player or for none.
 
     Two things change. The page's own files are named by absolute path, because
@@ -1526,13 +1526,18 @@ def stats_page(template: str, player: str = '') -> str:
     """
     page = (template.replace('href="favicon.svg"', f'href="{PAGE_ASSETS}favicon.svg"')
                     .replace('src="tracker.js"', f'src="{PAGE_ASSETS}tracker.js"'))
+    from html import escape
+    if icon:
+        # The site's own logo as the tab icon, in place of the dashboard's crosshair.
+        mark = escape(icon, quote=True)
+        page = page.replace(f'<link rel="icon" type="image/svg+xml" href="{PAGE_ASSETS}favicon.svg">',
+                            f'<link rel="icon" href="{mark}">\n<link rel="apple-touch-icon" href="{mark}">')
     try:
         player = clean_player(player)
     except ValueError:
         player = ''
     if not player:
         return page
-    from html import escape
     title = escape(f'{player} · TFP Kill Tracker', quote=True)
     # `</` can't end the script and `<!--` can't open a comment inside it.
     literal = json.dumps(player).replace('<', '\\u003c')

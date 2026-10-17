@@ -897,3 +897,11 @@ def test_stats_page_for_a_player_rewrites_the_address_and_escapes():
 
 def test_stats_page_ignores_an_overlong_name():
     assert 'replaceState' not in kt.stats_page(_PAGE, 'x' * 1000)
+
+
+def test_stats_page_icon_replaces_the_crosshair_only_when_given():
+    page = '<head><link rel="icon" type="image/svg+xml" href="favicon.svg"></head><script src="tracker.js"></script>'
+    assert '/stats/assets/favicon.svg' in kt.stats_page(page)
+    with_icon = kt.stats_page(page, icon='/static/logo.png?v=1')
+    assert 'rel="icon" href="/static/logo.png?v=1"' in with_icon
+    assert 'favicon.svg' not in with_icon

@@ -32,7 +32,11 @@ def register(app, d):
     async def index(request: Request):
         session = session_of(request)
         if session is None:
-            return render(request, 'login.html', {})
+            # What needs no account: linked from the sign-in page so a visitor can
+            # see what the site holds. Mods only when a list has been published.
+            published = set(await database.get_modlist_guild_ids())
+            return render(request, 'login.html', {
+                'has_mods': any(str(g.id) in published for g in bot.guilds)})
         guilds = await user_guilds(bot, session['id'])
         if len(guilds) == 1:
             return RedirectResponse(f"/g/{guilds[0]['guild'].id}", status_code=303)

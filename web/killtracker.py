@@ -34,12 +34,14 @@ import json
 import pathlib
 
 from utils import database, killtracker
+from web.config import LOGO_NAMES
 
 _CORS = {'Access-Control-Allow-Origin': '*'}
 
 # The dashboard is served from the repository's own copy, so the page on GitHub
 # Pages and the page on the bot can never be two different versions.
 _DASHBOARD = pathlib.Path(__file__).resolve().parent.parent / 'dashboard'
+_STATIC = pathlib.Path(__file__).resolve().parent / 'static'
 _ASSETS = {'tracker.js': 'text/javascript; charset=utf-8', 'favicon.svg': 'image/svg+xml'}
 
 # A minute is as stale as the numbers can be after a mission is counted that
@@ -124,6 +126,15 @@ async def players_document() -> dict:
     return _cache['players']
 
 
+def _logo_url() -> str:
+    """The site logo for the tab icon, versioned by its mtime like the rest of the site; '' if none."""
+    for name in LOGO_NAMES:
+        path = _STATIC / name
+        if path.exists():
+            return f'/static/{name}?v={int(path.stat().st_mtime)}'
+    return ''
+
+
 def install(app) -> None:
     from fastapi import Request
     from fastapi.responses import JSONResponse, Response
@@ -165,7 +176,7 @@ def install(app) -> None:
     def _page(player: str = ''):
         from fastapi.responses import HTMLResponse
         template = (_DASHBOARD / 'index.html').read_text(encoding='utf-8')
-        return HTMLResponse(killtracker.stats_page(template, player),
+        return HTMLResponse(killtracker.stats_page(template, player, _logo_url()),
                             headers={'Cache-Control': 'public, max-age=60'})
 
     @app.get('/stats')
