@@ -1132,6 +1132,32 @@ function renderLeader() {
     document.getElementById("aw-dist-stat").textContent = "";
   }
 
+  // Multi Killer — biggest multikill (most on-foot kills inside 10 s, best single mission)
+  const byMulti = [...filteredPlayers].filter(p => p.bestMulti >= 2)
+    .sort((a,b) => b.bestMulti - a.bestMulti)[0];
+  if (byMulti) {
+    document.getElementById("aw-multi-name").textContent = byMulti.name;
+    const awMultiStat = document.getElementById("aw-multi-stat");
+    awMultiStat.textContent = `${byMulti.bestMulti} kills in 10 s`;
+    if (byMulti.bestMultiAt) awMultiStat.dataset.avg = byMulti.bestMultiAt;
+  } else {
+    document.getElementById("aw-multi-name").textContent = "—";
+    document.getElementById("aw-multi-stat").textContent = "";
+  }
+
+  // CQC Enthusiast — shortest average kill distance on foot (min 20 kills, so a
+  // handful of point-blank kills cannot win it; same floor as Spray & Pray)
+  const byCqc = [...eligible].filter(p => p.killsOnFoot >= 20 && p.avgDistFoot > 0)
+    .sort((a,b) => a.avgDistFoot - b.avgDistFoot)[0];
+  if (byCqc) {
+    document.getElementById("aw-cqc-name").textContent = byCqc.name;
+    document.getElementById("aw-cqc-stat").textContent =
+      `avg ${Math.round(byCqc.avgDistFoot)} m · ${byCqc.killsOnFoot} kills`;
+  } else {
+    document.getElementById("aw-cqc-name").textContent = "—";
+    document.getElementById("aw-cqc-stat").textContent = "";
+  }
+
   // ── HALL OF SHAME ────────────────────────────────────────────────────
 
   // Cannon Fodder — worst K/D (min 3 kills to avoid flukes, must have died at least once)
