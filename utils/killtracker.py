@@ -1167,6 +1167,57 @@ def default_display(names, known: list) -> str:
     return min(names, key=key) if names else ''
 
 
+_RANKS = {
+    'pvt', 'pte', 'rct', 'spr', 'trp', 'gnr', 'ldg', 'lcpl', 'cpl', 'sgt', 'psgt', 'ssgt', 'wo',
+    'wo1', 'wo2', 'cwo', 'sgm', 'maj', 'capt', 'cpt', 'col', 'lt', 'lt col', 'ltc', 'brig', 'gen',
+    'qms', 'rsm', 'csm', 'sfc', 'msg', 'spc', 'pfc', 'ens', 'ltjg', 'cdr', 'adm', 'cmdr', 'ssg',
+}
+
+
+def match_key(name: str) -> str:
+    """A name reduced to what identifies the person: `[2nd USC] Trp. Dusty` and a
+    Discord nickname `Dusty` both become `dusty`. Unit tags in brackets, a leading
+    rank and every non-alphanumeric character are dropped."""
+    text = re.sub(r'\[[^\]]*\]', ' ', name or '')
+    words = [w for w in re.split(r'[\s.]+', text) if w]
+    while len(words) > 1 and words[0].lower().rstrip('.') in _RANKS:
+        words.pop(0)
+    return re.sub(r'[^a-z0-9]', '', ''.join(words).lower())
+
+
+def suggest_members(names, members: list, limit: int = 3, taken=()) -> list:
+    """The Discord members a player might be, best first.
+
+    `names` is every name the player is recorded under; `members` is
+    `(user id, [labels])` — display name, username, nickname. A member matches
+    when their key equals a name's key, or one contains the other (both at least
+    three characters), or the two are close (`difflib` ratio of 0.8). Returns
+    `[(user id, score)]`; ids in `taken` are another player's already."""
+    import difflib
+    keys = [k for k in (match_key(n) for n in names) if len(k) >= 2]
+    found = []
+    for user_id, labels in members:
+        if user_id in taken:
+            continue
+        best = 0.0
+        for label in labels:
+            mk = match_key(label)
+            if len(mk) < 2:
+                continue
+            for k in keys:
+                if k == mk:
+                    score = 1.0
+                elif len(k) >= 3 and len(mk) >= 3 and (k in mk or mk in k):
+                    score = 0.9
+                else:
+                    score = difflib.SequenceMatcher(None, k, mk).ratio()
+                best = max(best, score)
+        if best >= 0.8:
+            found.append((user_id, best))
+    found.sort(key=lambda f: -f[1])
+    return found[:limit]
+
+
 def unlink_name(aliases: dict, name: str) -> dict:
     """Take one name out of its person; the person's other names stay linked."""
     return {a: c for a, c in aliases.items() if a != name}

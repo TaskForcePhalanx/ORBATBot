@@ -816,3 +816,20 @@ def test_default_display_prefers_most_missions_then_kills_then_name():
     assert kt.default_display(['Dusty', 'PSGT Dusty', 'Cpl Dusty'], known) == 'Cpl Dusty'
     assert kt.default_display(['b', 'A'], []) == 'A'
     assert kt.default_display([], known) == ''
+
+
+def test_match_key_drops_tags_ranks_and_punctuation():
+    assert kt.match_key('[2nd USC] Trp. Dusty') == 'dusty'
+    assert kt.match_key('[57th MEU]Rct. B. Dequip') == 'bdequip'
+    assert kt.match_key('PSGT Dusty') == 'dusty'
+    assert kt.match_key('Sgt') == 'sgt'  # a lone word is never stripped to nothing
+    assert kt.match_key('') == ''
+
+
+def test_suggest_members_ranks_by_closeness_and_skips_taken():
+    members = [('1', ['Dusty']), ('2', ['Dusty_TFP']), ('3', ['Viking']), ('4', ['Dustin'])]
+    got = kt.suggest_members(['[2nd USC] Trp. Dusty', 'PSGT Dusty'], members)
+    assert [u for u, _ in got][:2] == ['1', '2']
+    assert '3' not in [u for u, _ in got]
+    assert [u for u, _ in kt.suggest_members(['Dusty'], members, taken={'1'})][0] == '2'
+    assert kt.suggest_members(['x'], members) == []

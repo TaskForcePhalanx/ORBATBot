@@ -284,11 +284,20 @@ async def players_view(guild, query: str = '', selected=()) -> dict:
     shown_as = {name: aliases.get(name) for name in (k['name'] for k in known)}
     people = killtracker.player_missions(await database.kt_rows(), aliases)
     mapped = await database.kt_player_members(guild.id)
+    # Humans only, from what the bot has cached: a server larger than the cache
+    # simply offers fewer suggestions, and the form still takes any id.
+    roster = [m for m in guild.members if not m.bot]
+    labels = {str(m.id): m for m in roster}
+    candidates = [(str(m.id), [m.display_name, m.name]) for m in roster]
+    taken = set(mapped.values())
     for person in people:
         user_id = next((mapped[n] for n in person['names'] if n in mapped), None)
         member = guild.get_member(int(user_id)) if user_id else None
         person['user_id'] = user_id
         person['member'] = member.display_name if member else None
+        person['suggestions'] = [] if user_id else [
+            {'id': uid, 'name': labels[uid].display_name}
+            for uid, _ in killtracker.suggest_members(person['names'], candidates, taken=taken)]
     # The ticked names stay on the page whatever the search now says, or a
     # search would quietly drop them from the selection.
     selected = [n for n in dict.fromkeys(killtracker.clean_player(n) for n in selected)
@@ -298,6 +307,8 @@ async def players_view(guild, query: str = '', selected=()) -> dict:
                    if _matches(shown, query) or any(_matches(n, query) for n in names)],
         'names': [dict(k, shown_as=shown_as[k['name']]) for k in known
                   if _matches(k['name'], query) or k['name'] in selected],
+        'members': [{'id': str(m.id), 'name': f'{m.display_name} (@{m.name})'}
+                    for m in sorted(roster, key=lambda m: m.display_name.lower())],
         'selected': selected,
         'selected_default': killtracker.default_display(selected, known),
         'existing': [shown for shown in groups if shown not in selected],

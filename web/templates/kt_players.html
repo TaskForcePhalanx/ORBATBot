@@ -7,5 +7,68 @@
 <div class="pagehead">
   <h1>Players</h1>
 </div>
+<p class="hint">
+  Every recording counts as a mission. Linked names are one player here, and a
+  recording they share counts once. {{ mapped }} of {{ people|length }} players are
+  mapped to a Discord member. Names that belong together are linked under
+  <a href="/g/{{ guild.id }}/killtracker/names">Link names</a>. The mapping stays on this
+  page: the public numbers carry no Discord identity.
+</p>
 
+<form class="form" method="get" action="/g/{{ guild.id }}/killtracker/players">
+  <label class="field">
+    <span>Find a player</span>
+    <input name="q" value="{{ query }}" placeholder="part of a name">
+  </label>
+  <div class="actions"><button class="button" type="submit">Search</button></div>
+</form>
+
+{% if people %}
+  <table class="rolelist">
+    <thead><tr><th>Player</th><th>Missions</th><th>Kills</th><th>Discord</th></tr></thead>
+    <tbody>
+      {% for p in people %}
+        <tr>
+          <td>{{ p.name }}{% if p.names|length > 1 %} <div class="muted">also: {{ p.names|reject('equalto', p.name)|join(', ') }}</div>{% endif %}</td>
+          <td>{{ p.missions }}</td>
+          <td>{{ p.kills }}</td>
+          <td>
+            {% if p.member %}
+              {{ p.member }}
+            {% elif p.user_id %}
+              <span class="muted">{{ p.user_id }} (not on this server)</span>
+            {% else %}
+              {% for s in p.suggestions %}
+                <form method="post" action="/g/{{ guild.id }}/killtracker/players/member" style="display:inline">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <input type="hidden" name="player" value="{{ p.name }}">
+                  <input type="hidden" name="member" value="{{ s.id }}">
+                  <button class="button" type="submit" title="Map {{ p.name }} to {{ s.name }}">{{ s.name }}</button>
+                </form>
+              {% else %}
+                <span class="muted">—</span>
+              {% endfor %}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="empty">No players{% if query %} match “{{ query }}”{% endif %}.</p>
+{% endif %}
+
+<h2>Map a player to a Discord member</h2>
+<p class="hint">
+  The buttons above map a player to the member they most look like. For anyone else, pick the
+  player and start typing the member's name. Leave the member empty to clear the mapping.
+</p>
+<form class="form" method="post" action="/g/{{ guild.id }}/killtracker/players/member">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field"><span>Player</span><input name="player" required list="ktplayers"></label>
+  <datalist id="ktplayers">{% for n in people %}<option value="{{ n.name }}">{% endfor %}</datalist>
+  <label class="field"><span>Discord member</span><input name="member" list="ktmembers" placeholder="name, id or @mention"></label>
+  <datalist id="ktmembers">{% for m in members %}<option value="{{ m.id }}" label="{{ m.name }}">{% endfor %}</datalist>
+  <div class="actions"><button class="button primary" type="submit">Save</button></div>
+</form>
 {% endblock %}
