@@ -412,6 +412,11 @@ async def missions_view() -> list:
     } for m in missions]
 
 
+async def count_progress() -> dict:
+    """The counting loop's progress, for the bar on the missions page."""
+    return killtracker.count_progress(await database.kt_missions())
+
+
 async def save_names(form) -> str:
     """Apply the missions form: every row's name, saved together.
 

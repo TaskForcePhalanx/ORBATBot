@@ -18,6 +18,18 @@
 </p>
 
 {% if rows %}
+  <div class="count-progress">
+    <progress max="100" value="{{ progress.pct }}" aria-label="Missions counted under the current rules"></progress>
+    <p class="muted">
+      {% if progress.recount or progress.open %}
+        {{ progress.done }} of {{ progress.total }} missions counted under the current rules
+        ({{ progress.pct }}%){% if progress.recount %} · {{ progress.recount }} waiting to be counted again{% endif %}{% if progress.open %} · {{ progress.open }} with no count yet{% endif %}.
+        The bot works through them every ten minutes; reload to see it move.
+      {% else %}
+        All {{ progress.total }} missions are counted under the current rules.
+      {% endif %}
+    </p>
+  </div>
   <form method="post" action="/g/{{ guild.id }}/killtracker/missions/names">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="actions">
