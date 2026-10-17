@@ -176,7 +176,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
 
-**Server and members** — [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
+**Server and members** — [Read Launcher presets from a channel](#read-launcher-presets-from-a-channel) · [Roll back or upload a modlist](#roll-back-or-upload-a-modlist) · [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
 
 ### Slots and operations
 
@@ -1216,6 +1216,35 @@ Bring the mission names, campaigns, linked names and units over from the sheet a
 ### Server and members
 
 _The log, the welcome, voice time, embeds and the housekeeping._
+
+#### Read Launcher presets from a channel
+
+**Who:** Admin · **Where:** Web — **🛠️ Server → Modlists**
+
+Post an Arma 3 Launcher preset in a channel and the bot keeps it as that list.
+
+1. Open **🛠️ Server → Modlists** and pick the channel presets are posted in.
+2. Optionally change the words that tell the lists apart (Weekly, Joint Op, Core, Optional). An empty box uses the defaults.
+3. Save, then post the `.html` the Launcher exports in that channel. The bot reacts ✅ and says what changed.
+
+> A post that fits more than one list, or none, gets ❓ and buttons to pick the list. Nothing is guessed.
+>
+> Reading attachments needs the bot’s `MESSAGE_CONTENT=1` setting; without it nothing is read.
+
+See also: [Roll back or upload a modlist](#roll-back-or-upload-a-modlist)
+
+#### Roll back or upload a modlist
+
+**Who:** Admin · **Where:** Web — **🛠️ Server → Modlists**
+
+Put an earlier version back, or add a preset without posting it.
+
+1. Under a list, find the version you want in its history and press **Make current**.
+2. To add one by hand, choose the list, pick the `.html` and press **Upload**.
+
+> Versions are never edited. Only a version that is not current can be deleted.
+>
+> Uploading is the way to change Core and Optional without a channel post.
 
 #### Log joins, leaves, kicks and bans
 

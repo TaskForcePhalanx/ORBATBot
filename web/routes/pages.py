@@ -5,7 +5,7 @@ Moved out of web/app.py unchanged — see register().
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from utils import database
-from web import auth, service
+from web import auth, modlists as modlist_service, service
 from web.auth import Forbidden
 from web.guilds import mentionable_roles, postable_channels, user_guilds
 from web.helpers import fmt_input
@@ -67,6 +67,7 @@ def register(app, d):
             'mode': 'create',
             'channels': postable_channels(context['guild']),
             'roles': mentionable_roles(context['guild']),
+            'modlist_choices': await modlist_service.choices(context['guild'], None),
             'values': {'reminder': 30, 'repeat': 'none', 'repeat_delay': '', 'mention_ids': []},
             'error': None,
         })
@@ -91,6 +92,7 @@ def register(app, d):
                 'mode': 'create',
                 'channels': postable_channels(context['guild']),
                 'roles': mentionable_roles(context['guild']),
+            'modlist_choices': await modlist_service.choices(context['guild'], form.get('modlist_id')),
                 'values': form,
                 'error': str(e),
             }, status=400)
@@ -123,6 +125,7 @@ def register(app, d):
             'mode': 'edit',
             'channels': postable_channels(context['guild']),
             'roles': mentionable_roles(context['guild']),
+            'modlist_choices': await modlist_service.choices(context['guild'], event['modlist_id']),
             'values': {
                 'title': event['title'],
                 'start_time': fmt_input(event['event_time'], context['tz']),
@@ -135,6 +138,7 @@ def register(app, d):
                 'repeat_until': fmt_input(event['recurrence_until'], context['tz']),
                 'repeat_delay': event['recurrence_delay_hours'] if event['recurrence_delay_hours'] is not None else '',
                 'mention_ids': (event['mention_role_id'] or '').split(','),
+                'modlist_id': event['modlist_id'] or '',
                 'responses': ' | '.join(
                     ('-' if row['is_decline'] else '')
                     + (f"{row['emoji']} " if row['emoji'] else '')
@@ -164,6 +168,7 @@ def register(app, d):
                 'mode': 'edit',
                 'channels': postable_channels(context['guild']),
                 'roles': mentionable_roles(context['guild']),
+            'modlist_choices': await modlist_service.choices(context['guild'], form.get('modlist_id')),
                 'values': form,
                 'error': str(e),
             }, status=400)

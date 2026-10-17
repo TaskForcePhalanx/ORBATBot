@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Mods{% endblock %}
+{% block ogtitle %}{{ guild.name }} · Mods{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <h1>Mods</h1>
+</div>
+
+<p class="hint">
+  Take the list for an evening as it is, or pick Core and Optional mods yourself, then
+  download a preset and drag it onto the Arma 3 Launcher. CBA_A3 is always included.
+</p>
+
+{% if not current %}
+  <p class="empty">No modlists have been published yet.</p>
+{% else %}
+<form class="form" method="get" action="/m/{{ guild.id }}/preset.html">
+  <fieldset>
+    <legend>Tonight's list</legend>
+    <label class="check"><input type="radio" name="operation" value="" checked> None — just what I pick below</label>
+    {% for slot, label in operation_slots %}
+      {% if current.get(slot) %}
+        <label class="check">
+          <input type="radio" name="operation" value="{{ slot }}">
+          {{ label }} — {{ current[slot].name }} ({{ current[slot].mods|length }} mods)
+        </label>
+      {% endif %}
+    {% endfor %}
+  </fieldset>
+
+  {% for slot, label in pickable_slots %}
+    {% if current.get(slot) %}
+      <fieldset>
+        <legend>{{ label }}</legend>
+        {% for mod in current[slot].mods %}
+          <label class="check">
+            <input type="checkbox" name="{{ slot }}" value="{{ key_of(mod) }}">
+            {% if mod.link %}<a href="{{ mod.link }}" target="_blank" rel="noopener">{{ mod.name }}</a>{% else %}{{ mod.name }}{% endif %}
+          </label>
+        {% endfor %}
+      </fieldset>
+    {% endif %}
+  {% endfor %}
+
+  <button class="button primary" type="submit">Download preset</button>
+</form>
+{% endif %}
+{% endblock %}

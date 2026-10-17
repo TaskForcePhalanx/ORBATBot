@@ -65,6 +65,7 @@ def build(guild_id, *, is_admin: bool, may_action_slots: bool,
             _item('embeds', 'Embeds', f"{base}/embeds"),
             _item('logs', 'Member log', f"{base}/logs"),
             _item('reddit', 'Reddit', f"{base}/reddit"),
+            _item('modlists', 'Modlists', f"{base}/modlists"),
         ]
 
     groups = [_item('events', '📅 Events', base)]

@@ -1241,6 +1241,51 @@ _REDDIT: tuple[Topic, ...] = (
 )
 
 
+_MODLISTS: tuple[Topic, ...] = (
+    Topic(
+        key='modlists-setup',
+        title='Read Launcher presets from a channel',
+        group='server',
+        audience=ADMIN,
+        where='Web — **🛠️ Server → Modlists**',
+        summary='Post an Arma 3 Launcher preset in a channel and the bot keeps it as that list.',
+        steps=(
+            'Open **🛠️ Server → Modlists** and pick the channel presets are posted in.',
+            'Optionally change the words that tell the lists apart (Weekly, Joint Op, '
+            'Core, Optional). An empty box uses the defaults.',
+            'Save, then post the `.html` the Launcher exports in that channel. The bot '
+            'reacts ✅ and says what changed.',
+        ),
+        notes=(
+            'A post that fits more than one list, or none, gets ❓ and buttons to pick '
+            'the list. Nothing is guessed.',
+            'Reading attachments needs the bot’s `MESSAGE_CONTENT=1` setting; without '
+            'it nothing is read.',
+        ),
+        page='modlists',
+        related=('modlists-history',),
+    ),
+    Topic(
+        key='modlists-history',
+        title='Roll back or upload a modlist',
+        group='server',
+        audience=ADMIN,
+        where='Web — **🛠️ Server → Modlists**',
+        summary='Put an earlier version back, or add a preset without posting it.',
+        steps=(
+            'Under a list, find the version you want in its history and press '
+            '**Make current**.',
+            'To add one by hand, choose the list, pick the `.html` and press **Upload**.',
+        ),
+        notes=(
+            'Versions are never edited. Only a version that is not current can be deleted.',
+            'Uploading is the way to change Core and Optional without a channel post.',
+        ),
+        page='modlists',
+    ),
+)
+
+
 _KILLTRACKER: tuple[Topic, ...] = (
     Topic(
         key='killtracker-rename-missions',
@@ -1998,7 +2043,7 @@ _CAMPAIGNS: tuple[Topic, ...] = (
 
 
 TOPICS: tuple[Topic, ...] = (
-    _SLOTS + _ORBATS + _EVENTS + _ROLES + _MAPS + _CAMPAIGNS + _REDDIT + _KILLTRACKER + _SERVER
+    _SLOTS + _ORBATS + _EVENTS + _ROLES + _MAPS + _CAMPAIGNS + _REDDIT + _MODLISTS + _KILLTRACKER + _SERVER
 )
 
 

@@ -61,6 +61,7 @@ undone in a minute.
 | `cogs/gameroles.py`, `web/roles.py` | [docs/game-roles.md](docs/game-roles.md) |
 | `utils/embeds.py`, `web/embeds.py` | [docs/embeds.md](docs/embeds.md) |
 | `cogs/purge.py` | [docs/purge.md](docs/purge.md) |
+| `utils/modlist.py`, `cogs/modlists.py`, `web/modlists.py` — Launcher presets, the selector, an event's modlist | [docs/modlists.md](docs/modlists.md) |
 | `bot.py` | its startup and its one-process assumptions are below; the operation reminder loop it runs is [docs/slots.md](docs/slots.md#event-reminders) |
 
 Three rules govern every file here, and each is argued where it actually

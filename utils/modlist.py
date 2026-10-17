@@ -222,6 +222,22 @@ def parse_keywords(text: str) -> list:
     return out[:20]
 
 
+def keywords_from_form(typed: dict) -> dict:
+    """`{slot: [words]}` from what the settings form typed, one box per list.
+
+    A box left empty is not stored: the list then falls back to
+    `DEFAULT_KEYWORDS`, so clearing a box means "use the defaults" rather than
+    "match nothing" — a list nothing can ever reach would silently turn every
+    post for it into a question.
+    """
+    out = {}
+    for slot in SLOT_KEYS:
+        words = parse_keywords((typed or {}).get(slot))
+        if words:
+            out[slot] = words
+    return out
+
+
 def key_of(mod: dict) -> str:
     return mod.get('id') or 'name:' + _norm(mod.get('name'))
 
@@ -280,6 +296,27 @@ def merge(selections: list) -> list:
                 seen.add(key)
                 out.append(mod)
     return out
+
+
+def build_selection(current: dict, operation: str = '', picked: dict = None) -> tuple:
+    """What the public selector downloads: `(name, mods)`.
+
+    `current` is `{slot: version}`; `operation` is `weekly`, `jointop` or empty
+    — an evening's list taken as it is; `picked` is `{slot: [mod keys]}` for the
+    pickable lists. Keys that are no longer in the list are ignored rather than
+    refused, because the page a member ticked boxes on may be an older version
+    than the one they download. CBA is always included.
+    """
+    chosen = []
+    if operation in OPERATION_SLOTS and current.get(operation):
+        chosen.append(current[operation]['mods'])
+    for slot in PICKABLE_SLOTS:
+        wanted = set((picked or {}).get(slot) or [])
+        if wanted and current.get(slot):
+            chosen.append([m for m in current[slot]['mods'] if key_of(m) in wanted])
+    name = ({'weekly': 'TFP Weekly', 'jointop': 'TFP Joint Op'}[operation]
+            if operation in OPERATION_SLOTS and current.get(operation) else 'TFP Custom')
+    return name, with_cba(merge(chosen))
 
 
 def render_preset(name: str, mods: list, dlcs: list = ()) -> str:
