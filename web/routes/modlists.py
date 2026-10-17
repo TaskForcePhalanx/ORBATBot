@@ -1,6 +1,6 @@
 """Modlists: the watched channel, keywords, history with rollback, upload."""
 from fastapi import Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from utils import database, modlist
 from web import auth, modlists as modlist_service
 
@@ -108,6 +108,15 @@ def register(app, d):
     def public_guild(guild_id: str):
         guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
         return guild
+
+    @app.get('/mods')
+    async def modlist_selector_short(request: Request):
+        """A link without a server id, for the usual one-server bot."""
+        guilds = list(bot.guilds)
+        if len(guilds) != 1:
+            return Response('Use the link with your server id: /m/<server id>',
+                            status_code=404)
+        return RedirectResponse(f'/m/{guilds[0].id}', status_code=303)
 
     @app.get('/m/{guild_id}', response_class=HTMLResponse)
     async def modlist_selector(request: Request, guild_id: str):
