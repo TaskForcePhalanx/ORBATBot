@@ -159,6 +159,21 @@ def retry_delay_minutes(attempts: int) -> int:
     return min(RETRY_BASE_MINUTES * 2 ** max(attempts - 1, 0), RETRY_MAX_MINUTES)
 
 
+# Between two passes while recordings are still waiting and the last pass made
+# progress. Long enough that the OCAP server is never hit back to back.
+BACKLOG_WAIT_SECONDS = 30
+
+
+def next_wait_seconds(pending: int, counted: int, idle_seconds: int) -> int:
+    """How long to wait before the next pass.
+
+    A backlog is worked off straight away, but only while passes actually count
+    something: a pass that counted nothing (the server is down, every read
+    failed) falls back to the normal `idle_seconds`, or it would retry in a loop.
+    """
+    return BACKLOG_WAIT_SECONDS if pending > 0 and counted > 0 else idle_seconds
+
+
 def plan(ops: list, known: dict, now, rules_version: int, limit: int) -> list:
     """The recordings to read this time, at most `limit`: new ones first, oldest first,
     then the ones to try again.

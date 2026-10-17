@@ -240,3 +240,11 @@ def test_new_recordings_come_before_ones_to_try_again():
     known = {i: stored(version=0, status='failed', retry_at=NOW - timedelta(minutes=1)) for i in range(1, 9)}
     # 8 old ones are due to be retried; 9, 10, 11 were never seen
     assert ids(ocap.plan(ops, known, NOW, 1, 4)) == [9, 10, 11, 1]
+
+
+def test_a_backlog_is_worked_off_at_once_but_only_while_passes_make_progress():
+    idle = 600
+    assert ocap.next_wait_seconds(pending=18, counted=8, idle_seconds=idle) == ocap.BACKLOG_WAIT_SECONDS
+    assert ocap.next_wait_seconds(pending=0, counted=8, idle_seconds=idle) == idle
+    # nothing counted (server down, every read failed): no retry loop
+    assert ocap.next_wait_seconds(pending=18, counted=0, idle_seconds=idle) == idle

@@ -35,8 +35,8 @@ POLL_MINUTES = 10
 # for good (a loop does not start its next pass until the last one is over).
 IMPORT_TIMEOUT = 30 * 60
 
-# How many recordings one pass reads. The first pass over a server with sixty
-# recordings is the only one that comes near this; it simply takes a few polls.
+# How many recordings one pass reads. A backlog is read in several passes, run
+# one after another while they keep counting something (`ocap.next_wait_seconds`).
 MAX_PER_PASS = 8
 
 _FALSEY = ('0', 'false', 'no', 'off')
@@ -349,6 +349,10 @@ class KillTrackerCog(commands.Cog):
         except Exception as e:
             log.exception(f"❌ killtracker failed: {e!r}")
             return
+        # A backlog (a rules bump, the first pass over a big server) is worked off
+        # without waiting the full interval; `change_interval` applies from the next run.
+        self.poll.change_interval(seconds=ocap.next_wait_seconds(
+            result['pending'], len(result['imported']), POLL_MINUTES * 60))
         # One line per pass, whatever happened: a log with nothing in it for hours
         # cannot be told from a loop that has stopped.
         log.info(f"ℹ️ killtracker: {result['listed']} on the server, {result['finished']} finished, "
