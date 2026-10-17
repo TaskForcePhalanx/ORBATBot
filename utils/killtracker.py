@@ -182,6 +182,19 @@ class Recording:
         self.entities = {}
         self.events = []
 
+    def add(self, ent: 'Entity') -> None:
+        """Store an entity under its id — unless that would swap a real one for an empty one.
+
+        OCAP v5 can write empty placeholders (no type, no side, no positions)
+        that carry id 0 whatever they stand for. One of them landing after a
+        real entity 0 used to overwrite it, and a player in that slot vanished
+        from the counts. A later entry replaces an earlier one only when it has
+        at least as many positions.
+        """
+        old = self.entities.get(ent.id)
+        if old is None or ent.n >= old.n:
+            self.entities[ent.id] = ent
+
 
 def _is_number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
@@ -269,8 +282,7 @@ def reduce_document(doc: dict) -> Recording:
     rec.capture_delay = doc.get('captureDelay') or 1
     rec.end_frame = doc.get('endFrame')
     for e in doc.get('entities') or []:
-        ent = reduce_entity(e)
-        rec.entities[ent.id] = ent
+        rec.add(reduce_entity(e))
     rec.events = doc.get('events') or []
     return rec
 
@@ -379,8 +391,7 @@ def read_recording(stream, *, chunk: int = 1 << 20) -> Recording:
     rec = Recording()
     for key, value in _Reader(stream, chunk).members():
         if key == 'entities':
-            ent = reduce_entity(value)
-            rec.entities[ent.id] = ent
+            rec.add(reduce_entity(value))
         elif key == 'events':
             rec.events = value
         elif key == 'missionName':

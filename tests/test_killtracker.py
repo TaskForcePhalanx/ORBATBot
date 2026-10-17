@@ -434,6 +434,19 @@ def test_numbers_cut_by_the_buffer_edge_are_not_misread():
     assert rec.end_frame == 123456
 
 
+def test_an_empty_placeholder_with_a_players_id_does_not_replace_the_player():
+    # Seen in a real recording: four entries with id 0, no type, side or positions,
+    # listed after the player who actually holds id 0.
+    ghost = {'id': 0, 'name': '', 'side': '', 'isPlayer': 0, 'type': '',
+             'startFrameNum': 0, 'positions': None, 'framesFired': None}
+    document = doc([unit(0, 'Ocke'), unit(1, 'Other'), dict(ghost), dict(ghost)], [])
+    text = json.dumps(document)
+    for rec in (kt.reduce_document(document), kt.read_recording(io.StringIO(text), chunk=7)):
+        assert rec.entities[0].name == 'Ocke'
+        assert rec.entities[0].n == 10
+        assert {r[H['Username']] for r in kt.compute(rec, 'x.json.gz')['rows']} == {'Ocke', 'Other'}
+
+
 def test_a_gzip_file_reads_from_disk(tmp_path):
     path = tmp_path / 'op.json.gz'
     path.write_bytes(gzip.compress(json.dumps(_big_doc()).encode()))
