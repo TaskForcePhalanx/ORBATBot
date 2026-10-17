@@ -276,7 +276,7 @@ def _matches(text: str, query: str) -> bool:
     return not query or query.lower() in (text or '').lower()
 
 
-async def players_view(guild, query: str = '') -> dict:
+async def players_view(guild, query: str = '', selected=()) -> dict:
     """The names in the statistics, the people already linked, and who is who on Discord."""
     known = killtracker.known_players(await database.kt_rows())
     aliases = await database.kt_aliases()
@@ -289,11 +289,18 @@ async def players_view(guild, query: str = '') -> dict:
         member = guild.get_member(int(user_id)) if user_id else None
         person['user_id'] = user_id
         person['member'] = member.display_name if member else None
+    # The ticked names stay on the page whatever the search now says, or a
+    # search would quietly drop them from the selection.
+    selected = [n for n in dict.fromkeys(killtracker.clean_player(n) for n in selected)
+                if n in shown_as]
     return {
         'groups': [(shown, names) for shown, names in groups.items()
                    if _matches(shown, query) or any(_matches(n, query) for n in names)],
         'names': [dict(k, shown_as=shown_as[k['name']]) for k in known
-                  if _matches(k['name'], query)],
+                  if _matches(k['name'], query) or k['name'] in selected],
+        'selected': selected,
+        'selected_default': killtracker.default_display(selected, known),
+        'existing': [shown for shown in groups if shown not in selected],
         'people': [p for p in people if _matches(p['name'], query)
                    or any(_matches(n, query) for n in p['names'])],
         'total': len(known),
@@ -335,7 +342,7 @@ async def link(names: list, display: str) -> str:
     names = [killtracker.clean_player(n) for n in names if killtracker.clean_player(n)]
     display = killtracker.clean_player(display)
     if len(names) < 2:
-        raise ValueError('Tick at least two names to link.')
+        raise ValueError('Tick at least two names to link, or pick a player to add them to.')
     if display not in names:
         raise ValueError('Pick which of the ticked names to show.')
     await database.kt_set_aliases(killtracker.link_names(await database.kt_aliases(), names, display))

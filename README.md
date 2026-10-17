@@ -174,7 +174,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
-**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [See a player’s missions and map them to Discord](#see-a-players-missions-and-map-them-to-discord) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
 
 **Server and members** — [Read Launcher presets from a channel](#read-launcher-presets-from-a-channel) · [Roll back or upload a modlist](#roll-back-or-upload-a-modlist) · [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
 
@@ -1140,15 +1140,32 @@ Group missions into a campaign, which the Kill Tracker shows as a page of its ow
 
 See also: [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
 
-#### Link a player’s names
+#### See a player’s missions and map them to Discord
 
 **Who:** Admin · **Where:** Web — **📊 Kill Tracker → Players**
 
+See how many missions each player has played and which Discord member they are.
+
+1. Open **📊 Kill Tracker → Players**. Use **Find a player** to narrow the list.
+2. Each row is one player (linked names count as one) with their missions and kills.
+3. To say who they are on Discord, type the player’s name under **Map a player to a Discord member**, give the member’s id, mention or exact name, and press **Save**.
+4. Leave the member empty and press **Save** to clear the mapping.
+
+> The mapping stays on this page: the public numbers carry no Discord identity.
+>
+> Players who played under several names are joined under **Link names**.
+
+See also: [Link a player’s names](#link-a-players-names)
+
+#### Link a player’s names
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Link names**
+
 Count a player who played under several names as one, and pick the name shown.
 
-1. Open **📊 Kill Tracker → Players**. Use **Find a name** to narrow the list.
-2. In **Link names**, tick every name that is the same person.
-3. Choose which one to show in the **Show** column and press **Link the ticked names**.
+1. Open **📊 Kill Tracker → Link names**. Use **Find a name** to narrow the list; your ticks stay when you search again.
+2. Tick every name that is the same person and press **Search / apply ticks**.
+3. Choose which one to **Show as** (the name with the most missions is suggested), or **add them to a player** who is already linked, and press **Link**.
 4. To change the name shown later, press **Show “…”** beside the one you want in the list of linked players above.
 5. To split a name off again, press **Unlink “…”**.
 

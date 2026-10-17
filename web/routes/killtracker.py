@@ -155,14 +155,36 @@ def register(app, d):
             **context, **await killtracker_service.players_view(context['guild'], q.strip()),
         })
 
+    @app.get('/g/{guild_id}/killtracker/names', response_class=HTMLResponse)
+    async def kt_names_page(request: Request, guild_id: str, q: str = ''):
+        context = await kt_context(request, guild_id)
+        return render(request, 'kt_names.html', {
+            **context, **await killtracker_service.players_view(
+                context['guild'], q.strip(), request.query_params.getlist('name')),
+        })
+
+    @app.post('/g/{guild_id}/killtracker/players/search')
+    async def kt_players_search(request: Request, guild_id: str):
+        """Search again, or review the ticks — as a redirect, so the ticked names
+        travel in the address rather than being lost (and the CSRF token never
+        does)."""
+        context, form = await kt_post(request, guild_id)
+        pairs = [('q', (form.get('q') or '').strip())] + [('name', n) for n in form.getlist('name')]
+        return kt_back(request, guild_id, '/names?' + urlencode([p for p in pairs if p[1]]), 'ok', '')
+
     @app.post('/g/{guild_id}/killtracker/players/link')
     async def kt_link(request: Request, guild_id: str):
         context, form = await kt_post(request, guild_id)
         try:
-            note = await killtracker_service.link(form.getlist('name'), form.get('display'))
+            names, display = form.getlist('name'), form.get('display')
+            existing = (form.get('existing') or '').strip()
+            if existing:
+                # Adding to a player who already exists: they are shown as they were.
+                names, display = names + [existing], existing
+            note = await killtracker_service.link(names, display)
         except ValueError as e:
-            return kt_back(request, guild_id, '/players', 'warn', str(e))
-        return kt_back(request, guild_id, '/players', 'ok', note)
+            return kt_back(request, guild_id, '/names', 'warn', str(e))
+        return kt_back(request, guild_id, '/names', 'ok', note)
 
     @app.post('/g/{guild_id}/killtracker/players/member')
     async def kt_member(request: Request, guild_id: str):
@@ -180,8 +202,8 @@ def register(app, d):
         try:
             note = await killtracker_service.show_instead(form.get('name'))
         except ValueError as e:
-            return kt_back(request, guild_id, '/players', 'warn', str(e))
-        return kt_back(request, guild_id, '/players', 'ok', note)
+            return kt_back(request, guild_id, '/names', 'warn', str(e))
+        return kt_back(request, guild_id, '/names', 'ok', note)
 
     @app.post('/g/{guild_id}/killtracker/players/unlink')
     async def kt_unlink(request: Request, guild_id: str):
@@ -189,8 +211,8 @@ def register(app, d):
         try:
             note = await killtracker_service.unlink(form.get('name'))
         except ValueError as e:
-            return kt_back(request, guild_id, '/players', 'warn', str(e))
-        return kt_back(request, guild_id, '/players', 'ok', note)
+            return kt_back(request, guild_id, '/names', 'warn', str(e))
+        return kt_back(request, guild_id, '/names', 'ok', note)
 
     # units
 
