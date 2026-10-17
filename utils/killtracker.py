@@ -42,7 +42,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # 5 = two more columns: how often a player went unconscious, and for how long.
 # 6 = one more column: the most enemy kills inside any 10 seconds.
 # 8 = two more columns: when and where the best multikill began.
-RULES_VERSION = 8
+# 9 = a multikill counts on-foot shooters only.
+RULES_VERSION = 9
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -780,9 +781,10 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
                     plausible = (not crew and not is_indirect_fire(weapon_name)
                                  and not (is_pistol(weapon_name) and distance > MAX_PISTOL_KILL_DIST)
                                  and (killer_in_vehicle or distance <= MAX_FOOT_KILL_DIST))
-                    if not crew:
+                    if not crew and not killer_in_vehicle:
                         # A shot-down helicopter's crew all die in one frame and
-                        # would be a multikill nobody earned.
+                        # would be a multikill nobody earned; a vehicle's guns
+                        # make one too easily to compare with a rifle.
                         killer_p.kill_frames.append(frame)
                     key = kill_key(frame, killer_id, victim_id)
                     struck = key in exclude
