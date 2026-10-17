@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Kill Tracker promotion{% endblock %}
+
+{% block content %}
+{% with active = 'ktpromotion' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Promotion</h1>
+</div>
+
+<p class="hint">
+  A member who holds the first role and has played enough missions is due the second.
+  Missions come from the Kill Tracker (every recording counts), and a player is only
+  considered once they are mapped to a Discord member on the
+  <a href="/g/{{ guild.id }}/killtracker/players">Players</a> page — {{ mapped }} names are.
+  Promotions are <strong>off</strong> until you turn them on below.
+</p>
+
+<form class="form" method="post" action="/g/{{ guild.id }}/killtracker/promotion">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field">
+    <span>Promote from</span>
+    <select name="from_role_id">
+      <option value="">Pick a role…</option>
+      {% for r in roles %}<option value="{{ r.id }}"{% if settings.from_role_id == r.id|string %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span>Promote to</span>
+    <select name="to_role_id">
+      <option value="">Pick a role…</option>
+      {% for r in roles %}<option value="{{ r.id }}"{% if settings.to_role_id == r.id|string %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span>Missions needed</span>
+    <input type="number" name="missions" min="{{ limits[0] }}" max="{{ limits[1] }}" value="{{ settings.missions }}" required>
+  </label>
+  <label class="field">
+    <span>Tell the admins in</span>
+    <select name="channel_id">
+      <option value="">Nowhere</option>
+      {% for c in channels %}<option value="{{ c.id }}"{% if settings.channel_id == c.id|string %} selected{% endif %}>#{{ c.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="check"><input type="checkbox" name="enabled"{% if settings.enabled %} checked{% endif %}> Promotions are on</label>
+  <label class="check"><input type="checkbox" name="auto"{% if settings.auto %} checked{% endif %}>
+    Promote automatically. Left off, the bot only posts who is due and you promote them here.
+    Turning this on promotes everyone who already qualifies at the next count.</label>
+  <div class="actions"><button class="button primary" type="submit">Save</button></div>
+</form>
+
+<h2>Due now</h2>
+{% if due %}
+  <form method="post" action="/g/{{ guild.id }}/killtracker/promotion/promote">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <table class="rolelist">
+      <thead><tr><th></th><th>Member</th><th>Player</th><th>Missions</th></tr></thead>
+      <tbody>
+        {% for d in due %}
+          <tr>
+            <td><input type="checkbox" name="user" value="{{ d.user_id }}" aria-label="Select {{ d.member }}"></td>
+            <td>{{ d.member }}</td>
+            <td>{{ d.players|join(', ') }}</td>
+            <td>{{ d.missions }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions">
+      <button class="button primary" type="submit">Promote the ticked</button>
+      <button class="button" type="submit" name="all" value="1">Promote everyone listed</button>
+      <button class="button danger" type="submit" formaction="/g/{{ guild.id }}/killtracker/promotion/dismiss"
+              title="They are not listed or announced again">Pass over the ticked</button>
+    </div>
+  </form>
+{% else %}
+  <p class="empty">{% if settings.enabled %}Nobody is due.{% else %}Promotions are off.{% endif %}</p>
+{% endif %}
+{% endblock %}

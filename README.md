@@ -174,7 +174,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
-**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [See a player’s missions and map them to Discord](#see-a-players-missions-and-map-them-to-discord) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [See a player’s missions and map them to Discord](#see-a-players-missions-and-map-them-to-discord) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Promote Cadets to Members after enough missions](#promote-cadets-to-members-after-enough-missions) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
 
 **Server and members** — [Read Launcher presets from a channel](#read-launcher-presets-from-a-channel) · [Roll back or upload a modlist](#roll-back-or-upload-a-modlist) · [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
 
@@ -1190,6 +1190,27 @@ Correct the unit the Kill Tracker guessed for a player.
 > **Unknown** stops the guess and shows no unit.
 >
 > Players are listed under the name that is shown, after linking.
+
+See also: [Link a player’s names](#link-a-players-names)
+
+#### Promote Cadets to Members after enough missions
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Promotion**
+
+Pick two roles and a number of missions; the bot tells the admins who is due, or promotes them itself.
+
+1. Map each player to their Discord member on **📊 Kill Tracker → Players**: only mapped players can be promoted.
+2. Open **📊 Kill Tracker → Promotion**, pick the role to promote from and the role to promote to, and set how many missions are needed.
+3. Pick the admin channel to be told in, tick **Promotions are on**, and press **Save**.
+4. Whoever is due is listed under **Due now**; tick them and press **Promote the ticked**.
+
+> Every recording counts as a mission. Linked names are one player.
+>
+> Promotions are **off** until you turn them on. **Promote automatically** makes the bot swap the roles itself after each count; turning it on promotes everyone who already qualifies at the next count.
+>
+> The bot needs **Manage Roles** and its role must sit above the role it hands out.
+>
+> **Pass over the ticked** removes a person from the list for good; they are not announced again.
 
 See also: [Link a player’s names](#link-a-players-names)
 

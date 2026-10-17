@@ -1405,6 +1405,34 @@ _KILLTRACKER: tuple[Topic, ...] = (
         related=('killtracker-link-names',),
     ),
     Topic(
+        key='killtracker-promotion',
+        title='Promote Cadets to Members after enough missions',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Promotion**',
+        summary='Pick two roles and a number of missions; the bot tells the admins who is due, '
+                'or promotes them itself.',
+        steps=(
+            'Map each player to their Discord member on **📊 Kill Tracker → Players**: only mapped '
+            'players can be promoted.',
+            'Open **📊 Kill Tracker → Promotion**, pick the role to promote from and the role to '
+            'promote to, and set how many missions are needed.',
+            'Pick the admin channel to be told in, tick **Promotions are on**, and press **Save**.',
+            'Whoever is due is listed under **Due now**; tick them and press **Promote the ticked**.',
+        ),
+        notes=(
+            'Every recording counts as a mission. Linked names are one player.',
+            'Promotions are **off** until you turn them on. **Promote automatically** makes the bot '
+            'swap the roles itself after each count; turning it on promotes everyone who already '
+            'qualifies at the next count.',
+            'The bot needs **Manage Roles** and its role must sit above the role it hands out.',
+            '**Pass over the ticked** removes a person from the list for good; they are not '
+            'announced again.',
+        ),
+        page='ktpromotion',
+        related=('killtracker-link-names',),
+    ),
+    Topic(
         key='killtracker-kills',
         title='Check the longest kills',
         group='killtracker',

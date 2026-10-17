@@ -214,6 +214,43 @@ def register(app, d):
             return kt_back(request, guild_id, '/names', 'warn', str(e))
         return kt_back(request, guild_id, '/names', 'ok', note)
 
+    # promotion
+
+    @app.get('/g/{guild_id}/killtracker/promotion', response_class=HTMLResponse)
+    async def kt_promotion_page(request: Request, guild_id: str):
+        context = await kt_context(request, guild_id)
+        return render(request, 'kt_promotion.html', {
+            **context, **await killtracker_service.promotion_view(context['guild'])})
+
+    @app.post('/g/{guild_id}/killtracker/promotion')
+    async def kt_promotion_save(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        try:
+            note = await killtracker_service.save_promotion(context['guild'], form)
+        except ValueError as e:
+            return kt_back(request, guild_id, '/promotion', 'warn', str(e))
+        return kt_back(request, guild_id, '/promotion', 'ok', note)
+
+    @app.post('/g/{guild_id}/killtracker/promotion/promote')
+    async def kt_promotion_promote(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        try:
+            ticked = None if form.get('all') else form.getlist('user')
+            note = await killtracker_service.promote_now(context['guild'], ticked)
+        except ValueError as e:
+            return kt_back(request, guild_id, '/promotion', 'warn', str(e))
+        return kt_back(request, guild_id, '/promotion', 'ok', note)
+
+    @app.post('/g/{guild_id}/killtracker/promotion/dismiss')
+    async def kt_promotion_dismiss(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        try:
+            note = await killtracker_service.dismiss_promotion(
+                context['guild'], form.getlist('user'))
+        except ValueError as e:
+            return kt_back(request, guild_id, '/promotion', 'warn', str(e))
+        return kt_back(request, guild_id, '/promotion', 'ok', note)
+
     # units
 
     @app.get('/g/{guild_id}/killtracker/units', response_class=HTMLResponse)
