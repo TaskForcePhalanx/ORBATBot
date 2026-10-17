@@ -4,6 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
+## Unreleased
+
+### Added
+- **Multi Killer** (Hall of Fame) — the player with the biggest multikill, with its mission and time on hover. The profile no longer shows the multikill's position either; OCAP has it
+- **CQC Enthusiast** (Hall of Fame) — the shortest average on-foot kill distance. Needs at least 20 on-foot kills, so a few point-blank kills cannot win it
+
+---
+
 ## v1.039 — 2026-10-17 (latest)
 
 ### Changed
