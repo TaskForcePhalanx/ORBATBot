@@ -152,7 +152,7 @@ def register(app, d):
     async def kt_players_page(request: Request, guild_id: str, q: str = ''):
         context = await kt_context(request, guild_id)
         return render(request, 'kt_players.html', {
-            **context, **await killtracker_service.players_view(q.strip()),
+            **context, **await killtracker_service.players_view(context['guild'], q.strip()),
         })
 
     @app.post('/g/{guild_id}/killtracker/players/link')
@@ -160,6 +160,16 @@ def register(app, d):
         context, form = await kt_post(request, guild_id)
         try:
             note = await killtracker_service.link(form.getlist('name'), form.get('display'))
+        except ValueError as e:
+            return kt_back(request, guild_id, '/players', 'warn', str(e))
+        return kt_back(request, guild_id, '/players', 'ok', note)
+
+    @app.post('/g/{guild_id}/killtracker/players/member')
+    async def kt_member(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        try:
+            note = await killtracker_service.map_member(
+                context['guild'], form.get('player'), form.get('member'))
         except ValueError as e:
             return kt_back(request, guild_id, '/players', 'warn', str(e))
         return kt_back(request, guild_id, '/players', 'ok', note)

@@ -1191,6 +1191,50 @@ def known_players(stored) -> list:
                   key=lambda e: e['name'].lower())
 
 
+def player_missions(stored, aliases: dict) -> list:
+    """Missions played per player, with linked names counted as one.
+
+    Every recording counts as a mission — there is no duration, campaign or test
+    filter, because a test recording is deleted on the OCAP server rather than
+    detected here. A player's count is the number of **distinct recordings** any
+    of their names appears in, so two names of one person in the same mission
+    are one mission, not two.
+
+    `aliases` is `{name as recorded → name shown}`. Each result has `name` (as
+    shown), `names` (as recorded, sorted), `missions`, `kills` and `last` (the
+    label of the latest mission), sorted by name. Zeus rows count like any other.
+    """
+    seen = {}
+    for item in stored:
+        text = item[0] if isinstance(item, tuple) else item
+        for row in json.loads(text):
+            recorded = row[3]
+            if not recorded:
+                continue
+            shown = aliases.get(recorded, recorded)
+            entry = seen.setdefault(shown, {'name': shown, 'names': set(), 'missions': set(),
+                                            'kills': 0, 'last': ''})
+            entry['names'].add(recorded)
+            entry['missions'].add(row[0])
+            entry['kills'] += (row[7] or 0) + (row[17] or 0)
+            entry['last'] = row[1]
+    return sorted(({'name': e['name'], 'names': sorted(e['names'], key=str.lower),
+                    'missions': len(e['missions']), 'kills': e['kills'], 'last': e['last']}
+                   for e in seen.values()), key=lambda e: e['name'].lower())
+
+
+def clean_discord_id(text) -> str:
+    """A Discord user id from a form: digits only. Returns `''` for empty input."""
+    text = (text or '').strip()
+    if text.startswith('<@') and text.endswith('>'):
+        text = text[2:-1].lstrip('!')
+    if not text:
+        return ''
+    if not text.isdigit() or not 15 <= len(text) <= 22:
+        raise ValueError('A Discord user id is a number of 17 to 20 digits.')
+    return text
+
+
 def clean_unit(value):
     """A unit choice from a form. Returns `None` (automatic), `''` (Unknown) or a unit."""
     value = (value or '').strip()

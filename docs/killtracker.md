@@ -49,7 +49,7 @@ The port was run cell by cell against the original `ImportScript` (under Node wi
 |---|---|
 | Missions | Give missions clean names (`kt_missions.name_override`) — **every name on the page in one form, saved with one press** (`plan_name_edits()`: only changed rows are written, and none if one name is invalid). Empty = OCAP's name again |
 | Campaigns | Create, edit, delete campaigns; pick missions by recording, optionally add name patterns |
-| Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink |
+| Players | Link names that are one player and pick the one shown (`kt_aliases`); show another / unlink. Also **missions per player** and **which Discord member a player is** — see below |
 | Longest kills | The farthest **infantry** kills of all missions (100 of them; a mission or player filter shows all of theirs), farthest first, with a tick to **strike** the unbelievable ones; a struck kill leaves the list at once (the page overlays `kt_kill_exclusions` on the stored list) and shows under *Struck kills*, where unticking puts it back (`kt_kill_exclusions`). A struck kill still counts, only its distance leaves the statistics; the mission is counted again by the import loop within minutes (`rules_version = 0`) and the decision survives every later re-count. `compute()` hands back `far` for this; `far_listing()` / `plan_strikes()` are the pure parts (a form cannot strike a kill it was not shown) |
 | Units | Set a player's unit where the dashboard's guess is wrong (`kt_unit_overrides`), one form, only changed rows written |
 | Import | Take over the old work once: mission names from the sheet's CSV, `campaigns.json`, `player_aliases.json`, `unit_overrides.json` |
@@ -57,6 +57,12 @@ The port was run cell by cell against the original `ImportScript` (under Node wi
 Each of them is a function in `web/killtracker.py` (what it does, in one place) over `utils/killtracker.py` (the pure rules: `clean_name`, `plan_name_import`, `link_names`, `campaigns_document`, `parse_*_json`, tested). **Import order matters:** mission names first, because `campaigns.json` names its missions the way the sheet did and they are matched against the names *as shown*. Anything already set is kept (except mission names, with the checkbox), and a campaign mission name that matches no recording stays on the campaign as `extra_missions`.
 
 The public side serves them in the shape of the dashboard's own files — `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`, `/kt/api/unit_overrides.json` — cached under `kt_generation()`, which includes names, campaigns, aliases and units, so an edit shows within the cache window rather than at the next import. **The CSV keeps the recorded player names**: the dashboard applies the aliases itself, as it always has.
+
+### Missions per player, and who is who on Discord
+
+**Every recording counts as a mission** — no duration, campaign or test filter. A test recording is deleted on the OCAP server by hand; the bot does not try to detect one. `killtracker.player_missions()` counts the distinct recordings a player appears in, with linked names as one player (two names of one person in the same recording are one mission). It is public as `GET /kt/api/players.json`, cached with the CSV.
+
+The mapping to a Discord member (`kt_player_members`, migration 5) is **admin-page only and deliberately not in the public API**: that answer has no login, and tying an in-game name to a Discord account is not something to publish. It is stored against *recorded* names, and a linked player's mapping is written to every name in the group and read from any of them, so linking, unlinking or showing another name never orphans it. The form takes an id, a mention or an exact member name.
 
 ### The dashboard reads only the bot
 

@@ -355,3 +355,28 @@ async def kt_set_unit_overrides(changes: dict) -> None:
                         """INSERT INTO kt_unit_overrides (player, unit) VALUES ($1, $2)
                            ON CONFLICT (player) DO UPDATE SET unit = EXCLUDED.unit""",
                         player, unit)
+
+
+async def kt_player_members(guild_id) -> dict:
+    """`{name as recorded → Discord user id}` for one guild."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch(
+            'SELECT player, user_id FROM kt_player_members WHERE guild_id = $1', str(guild_id))
+    return {r['player']: r['user_id'] for r in found}
+
+
+async def kt_set_player_member(guild_id, names, user_id) -> None:
+    """Map every recorded name in `names` to `user_id`, replacing what those names
+    had; an empty `user_id` clears them."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            await db.execute(
+                'DELETE FROM kt_player_members WHERE guild_id = $1 AND player = ANY($2::text[])',
+                str(guild_id), list(names))
+            if user_id:
+                for name in names:
+                    await db.execute(
+                        'INSERT INTO kt_player_members (guild_id, player, user_id) '
+                        'VALUES ($1, $2, $3)', str(guild_id), name, str(user_id))

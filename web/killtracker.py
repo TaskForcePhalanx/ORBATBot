@@ -10,6 +10,9 @@ query and a cached string.
 * `/kt/api/stats.csv` — every counted mission as CSV, with the header and the
   columns the Google Sheet had, so the dashboard reads it exactly as it read the
   sheet (`utils/killtracker.HEADER`).
+* `/kt/api/players.json` — missions played per player, linked names counted as
+  one (`killtracker.player_missions()`). **No Discord identity in it**: which
+  member a player is stays on the admin page, because this answer is public.
 * `/kt/api/missions` — which recordings are counted, under which rules, and how
   the count compares with the OCAP server's own.
 * `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`,
@@ -36,7 +39,7 @@ _CORS = {'Access-Control-Allow-Origin': '*'}
 _CACHE_SECONDS = 60
 
 _cache = {'generation': None, 'csv': '', 'etag': '', 'campaigns': None,
-          'aliases': None, 'units': None}
+          'aliases': None, 'units': None, 'players': None}
 
 
 def _public(record) -> dict:
@@ -74,6 +77,7 @@ async def stats_csv() -> tuple:
     if _cache['generation'] != generation:
         text = killtracker.csv_from_stored(await database.kt_rows())
         _cache.update(generation=generation, csv=text, campaigns=None, aliases=None, units=None,
+                      players=None,
                       etag='"kt-' + hashlib.sha1(generation.encode()).hexdigest()[:16] + '"')
     return _cache['csv'], _cache['etag']
 
@@ -102,6 +106,16 @@ async def campaigns_document() -> dict:
     return _cache['campaigns']
 
 
+async def players_document() -> dict:
+    """Missions per player, as `players.json`. Cached with the CSV, under the same key."""
+    await stats_csv()
+    if _cache['players'] is None:
+        players = killtracker.player_missions(
+            await database.kt_rows(), await database.kt_aliases())
+        _cache['players'] = {'players': players}
+    return _cache['players']
+
+
 def install(app) -> None:
     from fastapi import Request
     from fastapi.responses import JSONResponse, Response
@@ -127,6 +141,11 @@ def install(app) -> None:
         if _cache['aliases'] is None:
             _cache['aliases'] = await database.kt_aliases()
         return JSONResponse(_cache['aliases'], headers={**_CORS, 'Cache-Control': cache_control})
+
+    @app.get('/kt/api/players.json')
+    async def kt_players():
+        return JSONResponse(await players_document(),
+                            headers={**_CORS, 'Cache-Control': cache_control})
 
     @app.get('/kt/api/unit_overrides.json')
     async def kt_unit_overrides():
@@ -257,20 +276,58 @@ def _matches(text: str, query: str) -> bool:
     return not query or query.lower() in (text or '').lower()
 
 
-async def players_view(query: str = '') -> dict:
-    """The names in the statistics, and the people already linked."""
+async def players_view(guild, query: str = '') -> dict:
+    """The names in the statistics, the people already linked, and who is who on Discord."""
     known = killtracker.known_players(await database.kt_rows())
     aliases = await database.kt_aliases()
     groups = killtracker.alias_groups(aliases)
     shown_as = {name: aliases.get(name) for name in (k['name'] for k in known)}
+    people = killtracker.player_missions(await database.kt_rows(), aliases)
+    mapped = await database.kt_player_members(guild.id)
+    for person in people:
+        user_id = next((mapped[n] for n in person['names'] if n in mapped), None)
+        member = guild.get_member(int(user_id)) if user_id else None
+        person['user_id'] = user_id
+        person['member'] = member.display_name if member else None
     return {
         'groups': [(shown, names) for shown, names in groups.items()
                    if _matches(shown, query) or any(_matches(n, query) for n in names)],
         'names': [dict(k, shown_as=shown_as[k['name']]) for k in known
                   if _matches(k['name'], query)],
+        'people': [p for p in people if _matches(p['name'], query)
+                   or any(_matches(n, query) for n in p['names'])],
         'total': len(known),
+        'mapped': sum(1 for p in people if p['user_id']),
         'query': query,
     }
+
+
+async def map_member(guild, player: str, text: str) -> str:
+    """Say which Discord member `player` is (an id, a mention, or an exact name).
+    An empty `text` clears it. Raises `ValueError`."""
+    player = killtracker.clean_player(player)
+    aliases = await database.kt_aliases()
+    shown = aliases.get(player, player)
+    names = {n for n, c in aliases.items() if c == shown} | {shown, player}
+    text = (text or '').strip()
+    if not text:
+        await database.kt_set_player_member(guild.id, names, None)
+        return f'“{shown}” is no longer mapped to a Discord member.'
+    try:
+        user_id = killtracker.clean_discord_id(text)
+    except ValueError:
+        member = guild.get_member_named(text)
+        if member is None:
+            raise ValueError('No member of this server has that name; use their Discord id.')
+        user_id = str(member.id)
+    member = guild.get_member(int(user_id))
+    if member is None:
+        try:
+            member = await guild.fetch_member(int(user_id))
+        except Exception:
+            raise ValueError('That user is not a member of this server.')
+    await database.kt_set_player_member(guild.id, names, user_id)
+    return f'“{shown}” is now {member.display_name}.'
 
 
 async def link(names: list, display: str) -> str:
