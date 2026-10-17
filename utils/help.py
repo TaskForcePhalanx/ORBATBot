@@ -1410,15 +1410,15 @@ _KILLTRACKER: tuple[Topic, ...] = (
     Topic(
         key='killtracker-promotion',
         title='Promote Cadets to Members after enough missions',
-        group='killtracker',
+        group='server',
         audience=ADMIN,
-        where='Web — **📊 Kill Tracker → Promotion**',
+        where='Web — **🛠️ Server → Promotion**',
         summary='Pick two roles and a number of missions; the bot tells the admins who is due, '
                 'or promotes them itself.',
         steps=(
             'Map each player to their Discord member on **📊 Kill Tracker → Players**: only mapped '
             'players can be promoted.',
-            'Open **📊 Kill Tracker → Promotion**, pick the role to promote from and the role to '
+            'Open **🛠️ Server → Promotion**, pick the role to promote from and the role to '
             'promote to, and set how many missions are needed.',
             'Pick the admin channel to be told in, tick **Promotions are on**, and press **Save**.',
             'Whoever is due is posted in the admin channel, one message each with **Approve** and **Reject** '
@@ -1433,7 +1433,7 @@ _KILLTRACKER: tuple[Topic, ...] = (
             '**Pass over the ticked** removes a person from the list for good; they are not '
             'announced again.',
         ),
-        page='ktpromotion',
+        page='promotion',
         related=('killtracker-link-names',),
     ),
     Topic(
