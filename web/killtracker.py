@@ -134,7 +134,7 @@ async def players_document() -> dict:
     return _cache['players']
 
 
-def _logo_url() -> str:
+def logo_url() -> str:
     """The site logo for the tab icon, versioned by its mtime like the rest of the site; '' if none."""
     for name in LOGO_NAMES:
         path = _STATIC / name
@@ -255,40 +255,66 @@ async def claims_view(guild) -> list:
     return out
 
 
-async def site_nav_html(request, logo: str) -> str:
-    """The website menu for this request, '' when there is none."""
-    nav = await site_nav()
-    if not nav:
-        return ''
-    home = sitenav.urlparse(SITE_NAV_URL)
-    return sitenav.render_nav(nav, here=(request.url.netloc, request.url.path), logo=logo,
-                              home=f'{home.scheme}://{home.netloc}/')
+_ACCOUNT_CSS = """
+.sitenav .snacct{display:flex;align-items:center;gap:10px;margin-left:8px;padding:6px 0 6px 14px;
+  border-left:1px solid #ddd;font-size:13px}
+.snacct img{width:26px;height:26px;border-radius:50%}
+.snacct .snname{color:#666;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sitenav a.snbtn,.snacct button.snbtn{display:inline-block;padding:7px 14px;border-radius:6px;font:600 13px 'Open Sans',sans-serif;
+  background:#424242;color:#fff;border:1px solid #424242;cursor:pointer;white-space:nowrap}
+.sitenav a.snbtn:hover,.snacct button.snbtn:hover{background:#5a5a5a}
+.sitenav a.snbtn.ghost,.snacct button.snbtn.ghost{background:transparent;color:#424242}
+.sitenav a.snbtn.ghost:hover,.snacct button.snbtn.ghost:hover{background:#f0f0f0}
+.snacct form{margin:0}
+.sitenav.snsolo{justify-content:flex-end;border-top-width:0}
+"""
 
 
-async def stats_bar(session, bot) -> str:
-    """The strip above the stats page: sign in, or your profile and where to claim it."""
+async def account_chip(session, bot) -> str:
+    """The sign-in end of the header: a button, or who you are and where your profile is."""
     from web.guilds import user_guilds
+    from web.auth import avatar_url
     esc = html.escape
     if session is None:
-        inner = '<a href="/login?next=/stats">Sign in with Discord</a> to claim your player profile'
+        return ('<div class="snacct"><a class="snbtn" href="/login?next=/stats">'
+                'Sign in with Discord</a></div>')
+    found = None
+    for item in await user_guilds(bot, session['id']):
+        profile = await profile_of(item['guild'], session['id'])
+        if profile['player']:
+            found = profile
+            break
+    if found:
+        action = (f'<a class="snbtn" href="/stats/{quote(found["player"], safe="")}">My profile</a>')
     else:
-        found = None
-        for item in await user_guilds(bot, session['id']):
-            profile = await profile_of(item['guild'], session['id'])
-            if profile['player']:
-                found = profile
-                break
-        if found:
-            inner = (f'Signed in as {esc(session["name"])} · '
-                     f'<a href="/stats/{quote(found["player"], safe="")}">My profile: {esc(found["player"])}</a>')
-        else:
-            inner = (f'Signed in as {esc(session["name"])} · '
-                     '<a href="/stats/@me">Claim your player profile</a>')
-    return ('<div style="font:13px/1.4 sans-serif;background:#2b2b2b;color:#ddd;padding:6px 14px;'
-            f'text-align:right">{inner}</div>')
+        action = '<a class="snbtn" href="/stats/@me">Claim your profile</a>'
+    out = ('<form method="post" action="/logout">'
+           f'<input type="hidden" name="csrf" value="{esc(session.get("csrf", ""), quote=True)}">'
+           '<button class="snbtn ghost" type="submit">Sign out</button></form>')
+    return (f'<div class="snacct"><img src="{esc(avatar_url(session), quote=True)}" alt="">'
+            f'<span class="snname">{esc(session["name"])}</span>{action}{out}</div>')
 
 
-def install(app, bar=None) -> None:
+async def stats_header(request, session, bot, logo: str, framed: bool) -> str:
+    """The whole top row of the stats page: the website menu with the account at its end.
+
+    Without a menu (switched off, not read yet, or the page is in the Sites
+    iframe, which has its own) the account stands alone on a plain bar.
+    """
+    chip = await account_chip(session, bot)
+    nav = {} if framed or not SITE_NAV_URL else await site_nav()
+    if nav:
+        home = sitenav.urlparse(SITE_NAV_URL)
+        body = sitenav.render_nav(nav, here=(request.url.netloc, request.url.path), logo=logo,
+                                  home=f'{home.scheme}://{home.netloc}/', extra=chip)
+    else:
+        body = f'<nav class="sitenav snsolo">{chip}</nav>'
+    # render_nav carries the menu's stylesheet; a bar without a menu needs it too.
+    css = '' if nav else f'<style>{sitenav.CSS}</style>'
+    return css + f'<style>{_ACCOUNT_CSS}</style>' + body
+
+
+def install(app, header=None) -> None:
     from fastapi import Request
     from fastapi.responses import JSONResponse, Response
 
@@ -331,11 +357,10 @@ def install(app, bar=None) -> None:
         template = (_DASHBOARD / 'index.html').read_text(encoding='utf-8')
         # In an iframe (the Sites embed) the website's own menu is already above it.
         framed = request.headers.get('sec-fetch-dest') == 'iframe'
-        strip = ('' if framed or not SITE_NAV_URL else await site_nav_html(request, _logo_url())) + \
-                (await bar(request) if bar else '')
+        strip = await header(request, framed) if header else ''
         # A page with somebody's name in it must not be kept for the next visitor.
         cache = 'private, no-store' if strip else 'public, max-age=60'
-        return HTMLResponse(killtracker.stats_page(template, player, _logo_url(), strip),
+        return HTMLResponse(killtracker.stats_page(template, player, logo_url(), strip),
                             headers={'Cache-Control': cache})
 
     @app.get('/stats')

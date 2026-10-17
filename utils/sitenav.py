@@ -102,11 +102,11 @@ def parse_nav(page: str, base: str) -> dict:
     return {'title': ' '.join(parser.title.split()), 'items': root[:MAX_ITEMS]}
 
 
-_CSS = """
+CSS = """
 .sitenav{font:14px/1.2 'Open Sans',sans-serif;background:#fff;color:#222;border-top:6px solid #424242;
   border-bottom:1px solid #ddd;display:flex;align-items:center;gap:16px;padding:0 16px;flex-wrap:wrap}
 .sitenav a{color:inherit;text-decoration:none}
-.sitenav .snbrand{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:16px;margin-right:auto}
+.sitenav .snbrand{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:16px;margin-right:auto;font-family:'Oswald',sans-serif;font-weight:600}
 .sitenav .snbrand img{width:34px;height:34px;border-radius:50%;object-fit:contain}
 .sitenav ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap}
 .sitenav li{position:relative}
@@ -121,13 +121,14 @@ _CSS = """
 """
 
 
-def render_nav(nav: dict, here: tuple = ('', ''), logo: str = '', home: str = '') -> str:
+def render_nav(nav: dict, here: tuple = ('', ''), logo: str = '', home: str = '', extra: str = '') -> str:
     """The menu as one self-contained block: its style, then the markup.
 
     No script: a sub-menu opens on hover or keyboard focus. `here` is the
     `(host, path)` of the page being shown; the entry that links to it is drawn
     as the current one. Every string from the parsed page is escaped, and only
-    http(s) links get this far.
+    http(s) links get this far. `extra` is markup the caller has already made safe,
+    placed at the right-hand end of the bar.
     """
     def is_here(url):
         parts = urlparse(url)
@@ -147,4 +148,4 @@ def render_nav(nav: dict, here: tuple = ('', ''), logo: str = '', home: str = ''
     img = f'<img src="{escape(logo, quote=True)}" alt="">' if logo else ''
     brand = (f'<a class="snbrand" href="{escape(home, quote=True)}">{img}'
              f'<span>{escape(nav.get("title") or "")}</span></a>') if home else ''
-    return f'<style>{_CSS}</style><nav class="sitenav">{brand}<ul>{entries(nav["items"])}</ul></nav>'
+    return f'<style>{CSS}</style><nav class="sitenav">{brand}<ul>{entries(nav["items"])}</ul>{extra}</nav>'
