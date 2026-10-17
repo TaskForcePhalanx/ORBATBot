@@ -69,7 +69,7 @@ def killed(frame, victim, killer, weapon='M4', dist=100):
 def test_header_and_rows_have_the_same_width():
     result = rows_of(doc([unit(1, 'Ann'), unit(2, 'Bob', 'EAST', player=0, group='x')],
                          [killed(5, 2, 1)]))
-    assert len(kt.HEADER) == 40    # the sheet's 35, the two weapon columns of the longest kills, two for unconsciousness, one multikill
+    assert len(kt.HEADER) == 42    # the sheet's 35, the two weapon columns of the longest kills, two for unconsciousness, one multikill, two for where it was
     assert all(len(r) == len(kt.HEADER) for r in result['rows'])
 
 
@@ -377,6 +377,21 @@ def test_best_multikill_is_the_most_kills_inside_ten_seconds():
 
 def test_multikill_window_is_seconds_not_frames():
     assert _multikill([0, 2, 4, 6], delay=2) == 3    # 10 s = 5 frames: 0, 2, 4
+
+
+def test_best_multikill_says_when_and_where_it_began():
+    assert kt.best_multikill_window([], 1) == (0, None)
+    assert kt.best_multikill_window([5, 6, 50, 52, 53, 54], 1) == (4, 50)
+    assert kt.best_multikill_window([5, 6, 50, 52], 1) == (2, 5)    # a tie keeps the earlier
+    walk = [pos(x=i * 10, y=100 + i) for i in range(30)]
+    ann = unit(1, 'Ann', positions=walk)
+    foes = [unit(10 + i, f'Foe{i}', 'EAST', player=0) for i in range(2)]
+    evs = [killed(f, 10 + i, 1) for i, f in enumerate([12, 14])]
+    r = row(rows_of(doc([ann] + foes, evs)), 'Ann')
+    assert r[H['Best Multikill At (s)']] == 12
+    assert r[H['Best Multikill Pos']] == '120,112'
+    quiet = row(rows_of(doc([unit(1, 'Ann')], [])), 'Ann')
+    assert quiet[H['Best Multikill At (s)']] == '' and quiet[H['Best Multikill Pos']] == ''
 
 
 def test_crew_of_a_shot_down_vehicle_is_not_a_multikill():

@@ -373,7 +373,7 @@ function buildAggregates() {
     p.hitsDealtOnFoot  += hdof;
     p.suicides     += NUM((r["Suicides"] || r["Suicides\r"] || "0"));
     p.downs        += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
-    p.bestMulti     = Math.max(p.bestMulti, NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0"));
+    noteMulti(p, r);
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
@@ -911,7 +911,7 @@ function applyFilters() {
     p.shotsOnFoot      += sof; p.hitsOnFoot   += hof; p.hitsDealtOnFoot += hdof;
     p.suicides     += NUM((r["Suicides"] || r["Suicides\r"] || "0"));
     p.downs        += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
-    p.bestMulti     = Math.max(p.bestMulti, NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0"));
+    noteMulti(p, r);
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
@@ -1487,7 +1487,7 @@ function buildCareerStatsHTML(p) {
         ${mStat(p.killsOnFoot, 'Kills')}
         ${mStat(p.deathsOnFoot, 'Deaths')}
         ${mStat(p.downs || 0, 'Times Unconscious')}
-        ${mStat(p.bestMulti || '—', 'Best Multikill', 'most kills in 10 s')}
+        ${mStat(p.bestMulti || '—', 'Best Multikill', p.bestMultiAt || 'most kills in 10 s')}
         ${mStat(p.kdFoot.toFixed(2), 'K/D')}
         ${mStat(p.tkOnFoot, 'Teamkills')}
         ${mStat(p.shotsOnFoot, 'Shots Fired')}
@@ -1669,6 +1669,20 @@ function openPlayerModal(playerName) {
   body.innerHTML = buildCareerStatsHTML(p);
   renderMedalRibbons('medalContainer', new Set(((aggPlayers[p.name] || p).missionRows || []).map(r => r["Mission"] || "").filter(Boolean)));
   document.getElementById('playerModal').classList.add('open');
+}
+
+// Keep a player's best multikill with where it happened: the first mission to reach
+// the best count keeps it. Older rows have no time or position columns.
+function noteMulti(p, r) {
+  const n = NUM(r["Best Multikill"] || r["Best Multikill\r"] || "0");
+  if (n <= p.bestMulti) return;
+  p.bestMulti = n;
+  const at = r["Best Multikill At (s)"] || r["Best Multikill At (s)\r"] || "";
+  const pos = (r["Best Multikill Pos"] || r["Best Multikill Pos\r"] || "").trim();
+  const t = at === "" ? null : NUM(at);
+  const clock = t == null ? "" : Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+  p.bestMultiAt = [r["Mission"] || r["Mission\r"] || "", clock && "at " + clock, pos && "pos " + pos]
+    .filter(Boolean).join(" · ").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
 
 function mStat(val, lbl, sub) {
