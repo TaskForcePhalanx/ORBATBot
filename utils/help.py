@@ -1348,7 +1348,7 @@ _KILLTRACKER: tuple[Topic, ...] = (
             'Each row is one player (linked names count as one) with their missions and kills. '
             'The list starts filtered to players whose Discord member is a **Member**, '
             '**Veteran**, **Recruit** or **Cadet**; tick other roles and press **Filter**, or press '
-            '**Show everyone**. **not mapped yet** keeps the players who have no member.',
+            '**Show everyone**. Tick **not mapped yet** to list the players who have no member too.',
             'To say who they are on Discord, type the player’s name under **Map a player to a '
             'Discord member**, give the member’s id, mention or exact name, and press **Save**.',
             'Leave the member empty and press **Save** to clear the mapping.',
