@@ -1147,7 +1147,7 @@ See also: [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-
 See how many missions each player has played and which Discord member they are.
 
 1. Open **📊 Kill Tracker → Players**. Use **Find a player** to narrow the list.
-2. Each row is one player (linked names count as one) with their missions and kills.
+2. Each row is one player (linked names count as one) with their missions and kills. The list starts filtered to players whose Discord member is a **Member**, **Veteran**, **Recruit** or **Cadet**; tick other roles and press **Filter**, or press **Show everyone**. **not mapped yet** keeps the players who have no member.
 3. To say who they are on Discord, type the player’s name under **Map a player to a Discord member**, give the member’s id, mention or exact name, and press **Save**.
 4. Leave the member empty and press **Save** to clear the mapping.
 

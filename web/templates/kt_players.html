@@ -16,11 +16,24 @@
 </p>
 
 <form class="form" method="get" action="/g/{{ guild.id }}/killtracker/players">
+  <input type="hidden" name="f" value="1">
   <label class="field">
     <span>Find a player</span>
     <input name="q" value="{{ query }}" placeholder="part of a name">
   </label>
-  <div class="actions"><button class="button" type="submit">Search</button></div>
+  <fieldset class="field">
+    <legend>Show players whose Discord member has one of these roles</legend>
+    {% for r in server_roles %}
+      <label class="check"><input type="checkbox" name="role" value="{{ r.id }}" {% if r.id in chosen_roles %}checked{% endif %}> {{ r.name }}</label>
+    {% endfor %}
+    <label class="check"><input type="checkbox" name="unmapped" value="1" {% if include_unmapped %}checked{% endif %}> <em>not mapped yet</em></label>
+  </fieldset>
+  <div class="actions">
+    <button class="button" type="submit">Filter</button>
+    <a class="button" href="/g/{{ guild.id }}/killtracker/players?all=1">Show everyone</a>
+    <a class="button" href="/g/{{ guild.id }}/killtracker/players">Default roles</a>
+  </div>
+  {% if showing_all %}<p class="hint">Showing every player.</p>{% endif %}
 </form>
 
 {% if people %}

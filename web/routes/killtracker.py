@@ -151,8 +151,19 @@ def register(app, d):
     @app.get('/g/{guild_id}/killtracker/players', response_class=HTMLResponse)
     async def kt_players_page(request: Request, guild_id: str, q: str = ''):
         context = await kt_context(request, guild_id)
+        params = request.query_params
+        # Nothing asked for means the default roles; the form always sends `f`,
+        # so an empty tick list is "no roles" rather than "the default".
+        if params.get('all'):
+            roles = 'all'
+        elif 'f' in params:
+            roles = params.getlist('role')
+        else:
+            roles = None
+        unmapped = 'f' not in params or bool(params.get('unmapped'))
         return render(request, 'kt_players.html', {
-            **context, **await killtracker_service.players_view(context['guild'], q.strip()),
+            **context, **await killtracker_service.players_view(
+                context['guild'], q.strip(), roles=roles, unmapped=unmapped),
         })
 
     @app.get('/g/{guild_id}/killtracker/names', response_class=HTMLResponse)

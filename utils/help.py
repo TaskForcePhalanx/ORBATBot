@@ -1345,7 +1345,10 @@ _KILLTRACKER: tuple[Topic, ...] = (
         summary='See how many missions each player has played and which Discord member they are.',
         steps=(
             'Open **📊 Kill Tracker → Players**. Use **Find a player** to narrow the list.',
-            'Each row is one player (linked names count as one) with their missions and kills.',
+            'Each row is one player (linked names count as one) with their missions and kills. '
+            'The list starts filtered to players whose Discord member is a **Member**, '
+            '**Veteran**, **Recruit** or **Cadet**; tick other roles and press **Filter**, or press '
+            '**Show everyone**. **not mapped yet** keeps the players who have no member.',
             'To say who they are on Discord, type the player’s name under **Map a player to a '
             'Discord member**, give the member’s id, mention or exact name, and press **Save**.',
             'Leave the member empty and press **Save** to clear the mapping.',

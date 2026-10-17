@@ -278,7 +278,7 @@ def _matches(text: str, query: str) -> bool:
     return not query or query.lower() in (text or '').lower()
 
 
-async def players_view(guild, query: str = '', selected=()) -> dict:
+async def players_view(guild, query: str = '', selected=(), roles=None, unmapped=True) -> dict:
     """The names in the statistics, the people already linked, and who is who on Discord."""
     known = killtracker.known_players(await database.kt_rows())
     aliases = await database.kt_aliases()
@@ -300,6 +300,17 @@ async def players_view(guild, query: str = '', selected=()) -> dict:
         person['suggestions'] = [] if user_id else [
             {'id': uid, 'name': labels[uid].display_name}
             for uid, _ in killtracker.suggest_members(person['names'], candidates, taken=taken)]
+    # The role filter. `roles` is what was asked for; None means the default four.
+    server_roles = [r for r in reversed(guild.roles) if not r.is_default() and not r.managed]
+    chosen = (killtracker.default_roles([(r.id, r.name) for r in server_roles])
+              if roles is None else [int(r) for r in roles if str(r).isdigit()])
+    everyone = roles == 'all'
+    if everyone:
+        visible = people
+    else:
+        visible = [p for p in people if killtracker.passes_role_filter(
+            [r.id for r in guild.get_member(int(p['user_id'])).roles] if p['member'] else [],
+            chosen, bool(p['member']), unmapped)]
     # The ticked names stay on the page whatever the search now says, or a
     # search would quietly drop them from the selection.
     selected = [n for n in dict.fromkeys(killtracker.clean_player(n) for n in selected)
@@ -314,8 +325,12 @@ async def players_view(guild, query: str = '', selected=()) -> dict:
         'selected': selected,
         'selected_default': killtracker.default_display(selected, known),
         'existing': [shown for shown in groups if shown not in selected],
-        'people': [p for p in people if _matches(p['name'], query)
+        'people': [p for p in visible if _matches(p['name'], query)
                    or any(_matches(n, query) for n in p['names'])],
+        'server_roles': [{'id': r.id, 'name': r.name} for r in server_roles],
+        'chosen_roles': chosen,
+        'include_unmapped': unmapped,
+        'showing_all': everyone,
         'total': len(known),
         'mapped': sum(1 for p in people if p['user_id']),
         'query': query,
