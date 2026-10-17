@@ -250,6 +250,36 @@ class PromotionButton(discord.ui.DynamicItem[discord.ui.Button],
             content=f'{interaction.message.content}\n{outcome}', view=None)
 
 
+def ask_text(settings: dict, *, member, player: str, missions: int, role: str) -> str:
+    """The "due for promotion" message, from the guild's own text or the default."""
+    return promotion.render_message(
+        settings.get('message'), member=member, player=player, missions=missions,
+        needed=settings['missions'], role=role)
+
+
+async def post_test_ask(guild: discord.Guild, settings: dict, member: discord.Member) -> str:
+    """Post what a real message looks like, about `member`, with the buttons
+    shown but disabled — pressing a real one would promote a real person.
+    Returns `''` when it was posted, else a sentence for the admin."""
+    channel = guild.get_channel(int(settings['channel_id'] or 0))
+    if channel is None:
+        return 'Pick the admin channel first.'
+    if not channel.permissions_for(guild.me).send_messages:
+        return f'I cannot post in #{channel.name}.'
+    to_role = guild.get_role(int(settings['to_role_id'] or 0))
+    text = '🧪 **Test, nobody is promoted:**\n' + ask_text(
+        settings, member=member.mention, player=member.display_name,
+        missions=settings['missions'], role=to_role.name if to_role else 'the new role')
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label='Approve', style=discord.ButtonStyle.success, disabled=True))
+    view.add_item(discord.ui.Button(label='Reject', style=discord.ButtonStyle.danger, disabled=True))
+    try:
+        await channel.send(text[:2000], view=view, allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException as e:
+        return f'Discord refused ({e.status}).'
+    return ''
+
+
 def _ask_view(user_id) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     view.add_item(PromotionButton('approve', user_id))
@@ -290,8 +320,8 @@ async def run_promotions(bot: commands.Bot) -> None:
             for d in fresh:
                 await _tell_admins(
                     guild, settings,
-                    f"🎖️ <@{d['user_id']}> ({d['players'][0]}) has {d['missions']} missions "
-                    f"({settings['missions']} needed) and is due for **{to_role.name}**.",
+                    ask_text(settings, member=f"<@{d['user_id']}>", player=d['players'][0],
+                             missions=d['missions'], role=to_role.name),
                     view=_ask_view(d['user_id']))
             await database.kt_set_promotion(
                 guild.id, [d['user_id'] for d in fresh], promotion.NOTIFIED)

@@ -25,12 +25,14 @@ async def promotion_view(guild) -> dict:
         'due': due,
         'mapped': len(await database.kt_player_members(guild.id)),
         'limits': (promotion.MIN_MISSIONS, promotion.MAX_MISSIONS),
+        'default_message': promotion.DEFAULT_MESSAGE,
+        'placeholders': promotion.PLACEHOLDERS,
     }
 
 
 async def save_promotion(guild, form) -> str:
     """Apply the settings form. Raises `ValueError`."""
-    fields = ('missions', 'from_role_id', 'to_role_id', 'channel_id')
+    fields = ('missions', 'from_role_id', 'to_role_id', 'channel_id', 'message')
     values = {f: form.get(f) for f in fields}
     values.update(enabled=form.get('enabled'), auto=form.get('auto'))
     settings = promotion.clean_settings(values)
@@ -44,6 +46,18 @@ async def save_promotion(guild, form) -> str:
         return 'Saved. Promotions are off.'
     return 'Saved. ' + ('Members are promoted automatically.' if settings['auto']
                         else 'The admin channel is told who is due; you promote them here.')
+
+
+async def post_test(guild, member, form) -> str:
+    """Post a test message with the form as it stands — saved or not — about the
+    admin pressing the button. Raises `ValueError`."""
+    fields = ('missions', 'from_role_id', 'to_role_id', 'channel_id', 'message')
+    values = {f: form.get(f) for f in fields}
+    settings = promotion.clean_settings(values)       # `enabled` is left off: a test needs none
+    problem = await killtracker_cog.post_test_ask(guild, settings, member)
+    if problem:
+        raise ValueError(problem)
+    return 'Test message posted. Nothing was saved and nobody was promoted.'
 
 
 async def promote_now(guild, user_ids) -> str:

@@ -77,3 +77,20 @@ def test_the_form():
             promotion.clean_settings({**form, **bad})
     # Off, the roles may still be unset
     assert promotion.clean_settings({'missions': '5'})['enabled'] is False
+
+
+def test_the_message_is_filled_in_without_format_surprises():
+    got = promotion.render_message('{member} ({player}) {missions}/{needed} {role} {x} {0} {}',
+                                   member='@A', player='Ann', missions=7, needed=5, role='Member')
+    assert got == '@A (Ann) 7/5 Member {x} {0} {}'
+    assert promotion.render_message('', member='@A', player='Ann', missions=7, needed=5,
+                                    role='Member').startswith('🎖️ @A (Ann) has 7 missions (5 needed)')
+
+
+def test_the_message_from_the_form():
+    assert promotion.clean_message('  hi {member}  ') == 'hi {member}'
+    assert promotion.clean_message('') == '' == promotion.clean_message(promotion.DEFAULT_MESSAGE)
+    with pytest.raises(ValueError):
+        promotion.clean_message('x' * (promotion.MAX_MESSAGE + 1))
+    form = {'missions': '5', 'message': 'Welcome {member}'}
+    assert promotion.clean_settings(form)['message'] == 'Welcome {member}'
