@@ -1,0 +1,31 @@
+<section class="publicpages">
+  <h2>{{ public_heading|default("No account needed") }}</h2>
+  <ul class="cards">
+    <li class="card">
+      <a class="cardlink" href="/stats">
+        <span class="cardbody">
+          <strong>Kill Tracker</strong>
+          <span class="muted">Player statistics and campaigns from our operations</span>
+        </span>
+      </a>
+    </li>
+    {% if has_mods %}
+    <li class="card">
+      <a class="cardlink" href="/mods">
+        <span class="cardbody">
+          <strong>Mods</strong>
+          <span class="muted">Pick the mods for an operation and download your Launcher preset</span>
+        </span>
+      </a>
+    </li>
+    {% endif %}
+    <li class="card">
+      <a class="cardlink" href="/help">
+        <span class="cardbody">
+          <strong>How-tos</strong>
+          <span class="muted">How the bot and this site work</span>
+        </span>
+      </a>
+    </li>
+  </ul>
+</section>
