@@ -340,7 +340,7 @@
 
   /* ── SECTION NAV ── */
   #sectionNav {
-    position: sticky; top: 0; z-index: 200;
+    position: sticky; top: var(--sn-h, 0px); z-index: 200;   /* --sn-h: the bot's header above it, if any */
     background: var(--charcoal); border-bottom: 2px solid #2a2a2a;
     display: flex; flex-wrap: wrap; gap: 0;
     padding: 0 20px;

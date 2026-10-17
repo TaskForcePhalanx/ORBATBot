@@ -103,7 +103,7 @@ def parse_nav(page: str, base: str) -> dict:
 
 
 CSS = """
-.sitenav{font:14px/1.2 'Open Sans',sans-serif;background:#fff;color:#222;border-top:6px solid #424242;
+.sitenav{position:sticky;top:0;z-index:400;font:14px/1.2 'Open Sans',sans-serif;background:#fff;color:#222;border-top:6px solid #424242;
   border-bottom:1px solid #ddd;display:flex;align-items:center;gap:16px;padding:0 16px;flex-wrap:wrap}
 .sitenav a{color:inherit;text-decoration:none}
 .sitenav .snbrand{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:16px;margin-right:auto;font-family:'Oswald',sans-serif;font-weight:600}
