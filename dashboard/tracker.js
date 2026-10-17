@@ -4,7 +4,7 @@
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-17";
-const VERSION      = "1.035";
+const VERSION      = "1.036";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -97,6 +97,33 @@ let showRegularEvents = true;
 let zeusFilter = "all";
 
 // ── PLAYER NAME NORMALISATION ──────────────────────────────────────────────
+// ── WEAPON NAMES ───────────────────────────────────────────────────────────
+// OCAP records a weapon as its display name plus the magazine in brackets, and one
+// gun appears under a name per camo and attachment: "M4A1 Block II (Desert)" and
+// "M4A1 Block II (SOPMOD Stock)" are one weapon, and so are an M249 with any rail
+// kit. weaponName() drops the magazine and those parentheses, then applies
+// WEAPON_RENAMES to the few names that say nothing (a mod's generic "Rifle").
+// Vehicle weapons keep their "Vehicle: weapon" form.
+// To rename another weapon, add a line to WEAPON_RENAMES: [matches the raw name, shown name].
+const WEAPON_RENAMES = [
+  [/^Rifle \[.*SCAR-H/i,  "FN SCAR-H STD"],
+  [/^FN SCAR-H/i,         "FN SCAR-H STD"],
+  [/^M249\b/i,            "M249"],
+  [/^HK417A2\b/i,         "HK417A2"],
+];
+function weaponName(raw) {
+  raw = String(raw || "").trim();
+  for (const [pattern, shown] of WEAPON_RENAMES) {
+    if (pattern.test(raw)) return shown;
+  }
+  return raw
+    .replace(/\s*\[[^\]]+\]$/, '')       // the magazine
+    .replace(/\s*\([^)]*\)/g, '')          // camo, stock and rail variants
+    .replace(/\s*"\s*$/, '')               // a stray inch mark left behind
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Reduces mechanical name variants to a common key so they merge into one
 // player entry. Handles:
 //   • Spaces inside brackets:   [57th MEU] → [57thmeu]
@@ -342,7 +369,7 @@ function buildAggregates() {
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
     // The weapon the longest kill was made with (a column the bot records), without the
     // magazine in brackets; empty for a mission counted before that column existed.
-    const lkWeapon = (r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "").replace(/\s*\[[^\]]+\]$/, '');
+    const lkWeapon = weaponName(r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "");
     if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = lkWeapon; }
     if (kof > 0 && aof > 0) { p.avgDistFootSum += aof * kof; p.avgDistFootN += kof; }
 
@@ -362,7 +389,7 @@ function buildAggregates() {
       const weaponJson = r["Weapon Kills (JSON)"] || r["Weapon Kills (JSON)\r"] || "{}";
       const wmap = JSON.parse(weaponJson);
       Object.entries(wmap).forEach(([w, c]) => {
-        const weapon = w.replace(/\s*\[[^\]]+\]$/, '');
+        const weapon = weaponName(w);
         p.weaponKills[weapon] = (p.weaponKills[weapon] || 0) + c;
       });
     } catch(e) {}
@@ -880,7 +907,7 @@ function applyFilters() {
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
     // The weapon the longest kill was made with (a column the bot records), without the
     // magazine in brackets; empty for a mission counted before that column existed.
-    const lkWeapon = (r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "").replace(/\s*\[[^\]]+\]$/, '');
+    const lkWeapon = weaponName(r["Longest Kill Weapon (On Foot)"] || r["Longest Kill Weapon (On Foot)\r"] || "");
     if (lof > p.maxLongestFoot) { p.maxLongestFoot = lof; p.longestKillWeapon = lkWeapon; }
     if (kof > 0 && aof > 0) { p.avgDistFootSum += aof * kof; p.avgDistFootN += kof; }
 
@@ -895,7 +922,7 @@ function applyFilters() {
       const weaponJson = r["Weapon Kills (JSON)"] || r["Weapon Kills (JSON)\r"] || "{}";
       const wmap = JSON.parse(weaponJson);
       Object.entries(wmap).forEach(([w, c]) => {
-        const weapon = w.replace(/\s*\[[^\]]+\]$/, '');
+        const weapon = weaponName(w);
         p.weaponKills[weapon] = (p.weaponKills[weapon] || 0) + c;
       });
     } catch(e) {}
@@ -1742,7 +1769,7 @@ function buildCampaignHTML(campaignName) {
 
     try {
       Object.entries(JSON.parse(r["Weapon Kills (JSON)"] || "{}")).forEach(([w, c]) => {
-        const weapon = w.replace(/\s*\[[^\]]+\]$/, '');
+        const weapon = weaponName(w);
         weapons[weapon] = (weapons[weapon] || 0) + c;
       });
     } catch (e) {}
