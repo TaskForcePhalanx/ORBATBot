@@ -359,8 +359,10 @@ none of them should have to reach sideways for it.
 - `dashboard/` is a static page; `.github/workflows/dashboard.yml` publishes it to the
   `gh-pages` branch (`main` → root, `claude/**` → `dev/`). Pages must be switched on once:
   Settings → Pages → Deploy from a branch → `gh-pages` / root. URL: `https://armatfp.github.io/ORBATBot/`.
-- `deploy.yml` has `paths-ignore: ['dashboard/**']` on push, so a page-only change does
-  **not** redeploy (and restart) the bot. Keep it that way.
+- `deploy.yml` has **no** `paths-ignore` for `dashboard/**`: the bot serves `/stats` from
+  its own copy of `dashboard/` (`web/killtracker.py`), so a page-only change must redeploy
+  (and restart) the bot too. It once ignored them, and `/stats` stayed stale after every
+  dashboard change while only the GitHub Pages copy updated.
 - The page lives on another origin than the bot, which is why `/kt/api/*` answers with
   `Access-Control-Allow-Origin: *`.
 
