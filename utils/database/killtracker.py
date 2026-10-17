@@ -380,3 +380,52 @@ async def kt_set_player_member(guild_id, names, user_id) -> None:
                     await db.execute(
                         'INSERT INTO kt_player_members (guild_id, player, user_id) '
                         'VALUES ($1, $2, $3)', str(guild_id), name, str(user_id))
+
+
+_PROMOTION_FIELDS = ('enabled', 'auto', 'missions', 'from_role_id', 'to_role_id', 'channel_id')
+
+
+async def kt_promotion_settings(guild_id) -> dict:
+    """The guild's promotion settings; off, with the defaults, until saved."""
+    from utils import promotion
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetchrow(
+            'SELECT enabled, auto, missions, from_role_id, to_role_id, channel_id '
+            'FROM kt_promotion_settings WHERE guild_id = $1', str(guild_id))
+    return dict(found) if found else promotion.defaults()
+
+
+async def kt_save_promotion_settings(guild_id, settings: dict) -> None:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """INSERT INTO kt_promotion_settings
+                   (guild_id, enabled, auto, missions, from_role_id, to_role_id, channel_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT (guild_id) DO UPDATE SET
+                   enabled = EXCLUDED.enabled, auto = EXCLUDED.auto,
+                   missions = EXCLUDED.missions, from_role_id = EXCLUDED.from_role_id,
+                   to_role_id = EXCLUDED.to_role_id, channel_id = EXCLUDED.channel_id""",
+            str(guild_id), *(settings[f] for f in _PROMOTION_FIELDS))
+
+
+async def kt_promotion_log(guild_id) -> dict:
+    """`{user id → status}` of everyone told about, promoted or passed over."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch(
+            'SELECT user_id, status FROM kt_promotions WHERE guild_id = $1', str(guild_id))
+    return {r['user_id']: r['status'] for r in found}
+
+
+async def kt_set_promotion(guild_id, user_ids, status: str) -> None:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        async with db.transaction():
+            for user_id in user_ids:
+                await db.execute(
+                    """INSERT INTO kt_promotions (guild_id, user_id, status) VALUES ($1, $2, $3)
+                       ON CONFLICT (guild_id, user_id) DO UPDATE
+                       SET status = EXCLUDED.status, updated_at = NOW() AT TIME ZONE 'UTC'""",
+                    str(guild_id), str(user_id), status)

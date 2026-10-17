@@ -119,6 +119,7 @@ utils/
   embeds.py             # Builder-made rich messages → discord.Embed, post and edit
   reddit.py             # One Reddit feed, read and rendered — no Discord, no database
   killtracker.py        # One OCAP recording → the Kill Tracker's per-player rows. Stdlib only
+  promotion.py          # Who is due a Cadet → Member promotion, from mission counts and the Discord mapping. Stdlib only
   campaign.py           # The campaign planner's rules: schedule, drop text, splitting, checks, cleaning. Stdlib only
   discordmd.py          # Discord message markdown → HTML, for previewing a drop as Discord shows it. Stdlib only
   eventtime.py          # Reading a typed time, and walking a repeat: the event date rules. Stdlib only
@@ -215,6 +216,7 @@ for one exception class:
 | `tests/test_eventtime.py` | the event date rules: a month shift that clamps rather than overflows, which weekday of the month a date is, a month with no fifth Saturday answering *none of this one* rather than *the series is over*, a monthly series measured from its anchor so it keeps the 31st, a bot back after ten weeks catching up in one step, and a typed time read day-first in the guild's zone and stored naive. **Every expected date in it was worked out from a calendar rather than from what the code returns**, and the calendar it assumes is checked against the standard library in its first test |
 | `tests/test_eventopts.py` | what an event's options mean: a response set's labels, emoji, decline flags and distinct keys and the six ways it is refused, the ids and names a mention argument carries — **including that the digits inside a user mention are not a role** — and the two ranges both commands apply. One test holds `is_emoji()` against `discord.PartialEmoji` over 2,000 fuzzed tokens and **skips when discord.py is absent**, so the rest of the file keeps its stdlib-only promise |
 | `tests/test_database_package.py` | that the thirteen modules of `utils/database/` stay one namespace: the `__init__` re-export list is generated and current (`scripts/gen_exports.py --check`) and every name a module defines is on `database`, nothing imports sideways between feature modules bar the one named edge, and **every global a query references resolves in its own module** — a missing `import json` in one of them would otherwise be a `NameError` the first time that query ran in production, which no test here calls |
+| `tests/test_promotion.py` | who is due a Cadet → Member promotion: mapped, holds the first role, lacks the second, enough missions, not promoted or passed over before; and what the settings form refuses |
 | `tests/test_tacmap_package.py` | that the six files of `utils/tacmap/` stay a layer cake: the `__init__` re-export list is generated and current and every name a submodule defines is on `tacmap` (a forgotten one is an AttributeError in whichever caller wanted it), the layers only import downwards, and the package still needs nothing but the standard library |
 | `tests/test_help.py` | that every slash command has a how-to — it reads the names out of `cogs/`, so forgetting to document a new command is a red test |
 

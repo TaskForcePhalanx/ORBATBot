@@ -19,9 +19,10 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 
+import discord
 from discord.ext import commands, tasks
 
-from utils import database, killtracker, ocap
+from utils import database, killtracker, ocap, promotion
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,107 @@ async def check(base: str = None, limit: int = MAX_PER_PASS) -> dict:
     }
 
 
+# -- promotion: Cadet → Member after enough missions -------------------------
+#
+# The rules are `utils/promotion.py`; this is the part that touches Discord. The
+# loop and the web page both go through these three functions, so a promotion
+# is the same thing whoever starts it.
+
+async def due_for_promotion(guild: discord.Guild, settings: dict = None) -> list:
+    """Everyone in `guild` who is due a promotion right now."""
+    settings = settings or await database.kt_promotion_settings(guild.id)
+    if not (settings['enabled'] and settings['from_role_id'] and settings['to_role_id']):
+        return []
+    aliases = await database.kt_aliases()
+    people = killtracker.player_missions(await database.kt_rows(), aliases)
+    mapped = await database.kt_player_members(guild.id)
+    roles = {}
+    for user_id in set(mapped.values()):
+        member = guild.get_member(int(user_id))
+        if member is not None:
+            roles[user_id] = {str(r.id) for r in member.roles}
+    return promotion.candidates(people, mapped, roles, settings,
+                                await database.kt_promotion_log(guild.id))
+
+
+async def promote_members(guild: discord.Guild, user_ids, settings: dict) -> tuple:
+    """Swap the from-role for the to-role. Returns `(promoted ids, problems)`;
+    a problem is a sentence for the admin, and the member it names is left as
+    they were."""
+    from_role = guild.get_role(int(settings['from_role_id'] or 0))
+    to_role = guild.get_role(int(settings['to_role_id'] or 0))
+    if from_role is None or to_role is None:
+        return [], ['One of the two roles no longer exists; pick them again.']
+    if not guild.me.guild_permissions.manage_roles or to_role >= guild.me.top_role:
+        return [], [f'I cannot hand out **{to_role.name}**: I need Manage Roles and a role '
+                    'above it in Server Settings → Roles.']
+    promoted, problems = [], []
+    for user_id in user_ids:
+        member = guild.get_member(int(user_id))
+        if member is None:
+            problems.append(f'<@{user_id}> is not on the server any more.')
+            continue
+        try:
+            await member.add_roles(to_role, reason='Kill Tracker: enough missions')
+            if from_role in member.roles:
+                await member.remove_roles(from_role, reason='Kill Tracker: enough missions')
+        except discord.HTTPException as e:
+            problems.append(f'{member.display_name}: Discord refused ({e.status}).')
+            continue
+        promoted.append(str(user_id))
+    if promoted:
+        await database.kt_set_promotion(guild.id, promoted, promotion.PROMOTED)
+    return promoted, problems
+
+
+async def _tell_admins(guild: discord.Guild, settings: dict, text: str) -> None:
+    channel = guild.get_channel(int(settings['channel_id'] or 0))
+    if channel is None or not channel.permissions_for(guild.me).send_messages:
+        return
+    try:
+        await channel.send(text[:2000], allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        log.warning(f'⚠️ killtracker: could not post the promotion note in #{channel.name}')
+
+
+def _names(due: list) -> str:
+    return '\n'.join(f"• <@{d['user_id']}> ({d['players'][0]}): {d['missions']} missions"
+                     for d in due)
+
+
+async def run_promotions(bot: commands.Bot) -> None:
+    """One pass over every guild with promotions on. Tells the admins about each
+    person once, and promotes them itself only when the guild chose `auto`."""
+    for guild in bot.guilds:
+        settings = await database.kt_promotion_settings(guild.id)
+        if not settings['enabled']:
+            continue
+        due = await due_for_promotion(guild, settings)
+        if settings['auto'] and due:
+            promoted, problems = await promote_members(guild, [d['user_id'] for d in due], settings)
+            done = [d for d in due if d['user_id'] in promoted]
+            note = []
+            if done:
+                to_role = guild.get_role(int(settings['to_role_id']))
+                note.append(f"🎖️ Promoted to **{to_role.name}** after {settings['missions']} missions:\n"
+                            + _names(done))
+            note += problems
+            if note and (done or any(not d['notified'] for d in due)):
+                await _tell_admins(guild, settings, '\n'.join(note))
+            await database.kt_set_promotion(
+                guild.id, [d['user_id'] for d in due if d['user_id'] not in promoted
+                           and not d['notified']], promotion.NOTIFIED)
+        elif due:
+            fresh = [d for d in due if not d['notified']]
+            if fresh:
+                await _tell_admins(
+                    guild, settings,
+                    f"🎖️ Due for a promotion ({settings['missions']}+ missions). Review and "
+                    f"promote them on the Kill Tracker's Promotion page:\n" + _names(fresh))
+                await database.kt_set_promotion(
+                    guild.id, [d['user_id'] for d in fresh], promotion.NOTIFIED)
+
+
 class KillTrackerCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -163,6 +265,10 @@ class KillTrackerCog(commands.Cog):
             log.info(f"✅ killtracker: counted {name} → {result_['label']} ({result_['kills']} kills)")
         for name, error in result['failed']:
             log.warning(f"⚠️ killtracker: could not read {name}: {error}")
+        try:
+            await run_promotions(self.bot)
+        except Exception as e:
+            log.exception(f"❌ killtracker promotions failed: {e!r}")
 
     @poll.error
     async def _poll_error(self, error: BaseException):

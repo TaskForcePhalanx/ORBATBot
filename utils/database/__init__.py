@@ -159,6 +159,11 @@ from .killtracker import (  # noqa: F401
     kt_set_unit_overrides,
     kt_player_members,
     kt_set_player_member,
+    _PROMOTION_FIELDS,
+    kt_promotion_settings,
+    kt_save_promotion_settings,
+    kt_promotion_log,
+    kt_set_promotion,
 )
 from .maps import (  # noqa: F401
     get_guild_tac_maps,

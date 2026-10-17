@@ -65,6 +65,12 @@ The public side serves them in the shape of the dashboard's own files — `/kt/a
 
 The mapping to a Discord member (`kt_player_members`, migration 5) is **admin-page only and deliberately not in the public API**: that answer has no login, and tying an in-game name to a Discord account is not something to publish. It is stored against *recorded* names, and a linked player's mapping is written to every name in the group and read from any of them, so linking, unlinking or showing another name never orphans it. The form takes an id, a mention or an exact member name.
 
+### Promotion: Cadet → Member after N missions (`utils/promotion.py`)
+
+Built on the two things above: the mission count and the Discord mapping. **Off until an admin turns it on** (`kt_promotion_settings`, migration 6, one row per guild: the two roles by id, the number of missions, the admin channel, `enabled`, `auto`). `promotion.candidates()` is the whole rule — mapped, holds the from-role, lacks the to-role, enough missions, not already promoted or passed over (`kt_promotions`). A member mapped to several players has their missions added up.
+
+`cogs/killtracker.py` runs it after every poll pass: with `auto` off it posts who is due to the admin channel **once per person** (`notified`) and the admins promote them on **Kill Tracker → Promotion**; with `auto` on it swaps the roles itself and posts what it did. The page and the loop both go through `due_for_promotion()` / `promote_members()`, so a promotion is the same whoever starts it. Needs Manage Roles and a bot role above the target role; if not, the problem is posted once and the member is left alone. Turning `auto` on promotes everyone who already qualifies at the next pass — the page says so.
+
 ### The dashboard reads only the bot
 
 `dashboard/tracker.js` reads `/kt/api/stats.csv` and the three JSON files from the bot and **nothing from a Google Sheet**. The JSON files in `dashboard/` are only a fallback when the bot cannot be reached (`botJson()`): an *empty* answer is an answer, so deleting every link on the admin page does not bring the old file back. Old links with `?source=bot` still work; the parameter is ignored.

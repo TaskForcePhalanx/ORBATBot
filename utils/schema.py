@@ -1246,10 +1246,37 @@ async def _v5_kt_player_members(db):
                           ON kt_player_members (guild_id, user_id)""")
 
 
+async def _v6_kt_promotion(db):
+    # Cadet → Member after N missions. One settings row per guild, off until an
+    # admin turns it on; `kt_promotions` remembers who was already told about,
+    # promoted or passed over, so nobody is announced twice.
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS kt_promotion_settings (
+            guild_id TEXT PRIMARY KEY,
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            auto BOOLEAN NOT NULL DEFAULT FALSE,
+            missions INTEGER NOT NULL DEFAULT 5,
+            from_role_id TEXT,
+            to_role_id TEXT,
+            channel_id TEXT
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS kt_promotions (
+            guild_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
+            PRIMARY KEY (guild_id, user_id)
+        )
+    """)
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
     Migration(3, 'tac_maps.doc is jsonb', _v3_tac_maps_doc_jsonb),
     Migration(4, 'modlists', _v4_modlists),
     Migration(5, 'kill tracker players to discord members', _v5_kt_player_members),
+    Migration(6, 'kill tracker promotion', _v6_kt_promotion),
 ]
