@@ -626,6 +626,34 @@ def test_discord_ids_from_a_form():
             kt.clean_discord_id(bad)
 
 
+def _guess_rows(*entries):
+    """`(source, name, group[, role])` as one mission's stored rows JSON."""
+    rows = []
+    for e in entries:
+        row = [''] * 8
+        row[0], row[3], row[5] = e[0], e[1], e[2]
+        row[6] = e[3] if len(e) > 3 else 'Rifleman'
+        rows.append(row)
+    return json.dumps(rows)
+
+
+def test_guess_units_seed_tag_and_squad_spreading():
+    stored = [_guess_rows(('a', 'Pricepole', 'Alpha'), ('a', 'Newbie', 'Alpha'),
+                          ('a', '[CNTO] Tagged', 'Bravo'), ('a', 'Solo', 'Charlie'))]
+    guess = kt.guess_units(stored)
+    assert guess['Pricepole'] == 'CNTO'       # seed
+    assert guess['[CNTO] Tagged'] == 'CNTO'   # tag
+    assert guess['Newbie'] == 'CNTO'          # shares a squad with a seed
+    assert 'Solo' not in guess                # nothing to go on
+
+
+def test_guess_units_needs_a_clear_majority_and_ignores_zeus():
+    mixed = [_guess_rows(('a', 'Pricepole', 'Alpha'), ('a', 'Darkling', 'Alpha'), ('a', 'Split', 'Alpha'))]
+    assert 'Split' not in kt.guess_units(mixed)
+    zeus = [_guess_rows(('a', 'Pricepole', 'Zeus'), ('a', 'Curator', 'Zeus'))]
+    assert 'Curator' not in kt.guess_units(zeus)
+
+
 def test_unit_choices():
     assert kt.clean_unit('') is None and kt.clean_unit('auto') is None
     assert kt.clean_unit('unknown') == kt.UNKNOWN_UNIT == ''

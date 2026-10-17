@@ -1115,6 +1115,84 @@ UNITS = ('2nd USC', 'CNTO', 'PXG', 'TFP', 'SKUA')
 UNKNOWN_UNIT = ''
 
 
+# Players the dashboard starts from when it guesses a unit — `UNIT_SEEDS` in
+# tracker.js. Keep the two in step: this is only for showing what Automatic is.
+UNIT_SEEDS = {
+    '2nd USC': ('[2nd USC] Panzerfanlol', '[2nd USC] Cpt. Eddie'),
+    'CNTO': ('Pricepole', 'Clarke', 'Fishgrit'),
+    'PXG': ('Darkling', 'Aquafox', 'Lortmil', 'glyn'),
+    'TFP': ('Sindh', 'loltorres9', 'DickSplash', 'Gortarius', 'Akarin', 'LucasC', 'Ocke', 'najt'),
+    'SKUA': ('SPC. Green Giant', 'WC. Picker', 'PFC. Bearz'),
+}
+
+
+def guess_units(stored) -> dict:
+    """The unit the dashboard guesses for each recorded name — what **Automatic** means.
+
+    A port of `classifyPlayerUnits()` in tracker.js, which the public page runs in
+    the browser: seeds first, then a `[Tag]` in the name, then players spread to
+    the unit of the squads they share (same recording and group, Zeus left out)
+    once that unit is at least 99% of what they shared. Names are as recorded;
+    a player with no guess is not in the result. `stored` is as for
+    `known_players()`.
+    """
+    squads = {}
+    names = {}
+    for item in stored:
+        text = item[0] if isinstance(item, tuple) else item
+        for row in json.loads(text):
+            name = row[3]
+            if not name:
+                continue
+            names[name] = None
+            source, group = row[0], row[5]
+            role = row[6] if len(row) > 6 else ''
+            if not source or not group or 'zeus' in (group or '').lower() or 'zeus' in (role or '').lower():
+                continue
+            squads.setdefault((source, group), set()).add(name)
+
+    co_occurrence = {}
+    for members in squads.values():
+        for a in members:
+            for b in members:
+                if a != b:
+                    neighbours = co_occurrence.setdefault(a, {})
+                    neighbours[b] = neighbours.get(b, 0) + 1
+
+    units = {p: unit for unit, players in UNIT_SEEDS.items() for p in players}
+    for name in names:
+        if name in units:
+            continue
+        m = re.match(r'^\[([^\]]+)\]', name)
+        if not m:
+            continue
+        tag = m.group(1).lower()
+        for unit in UNITS:
+            if unit.lower() == tag or unit.lower().replace('2nd ', '', 1) == tag:
+                units[name] = unit
+                break
+
+    changed = True
+    while changed:
+        changed = False
+        for name in names:
+            if name in units:
+                continue
+            scores, total = {}, 0
+            for neighbour, count in co_occurrence.get(name, {}).items():
+                unit = units.get(neighbour)
+                if unit:
+                    scores[unit] = scores.get(unit, 0) + count
+                    total += count
+            if not total:
+                continue
+            best_unit, best_score = max(scores.items(), key=lambda kv: kv[1])
+            if best_score / total >= 0.99:
+                units[name] = best_unit
+                changed = True
+    return {name: units[name] for name in names if name in units}
+
+
 def clean_player(text) -> str:
     """A player name from a form or a file: one line, trimmed, bounded.
 

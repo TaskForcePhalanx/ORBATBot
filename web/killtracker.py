@@ -398,7 +398,9 @@ async def unlink(name: str) -> str:
 
 async def units_view(query: str = '') -> dict:
     """Each player as the dashboard shows them, and the unit set for them by hand."""
-    known = killtracker.known_players(await database.kt_rows())
+    stored = await database.kt_rows()
+    known = killtracker.known_players(stored)
+    guessed = killtracker.guess_units(stored)
     aliases = await database.kt_aliases()
     overrides = await database.kt_unit_overrides()
     names = {aliases.get(k['name'], k['name']) for k in known} | set(overrides)
@@ -416,6 +418,7 @@ async def units_view(query: str = '') -> dict:
         rows.append({
             'name': name, 'missions': stats.get(name, {}).get('missions', 0),
             'value': 'auto' if current is None else ('unknown' if current == '' else current),
+            'guess': guessed.get(name, ''),
         })
     return {'rows': rows, 'units': killtracker.UNITS, 'query': query, 'total': len(names)}
 
