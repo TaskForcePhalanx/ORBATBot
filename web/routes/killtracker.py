@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from utils import database
 from web import auth, killtracker as killtracker_service
 from web.auth import Forbidden
+from web.guilds import user_guilds
 
 def register(app, d):
     """Add this feature's routes to the app.
@@ -16,9 +17,41 @@ def register(app, d):
     the request plumbing every page shares. Rebinding them here is
     what lets every route below stay exactly as it was written.
     """
+    bot = d.bot
     render = d.render
     redirect = d.redirect
     guild_context = d.guild_context
+    require_session = d.require_session
+
+    # -- claiming a player ---------------------------------------------------
+    #
+    # Any signed-in member, not only admins: it opens a claim and nothing more.
+    # The path is `@me` because a player could be called `me`, and the dashboard's
+    # own `/stats/{player}` is registered after this and would otherwise take it.
+
+    @app.get('/stats/@me', response_class=HTMLResponse)
+    async def kt_me(request: Request):
+        session = require_session(request)
+        known = killtracker_service.killtracker.known_players(await database.kt_rows())
+        names = killtracker_service.killtracker.claimable_players(known, await database.kt_aliases())
+        items = [{'guild': g['guild'], **await killtracker_service.profile_of(g['guild'], session['id'])}
+                 for g in await user_guilds(bot, session['id'])]
+        return render(request, 'kt_me.html', {'items': items, 'names': names})
+
+    @app.post('/stats/@me')
+    async def kt_me_claim(request: Request):
+        session = require_session(request)
+        form = await request.form()
+        auth.check_csrf(session, form.get('csrf'))
+        guild = next((g['guild'] for g in await user_guilds(bot, session['id'])
+                      if str(g['guild'].id) == form.get('guild')), None)
+        if guild is None:
+            raise Forbidden("You are not a member of that server.")
+        try:
+            note = await killtracker_service.submit_claim(guild, session['id'], form.get('player'))
+        except ValueError as e:
+            return redirect(request, '/stats/@me', 'warn', str(e))
+        return redirect(request, '/stats/@me', 'ok', note)
 
     # -- kill tracker admin -------------------------------------------------
     # Server admins only, for the whole area. What these change is what the
@@ -203,6 +236,16 @@ def register(app, d):
         try:
             note = await killtracker_service.map_member(
                 context['guild'], form.get('player'), form.get('member'))
+        except ValueError as e:
+            return kt_back(request, guild_id, '/players', 'warn', str(e))
+        return kt_back(request, guild_id, '/players', 'ok', note)
+
+    @app.post('/g/{guild_id}/killtracker/players/claim')
+    async def kt_claim(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        try:
+            note = await killtracker_service.decide_claim(
+                context['guild'], form.get('user'), form.get('decision') == 'approve')
         except ValueError as e:
             return kt_back(request, guild_id, '/players', 'warn', str(e))
         return kt_back(request, guild_id, '/players', 'ok', note)

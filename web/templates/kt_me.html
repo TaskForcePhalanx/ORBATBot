@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}My player profile · {{ brand }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <h1>My player profile</h1>
+</div>
+<p class="hint">
+  Say which player in the <a href="/stats">Kill Tracker</a> is you and your page is one click
+  away from then on. A server admin confirms every claim, because the same link decides who
+  is due a promotion.
+</p>
+
+{% for item in items %}
+  <section class="card" style="padding:14px 16px;margin-bottom:12px">
+    <h2 style="margin-top:0">{{ item.guild.name }}</h2>
+    {% if item.player %}
+      <p>Your profile: <a href="/stats/{{ item.player|urlencode }}"><strong>{{ item.player }}</strong></a></p>
+    {% elif item.pending %}
+      <p>Waiting for an admin to confirm your claim for <strong>{{ item.pending }}</strong>.
+        Claim a different player below to replace it.</p>
+    {% endif %}
+    {% if not item.player %}
+    <form class="form" method="post" action="/stats/@me">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="guild" value="{{ item.guild.id }}">
+      <label class="field"><span>Player</span>
+        <input name="player" list="ktnames{{ item.guild.id }}" placeholder="start typing your in-game name" required>
+      </label>
+      <datalist id="ktnames{{ item.guild.id }}">
+        {% for name in names %}<option value="{{ name }}">{% endfor %}
+      </datalist>
+      <div class="actions"><button class="button primary" type="submit">Claim this player</button></div>
+    </form>
+    {% endif %}
+  </section>
+{% else %}
+  <p class="empty">You are not in a server this bot is on.</p>
+{% endfor %}
+{% endblock %}

@@ -30,8 +30,10 @@ the functions they call are here, so that what they do can be read in one place.
 """
 
 import hashlib
+import html
 import json
 import pathlib
+from urllib.parse import quote
 
 from utils import database, killtracker
 from web.config import LOGO_NAMES
@@ -135,7 +137,96 @@ def _logo_url() -> str:
     return ''
 
 
-def install(app) -> None:
+# -- who the visitor is, for the stats page ------------------------------------
+#
+# The page is public and stays that way; signing in only adds a strip at the
+# top. The strip is built here, on the server, and the page's script never sees
+# it — which is also why it is missing when the page sits in somebody else's
+# iframe: the session cookie is SameSite=Lax and is not sent from there.
+
+def _names_of(shown: str, aliases: dict) -> set:
+    """Every recorded name that is the player `shown`."""
+    return {n for n, c in aliases.items() if c == shown} | {shown}
+
+
+async def profile_of(guild, user_id) -> dict:
+    """`{'player': the name the member's profile is shown under or None,
+    'pending': the name they have claimed and an admin has not decided or None}`."""
+    mapped = await database.kt_player_members(guild.id)
+    aliases = await database.kt_aliases()
+    mine = sorted((aliases.get(p, p) for p, uid in mapped.items() if uid == str(user_id)),
+                  key=str.lower)
+    claim = next((c['player'] for c in await database.kt_claims(guild.id)
+                  if c['user_id'] == str(user_id)), None)
+    return {'player': mine[0] if mine else None, 'pending': claim}
+
+
+async def submit_claim(guild, user_id, text) -> str:
+    """A member says which player they are. Raises `ValueError` with a sentence.
+
+    This only opens a claim: the mapping the promotion rules read is written by
+    an admin approving it (`decide_claim()`), never by the claimant.
+    """
+    known = killtracker.known_players(await database.kt_rows())
+    aliases = await database.kt_aliases()
+    player = killtracker.valid_claim(text, killtracker.claimable_players(known, aliases))
+    mapped = await database.kt_player_members(guild.id)
+    owner = next((mapped[n] for n in _names_of(player, aliases) if n in mapped), None)
+    if owner == str(user_id):
+        raise ValueError(f'“{player}” is already your profile.')
+    if owner:
+        raise ValueError(f'“{player}” is already linked to another member. '
+                         'If that is wrong, ask a server admin.')
+    await database.kt_set_claim(guild.id, user_id, player)
+    return f'Your claim for “{player}” was sent. A server admin has to confirm it.'
+
+
+async def decide_claim(guild, user_id: str, approve: bool) -> str:
+    """An admin's answer to one claim. Raises `ValueError`."""
+    claim = next((c for c in await database.kt_claims(guild.id) if c['user_id'] == str(user_id)), None)
+    if claim is None:
+        raise ValueError('That claim is gone already.')
+    if approve:
+        note = await map_member(guild, claim['player'], str(user_id))
+    else:
+        note = f'Rejected the claim for “{claim["player"]}”.'
+    await database.kt_delete_claim(guild.id, user_id)
+    return note
+
+
+async def claims_view(guild) -> list:
+    """The open claims with who made them, for the Players page."""
+    out = []
+    for c in await database.kt_claims(guild.id):
+        member = guild.get_member(int(c['user_id']))
+        out.append({**c, 'member': member.display_name if member else c['user_id']})
+    return out
+
+
+async def stats_bar(session, bot) -> str:
+    """The strip above the stats page: sign in, or your profile and where to claim it."""
+    from web.guilds import user_guilds
+    esc = html.escape
+    if session is None:
+        inner = '<a href="/login?next=/stats">Sign in with Discord</a> to claim your player profile'
+    else:
+        found = None
+        for item in await user_guilds(bot, session['id']):
+            profile = await profile_of(item['guild'], session['id'])
+            if profile['player']:
+                found = profile
+                break
+        if found:
+            inner = (f'Signed in as {esc(session["name"])} · '
+                     f'<a href="/stats/{quote(found["player"], safe="")}">My profile: {esc(found["player"])}</a>')
+        else:
+            inner = (f'Signed in as {esc(session["name"])} · '
+                     '<a href="/stats/@me">Claim your player profile</a>')
+    return ('<div style="font:13px/1.4 sans-serif;background:#2b2b2b;color:#ddd;padding:6px 14px;'
+            f'text-align:right">{inner}</div>')
+
+
+def install(app, bar=None) -> None:
     from fastapi import Request
     from fastapi.responses import JSONResponse, Response
 
@@ -173,15 +264,18 @@ def install(app) -> None:
             _cache['units'] = killtracker.unit_overrides_document(await database.kt_unit_overrides())
         return JSONResponse(_cache['units'], headers={**_CORS, 'Cache-Control': cache_control})
 
-    def _page(player: str = ''):
+    async def _page(request: Request, player: str = ''):
         from fastapi.responses import HTMLResponse
         template = (_DASHBOARD / 'index.html').read_text(encoding='utf-8')
-        return HTMLResponse(killtracker.stats_page(template, player, _logo_url()),
-                            headers={'Cache-Control': 'public, max-age=60'})
+        strip = await bar(request) if bar else ''
+        # A page with somebody's name in it must not be kept for the next visitor.
+        cache = 'private, no-store' if strip else 'public, max-age=60'
+        return HTMLResponse(killtracker.stats_page(template, player, _logo_url(), strip),
+                            headers={'Cache-Control': cache})
 
     @app.get('/stats')
-    async def kt_stats_page():
-        return _page()
+    async def kt_stats_page(request: Request):
+        return await _page(request)
 
     @app.get('/stats/assets/{name}')
     async def kt_stats_asset(name: str):
@@ -191,8 +285,8 @@ def install(app) -> None:
                         headers={'Cache-Control': 'public, max-age=60'})
 
     @app.get('/stats/{player}')
-    async def kt_stats_player(player: str):
-        return _page(player)
+    async def kt_stats_player(request: Request, player: str):
+        return await _page(request, player)
 
     @app.get('/kt/api/missions')
     async def kt_missions():
@@ -372,6 +466,7 @@ async def players_view(guild, query: str = '', selected=(), roles=None, unmapped
         'total': len(known),
         'mapped': sum(1 for p in people if p['user_id']),
         'query': query,
+        'claims': await claims_view(guild),
     }
 
 

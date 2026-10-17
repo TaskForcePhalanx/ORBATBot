@@ -1513,7 +1513,7 @@ def plan_strikes(listed, checked, entries) -> list:
 PAGE_ASSETS = '/stats/assets/'
 
 
-def stats_page(template: str, player: str = '', icon: str = '') -> str:
+def stats_page(template: str, player: str = '', icon: str = '', bar: str = '') -> str:
     """`dashboard/index.html` as the bot serves it, for one player or for none.
 
     Two things change. The page's own files are named by absolute path, because
@@ -1523,10 +1523,13 @@ def stats_page(template: str, player: str = '', icon: str = '') -> str:
     runs — the dashboard already reads that, so a path link is only a nicer way
     to spell it. The name is escaped for HTML and for the script, and a name that
     is not clean is treated as no name rather than an error: this is a public URL.
+    `bar` is HTML the caller has already made safe, put at the top of the body.
     """
     page = (template.replace('href="favicon.svg"', f'href="{PAGE_ASSETS}favicon.svg"')
                     .replace('src="tracker.js"', f'src="{PAGE_ASSETS}tracker.js"'))
     from html import escape
+    if bar:
+        page = page.replace('<body>', '<body>\n' + bar, 1)
     if icon:
         # The site's own logo as the tab icon, in place of the dashboard's crosshair.
         mark = escape(icon, quote=True)
@@ -1545,3 +1548,26 @@ def stats_page(template: str, player: str = '', icon: str = '') -> str:
             f'<meta property="og:description" content="Career statistics for {escape(player, quote=True)}">\n'
             f'<script>history.replaceState(null, "", "/stats?player=" + encodeURIComponent({literal}));</script>\n')
     return page.replace('</head>', head + '</head>', 1)
+
+
+def claimable_players(known, aliases) -> list:
+    """The names a member can claim: each player as the dashboard shows them.
+
+    `known` is `known_players()`; a linked group is one player, under the name
+    it is shown as, so a member claims a person rather than one spelling of them.
+    """
+    return sorted({aliases.get(k['name'], k['name']) for k in known}, key=str.lower)
+
+
+def valid_claim(text, claimable) -> str:
+    """The claimed name as it is in `claimable`, or `ValueError` with a sentence."""
+    wanted = clean_player(text)
+    if not wanted:
+        raise ValueError('Pick the player you are.')
+    for name in claimable:
+        if name == wanted:
+            return name
+    folded = [n for n in claimable if n.lower() == wanted.lower()]
+    if len(folded) == 1:
+        return folded[0]
+    raise ValueError('There is no player with that name in the statistics.')

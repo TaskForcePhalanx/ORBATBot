@@ -224,6 +224,9 @@ A named group of missions. `kt_campaign_missions (campaign_id, ocap_id)` is by *
 ### `kt_kill_exclusions`
 `(ocap_id, kill_key)` → a kill an admin struck from the distance statistics. `kill_key` is `killtracker.kill_key()`: `frame:killer_id:victim_id`, ids as the recording has them, which is why it is kept beside the mission and applied by `compute(…, exclude)` on every re-count. The killer, victim, weapon and distance are copied in so a list can say what was struck. ON DELETE CASCADE with the mission. Striking or restoring one sets `kt_missions.rules_version = 0`, which is all it takes for the import loop to count that mission again.
 
+### `kt_player_claims`
+`(guild_id, user_id)` (PK) → `player` (the name as the dashboard shows it), `requested_at`. A member's open claim to be a Kill Tracker player, migration 8. **One open claim per member**; claiming again replaces it. It is not the mapping: an admin confirming it on the Players page writes `kt_player_members` (what the promotion rules read) and deletes the claim, rejecting only deletes it. Nobody but an admin ever writes `kt_player_members`.
+
 ### `kt_aliases`
 `alias` (PK) → `canonical`: names that belong to one player and the one shown. The shape of the dashboard's `player_aliases.json`, which the dashboard applies on top of its own automatic merging. **Never a chain** — `killtracker.link_names()` pulls in everything already tied to any of the names, in either direction, because the dashboard doesn't follow one.
 

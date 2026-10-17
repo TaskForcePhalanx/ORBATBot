@@ -905,3 +905,29 @@ def test_stats_page_icon_replaces_the_crosshair_only_when_given():
     with_icon = kt.stats_page(page, icon='/static/logo.png?v=1')
     assert 'rel="icon" href="/static/logo.png?v=1"' in with_icon
     assert 'favicon.svg' not in with_icon
+
+
+# -- claiming a player ----------------------------------------------------------
+
+def test_claimable_players_are_the_shown_names():
+    known = [{'name': 'Dusty'}, {'name': 'Trp. Dusty'}, {'name': 'alpha'}]
+    assert kt.claimable_players(known, {'Trp. Dusty': 'Dusty'}) == ['alpha', 'Dusty']
+
+
+def test_valid_claim_matches_exactly_then_ignoring_case():
+    names = ['Dusty', 'alpha']
+    assert kt.valid_claim('  Dusty ', names) == 'Dusty'
+    assert kt.valid_claim('ALPHA', names) == 'alpha'
+    for bad in ('', '   ', 'nobody'):
+        with pytest.raises(ValueError):
+            kt.valid_claim(bad, names)
+
+
+def test_valid_claim_does_not_guess_between_case_variants():
+    with pytest.raises(ValueError):
+        kt.valid_claim('DUSTY', ['Dusty', 'dusty'])
+
+
+def test_stats_page_bar_goes_first_in_the_body():
+    page = kt.stats_page('<head></head><body><p>x</p></body>', bar='<nav>hi</nav>')
+    assert '<body>\n<nav>hi</nav><p>x' in page
