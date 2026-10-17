@@ -1139,7 +1139,7 @@ function renderLeader() {
     document.getElementById("aw-multi-name").textContent = byMulti.name;
     const awMultiStat = document.getElementById("aw-multi-stat");
     awMultiStat.textContent = `${byMulti.bestMulti} kills in 10 s`;
-    if (byMulti.bestMultiRaw) awMultiStat.dataset.avg = byMulti.bestMultiRaw;
+    if (byMulti.bestMultiRaw) { awMultiStat.dataset.avg = byMulti.bestMultiRaw; awMultiStat.dataset.plain = '1'; }
   } else {
     document.getElementById("aw-multi-name").textContent = "—";
     document.getElementById("aw-multi-stat").textContent = "";
@@ -1281,7 +1281,7 @@ const avgTooltip = document.getElementById('avgTooltip');
 document.addEventListener('mouseover', e => {
   const el = e.target.closest('[data-avg]');
   if (!el) return;
-  avgTooltip.textContent = 'Avg: ' + el.dataset.avg;
+  avgTooltip.textContent = (el.dataset.plain ? '' : 'Avg: ') + el.dataset.avg;
   avgTooltip.style.display = 'block';
 });
 document.addEventListener('mousemove', e => {
