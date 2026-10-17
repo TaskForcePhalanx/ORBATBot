@@ -1139,7 +1139,6 @@ function renderLeader() {
     document.getElementById("aw-multi-name").textContent = byMulti.name;
     const awMultiStat = document.getElementById("aw-multi-stat");
     awMultiStat.textContent = `${byMulti.bestMulti} kills in 10 s`;
-    if (byMulti.bestMultiAt) awMultiStat.dataset.avg = byMulti.bestMultiAt;
   } else {
     document.getElementById("aw-multi-name").textContent = "—";
     document.getElementById("aw-multi-stat").textContent = "";
