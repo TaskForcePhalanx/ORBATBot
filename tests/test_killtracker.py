@@ -69,7 +69,7 @@ def killed(frame, victim, killer, weapon='M4', dist=100):
 def test_header_and_rows_have_the_same_width():
     result = rows_of(doc([unit(1, 'Ann'), unit(2, 'Bob', 'EAST', player=0, group='x')],
                          [killed(5, 2, 1)]))
-    assert len(kt.HEADER) == 37    # the sheet's 35, and the two weapon columns of the longest kills
+    assert len(kt.HEADER) == 39    # the sheet's 35, the two weapon columns of the longest kills, two for unconsciousness
     assert all(len(r) == len(kt.HEADER) for r in result['rows'])
 
 
@@ -337,6 +337,27 @@ def test_distance_run_skips_teleports_and_the_dead():
 def test_playtime_is_frames_times_capture_delay():
     ent = unit(1, 'Ann', positions=[pos() for _ in range(10)])
     assert row(rows_of(doc([ent], [], delay=3)), 'Ann')[H['Time Played (s)']] == 30
+
+
+def test_unconsciousness_counts_each_time_down_and_the_frames_spent_there():
+    # alive, down (2 frames), up, dead, respawned, down again (1 frame), up
+    states = [1, 1, 2, 2, 1, 0, 0, 1, 2, 1]
+    ent = unit(1, 'Ann', positions=[pos(alive=a) for a in states])
+    r = row(rows_of(doc([ent], [], delay=2)), 'Ann')
+    assert r[H['Times Unconscious']] == 2
+    assert r[H['Time Unconscious (s)']] == 6        # 3 frames * capture delay 2
+
+
+def test_dying_or_respawning_is_not_going_unconscious():
+    ent = unit(1, 'Ann', positions=[pos(alive=a) for a in [1, 0, 0, 1, 1]])
+    r = row(rows_of(doc([ent], [])), 'Ann')
+    assert r[H['Times Unconscious']] == 0 and r[H['Time Unconscious (s)']] == 0
+
+
+def test_unconscious_frames_are_not_distance_run():
+    walk = [pos(x=i * 10) for i in range(11)]
+    walk[5] = pos(x=50, alive=2)
+    assert _walk(walk) == 0.1
 
 
 # ---------------------------------------------------------------------------

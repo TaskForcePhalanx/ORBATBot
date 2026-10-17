@@ -3,8 +3,8 @@
 // that are managed on its admin pages. Nothing here reads a Google Sheet.
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
-const RELEASE_DATE = "2026-10-11";
-const VERSION      = "1.033";
+const RELEASE_DATE = "2026-10-17";
+const VERSION      = "1.034";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -278,6 +278,7 @@ function buildAggregates() {
         shotsOnFoot: 0, hitsOnFoot: 0, hitsDealtOnFoot: 0,
         killDistOnFoot: [], // collect distances for avg/max
         suicides: 0,
+        downs: 0,
         distanceRun: 0,
         // In-vehicle
         killsInVeh: 0, deathsInVeh: 0, tkInVeh: 0,
@@ -333,6 +334,7 @@ function buildAggregates() {
     p.hitsOnFoot       += hof;
     p.hitsDealtOnFoot  += hdof;
     p.suicides     += NUM((r["Suicides"] || r["Suicides\r"] || "0"));
+    p.downs        += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
@@ -826,7 +828,7 @@ function applyFilters() {
         name,
         missions: new Set(),
         killsOnFoot: 0, deathsOnFoot: 0, tkOnFoot: 0,
-        shotsOnFoot: 0, hitsOnFoot: 0, hitsDealtOnFoot: 0, suicides: 0, distanceRun: 0, timePlayed: 0,
+        shotsOnFoot: 0, hitsOnFoot: 0, hitsDealtOnFoot: 0, suicides: 0, downs: 0, distanceRun: 0, timePlayed: 0,
         maxLongestFoot: 0, avgDistFootSum: 0, avgDistFootN: 0,
         killsInVeh: 0, deathsInVeh: 0, tkInVeh: 0,
         vehKillsFoot: 0, vehKillsVeh: 0,
@@ -869,6 +871,7 @@ function applyFilters() {
     p.killsOnFoot      += kof; p.deathsOnFoot += dof; p.tkOnFoot += tkof;
     p.shotsOnFoot      += sof; p.hitsOnFoot   += hof; p.hitsDealtOnFoot += hdof;
     p.suicides     += NUM((r["Suicides"] || r["Suicides\r"] || "0"));
+    p.downs        += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
     p.distanceRun  += NUM(r["Distance Run (km)"] || r["Distance Run (km)\r"] || "0");
     p.timePlayed   += NUM(r["Time Played (s)"] || r["Time Played (s)\r"] || "0");
     const topWeaponRow = r["Top Weapon"] || r["Top Weapon\r"] || "";
@@ -1237,6 +1240,7 @@ const SHARED_INF_STAT_COLS = [
   { label: "Kills",         aggKey: "killsOnFoot",    missionKey: "k",    numeric: true,  canAvg: true },
   { label: "Veh Kills",     aggKey: "vehKillsFoot",   missionKey: "vk",   numeric: true,  fmt: v => v || "—", canAvg: true },
   { label: "Deaths",        aggKey: "deathsOnFoot",   missionKey: "d",    numeric: true,  canAvg: true },
+  { label: "Downed",        aggKey: "downs",          missionKey: "dn",   numeric: true,  fmt: v => v || "—", canAvg: true },
   { label: "K/D",           aggKey: "kdFoot",         missionKey: "_kd",  numeric: true,  fmt: v => v != null ? v.toFixed(2) : "—", css: kdClass },
   { label: "TK",            aggKey: "tkOnFoot",       missionKey: "tk",   numeric: true,  fmt: v => v || "—", css: tkClass, canAvg: true },
   { label: "Suicides",      aggKey: "suicides",       missionKey: "sui",  numeric: true,  fmt: v => v || "—", css: v => v > 0 ? "tk-cell" : "", canAvg: true },
@@ -1441,6 +1445,7 @@ function buildCareerStatsHTML(p) {
       <div class="modal-grid">
         ${mStat(p.killsOnFoot, 'Kills')}
         ${mStat(p.deathsOnFoot, 'Deaths')}
+        ${mStat(p.downs || 0, 'Times Unconscious')}
         ${mStat(p.kdFoot.toFixed(2), 'K/D')}
         ${mStat(p.tkOnFoot, 'Teamkills')}
         ${mStat(p.shotsOnFoot, 'Shots Fired')}
@@ -1539,7 +1544,7 @@ function buildCareerStatsHTML(p) {
     const key = r["Mission"] || r["Source File"] || '—';
     if (!missionMap[key]) missionMap[key] = {
       mission: key,
-      k: 0, vk: 0, d: 0, tk: 0, sui: 0, sh: 0, ht: 0, hd: 0,
+      k: 0, vk: 0, d: 0, dn: 0, tk: 0, sui: 0, sh: 0, ht: 0, hd: 0,
       lk: 0, _adSum: 0, _adN: 0, dr: 0, tp: 0,
       _kd: null, _spk: null, _ad: null
     };
@@ -1549,6 +1554,7 @@ function buildCareerStatsHTML(p) {
     m.k   += kof;
     m.vk  += NUM(r["Vehicle Kills (On Foot)"]);
     m.d   += NUM(r["Deaths (On Foot)"]);
+    m.dn  += NUM(r["Times Unconscious"] || r["Times Unconscious\r"] || "0");
     m.tk  += NUM(r["Teamkills (On Foot)"]);
     m.sui += NUM(r["Suicides"] || r["Suicides\r"] || "0");
     m.sh  += NUM(r["Shots (On Foot)"]);
