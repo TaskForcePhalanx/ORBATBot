@@ -41,6 +41,19 @@
     <textarea name="description" rows="4" placeholder="What the event is about">{{ values.get('description', '') }}</textarea>
   </label>
 
+  {% if modlist_choices %}
+    <label class="field">
+      <span>Modlist</span>
+      <select name="modlist_id">
+        <option value="">None</option>
+        {% for id, label in modlist_choices %}
+          <option value="{{ id }}"
+            {% if values.get('modlist_id')|string == id|string %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  {% endif %}
+
   <div class="row">
     <label class="field">
       <span>Location</span>

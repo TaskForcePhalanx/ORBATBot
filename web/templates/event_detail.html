@@ -28,6 +28,13 @@
   {% if event.location %}
     <dt>Location</dt><dd>{{ event.location }}</dd>
   {% endif %}
+  {% if modlist %}
+    <dt>Mods</dt>
+    <dd>
+      <a href="/g/{{ guild.id }}/modlists/{{ modlist.id }}/preset.html">{{ modlist.name }}</a>
+      · {{ modlist.mods|length }} mods
+    </dd>
+  {% endif %}
   <dt>Reminder</dt>
   <dd>{% if event.reminder_minutes %}{{ event.reminder_minutes }} min before{% else %}none{% endif %}</dd>
   {% if event.recurrence in recurrence_labels %}

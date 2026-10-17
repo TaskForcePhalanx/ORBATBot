@@ -298,6 +298,27 @@ def merge(selections: list) -> list:
     return out
 
 
+def build_selection(current: dict, operation: str = '', picked: dict = None) -> tuple:
+    """What the public selector downloads: `(name, mods)`.
+
+    `current` is `{slot: version}`; `operation` is `weekly`, `jointop` or empty
+    — an evening's list taken as it is; `picked` is `{slot: [mod keys]}` for the
+    pickable lists. Keys that are no longer in the list are ignored rather than
+    refused, because the page a member ticked boxes on may be an older version
+    than the one they download. CBA is always included.
+    """
+    chosen = []
+    if operation in OPERATION_SLOTS and current.get(operation):
+        chosen.append(current[operation]['mods'])
+    for slot in PICKABLE_SLOTS:
+        wanted = set((picked or {}).get(slot) or [])
+        if wanted and current.get(slot):
+            chosen.append([m for m in current[slot]['mods'] if key_of(m) in wanted])
+    name = ({'weekly': 'TFP Weekly', 'jointop': 'TFP Joint Op'}[operation]
+            if operation in OPERATION_SLOTS and current.get(operation) else 'TFP Custom')
+    return name, with_cba(merge(chosen))
+
+
 def render_preset(name: str, mods: list, dlcs: list = ()) -> str:
     """A Launcher preset, ready to be dragged onto it.
 

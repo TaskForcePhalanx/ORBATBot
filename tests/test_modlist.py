@@ -179,3 +179,30 @@ def test_an_empty_keyword_box_means_the_defaults_not_no_match():
     typed = {'weekly': 'saturday, Saturday\n campaign', 'core': '  ', 'optional': None}
     assert modlist.keywords_from_form(typed) == {'weekly': ['saturday', 'campaign']}
     assert modlist.keywords_from_form({}) == {}
+
+
+def _version(*names):
+    """A version whose mods get the id of their letter, so one mod is one id everywhere."""
+    return {'mods': [{'name': n, 'id': str(ord(n)), 'source': 'steam',
+                      'link': 'https://steamcommunity.com/sharedfiles/filedetails/?id=%d' % ord(n)}
+                     for n in names]}
+
+
+def test_a_selection_is_an_operation_list_plus_picked_mods_with_cba_first():
+    current = {'weekly': _version('A', 'B'), 'core': _version('B', 'C'),
+               'optional': _version('D', 'E')}
+    name, mods = modlist.build_selection(
+        current, 'weekly', {'core': [str(ord('B'))], 'optional': [str(ord('E')), 'gone']})
+    # B is in Weekly and Core and appears once; the stale key is ignored.
+    assert [m['name'] for m in mods] == ['CBA_A3', 'A', 'B', 'E']
+    assert name == 'TFP Weekly'
+
+
+def test_picking_nothing_still_gives_a_loadable_preset():
+    name, mods = modlist.build_selection({}, '', {})
+    assert name == 'TFP Custom' and [m['name'] for m in mods] == ['CBA_A3']
+
+
+def test_a_list_that_is_not_an_operation_list_cannot_be_taken_whole():
+    _, mods = modlist.build_selection({'core': _version('A')}, 'core', {})
+    assert [m['name'] for m in mods] == ['CBA_A3']

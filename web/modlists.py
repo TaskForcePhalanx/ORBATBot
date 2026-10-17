@@ -65,3 +65,21 @@ async def upload(guild: discord.Guild, member: discord.Member, slot: str,
         extra = f": {result['summary']}" if result['summary'] else ''
         return f'{label} updated{extra}.'
     return f'{label} is already up to date.'
+
+
+async def choices(guild: discord.Guild, selected=None) -> list:
+    """The versions an event can carry: each list's current one, `[(id, label)]`.
+
+    An event picks a version, not a list, so what the organiser sees is what the
+    members get. A series still follows its list (see `_spawn_next_occurrence`).
+    """
+    current = await database.get_current_modlists(str(guild.id))
+    out = [(current[slot]['id'], f"{label} — {current[slot]['name']}")
+           for slot, label in modlist.SLOTS if slot in current]
+    # An event may carry a version that has since been replaced. Without its own
+    # option, saving the form would silently detach it.
+    if str(selected or '').isdigit() and int(selected) not in [i for i, _ in out]:
+        version = await database.get_modlist(str(guild.id), int(selected))
+        if version:
+            out.append((version['id'], f"{version['name']} (an earlier version)"))
+    return out

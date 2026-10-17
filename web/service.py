@@ -176,6 +176,18 @@ def _channel(guild: discord.Guild, raw):
 # Actions
 # ---------------------------------------------------------------------------
 
+async def _modlist_choice(guild, raw):
+    """The version id the form picked, None for "no modlist". Raises ValueError."""
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    version = (await database.get_modlist(str(guild.id), int(raw))
+               if raw.isdigit() else None)
+    if version is None:
+        raise ValueError("That modlist doesn't exist any more — pick another one.")
+    return version['id']
+
+
 async def create_event(bot: commands.Bot, guild: discord.Guild,
                        member: discord.Member, tz_name: str, form: dict) -> tuple:
     """Create an event and post it. Returns (event_id, warnings)."""
@@ -203,6 +215,7 @@ async def create_event(bot: commands.Bot, guild: discord.Guild,
             )
 
     delay = _recurrence_delay(form.get('repeat_delay'), recurrence)
+    modlist_id = await _modlist_choice(guild, form.get('modlist_id'))
 
     event_id = await database.create_event(
         guild_id=str(guild.id),
@@ -222,6 +235,8 @@ async def create_event(bot: commands.Bot, guild: discord.Guild,
     )
     if responses:
         await database.set_event_responses(event_id, responses)
+    if modlist_id:
+        await database.set_event_modlist(event_id, modlist_id)
 
     try:
         await publish_event(bot, channel, event_id)
@@ -275,6 +290,7 @@ async def edit_event(bot: commands.Bot, guild: discord.Guild, event,
             raise ValueError("The repeat end date has to be after the start time.")
 
     delay = _recurrence_delay(form.get('repeat_delay'), recurrence) if recurrence else None
+    modlist_id = await _modlist_choice(guild, form.get('modlist_id'))
 
     await database.update_event(
         event_id,
@@ -296,6 +312,9 @@ async def edit_event(bot: commands.Bot, guild: discord.Guild, event,
             ('reminder_minutes', reminder, event['reminder_minutes']),
         ) if value is None and stored is not None
     ])
+
+    if modlist_id != event['modlist_id']:
+        await database.set_event_modlist(event_id, modlist_id)
 
     if time_changed:
         notes.append("The reminder was re-armed for the new time.")
@@ -426,4 +445,6 @@ async def event_view_model(event, tz_name: str) -> dict:
         'grouped': grouped,
         'signup_count': len(signups),
         'tz': tz_name,
+        'modlist': (await database.get_modlist(event['guild_id'], event['modlist_id'])
+                    if event['modlist_id'] else None),
     }

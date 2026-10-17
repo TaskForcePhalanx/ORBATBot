@@ -175,7 +175,29 @@ def _format_attendees(rows: list) -> str:
     return '\n'.join(lines)
 
 
-def _build_event_embed(event, signups: list, responses: list = None) -> discord.Embed:
+async def _event_mods(bot: commands.Bot, event):
+    """The modlist an event carries as `{'name', 'count', 'url'}`, or None.
+
+    `url` is the preset download on the website, '' when there is no website.
+    """
+    if not event['modlist_id']:
+        return None
+    version = await database.get_modlist(event['guild_id'], event['modlist_id'])
+    if version is None:
+        return None
+    url = ''
+    web = getattr(bot, 'web', None)
+    if web is not None:
+        try:
+            url = web.config.public_url(
+                f"/m/{event['guild_id']}/v/{version['id']}/preset.html")
+        except Exception:
+            url = ''
+    return {'name': version['name'], 'count': len(version['mods']), 'url': url}
+
+
+def _build_event_embed(event, signups: list, responses: list = None,
+                       mods: dict = None) -> discord.Embed:
     responses = responses or [dict(r) for r in DEFAULT_RESPONSES]
     grouped = _group_signups(signups, responses)
     start = _as_utc(event['event_time'])
@@ -203,6 +225,11 @@ def _build_event_embed(event, signups: list, responses: list = None) -> discord.
 
     if event['location']:
         embed.add_field(name='📍 Where', value=event['location'][:1024], inline=False)
+
+    if mods:
+        label = f"[{mods['name']}]({mods['url']})" if mods['url'] else mods['name']
+        embed.add_field(name='🧩 Mods', value=f"{label} · {mods['count']} mods"[:1024],
+                        inline=False)
 
     if event['recurrence'] in _RECURRENCE_LABELS:
         repeat = _recurrence_text(event)
@@ -277,7 +304,8 @@ async def _refresh_event_message(bot: commands.Bot, event, view=None) -> bool:
                 if event['status'] == 'scheduled' else None)
 
     try:
-        await msg.edit(embed=_build_event_embed(event, signups, responses), view=view)
+        await msg.edit(embed=_build_event_embed(event, signups, responses,
+                                                await _event_mods(bot, event)), view=view)
         return True
     except (discord.NotFound, discord.Forbidden, discord.HTTPException):
         return False
@@ -297,7 +325,7 @@ async def publish_event(bot: commands.Bot, channel, event_id: int,
     view = EventRsvpView(event_id, bot, responses)
     msg = await channel.send(
         content=_mention_text(event) or None,
-        embed=_build_event_embed(event, [], responses),
+        embed=_build_event_embed(event, [], responses, await _event_mods(bot, event)),
         view=view,
     )
     await database.save_event_message(event_id, str(channel.id), str(msg.id))
@@ -352,6 +380,15 @@ async def _spawn_next_occurrence(bot: commands.Bot, event) -> Optional[int]:
         recurrence_anchor=anchor,
         recurrence_delay_hours=event['recurrence_delay_hours'],
     )
+
+    # A series follows its list: an occurrence carries whatever version of the
+    # same list is current now, and only keeps the old one if the list is gone.
+    if event['modlist_id']:
+        old = await database.get_modlist(event['guild_id'], event['modlist_id'])
+        newest = (await database.get_current_modlist(event['guild_id'], old['slot'])
+                  if old else None)
+        if newest or old:
+            await database.set_event_modlist(new_id, (newest or old)['id'])
 
     # A series keeps its response set — the next occurrence must look identical.
     custom = await database.get_event_responses(event['id'])
