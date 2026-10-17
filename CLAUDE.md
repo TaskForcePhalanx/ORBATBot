@@ -98,6 +98,7 @@ cogs/
   voicelog.py           # Time spent in voice channels, counted in intervals
   purge.py              # /purge — bulk message deletion, by count or back to a date
   redditfeed.py         # Watches a Reddit user or subreddit and announces new posts
+  modlists.py           # Reads Arma Launcher presets posted to a channel into versioned modlists — no commands
   killtracker.py        # Polls the OCAP server and counts new recordings — no commands
   campaigns.py          # Posts the planner's approved drops, pings holds, starts sign-ups — no commands
 utils/
@@ -252,6 +253,7 @@ or splitting the emoji check out — and the second is what was done, see
 | `KT_SYNC` | **Optional.** `0` stops the Kill Tracker polling the OCAP server. Everything already counted keeps being served |
 | `REDDIT_USER_AGENT` | **Optional.** How the bot identifies itself to Reddit when reading a watched feed. Reddit answers 429 to a client that doesn't say who it is, so a descriptive value naming your own Reddit account is best; empty falls back to `utils/reddit.DEFAULT_USER_AGENT`. There is nothing else to configure — the feeds are public RSS, so no API registration, OAuth or client secret is involved |
 | `MEMBER_EVENTS` | **Optional.** `1` requests the privileged members intent, which `cogs/memberlog.py` needs for joins and leaves. **Only set it once "Server Members Intent" is ticked in the Developer Portal** — requesting an ungranted privileged intent makes login fail, taking the whole bot down. Bans and unbans need no intent |
+| `MESSAGE_CONTENT` | **Optional.** `1` requests the privileged message content intent, which `cogs/modlists.py` needs to read a posted preset's text and attachment. **Only set it once "Message Content Intent" is ticked in the Developer Portal**, for the same reason as `MEMBER_EVENTS`. Without it the cog loads and does nothing, and says so in the log |
 | `LOG_LEVEL` | **Optional.** How much this project's own code logs — `DEBUG`, `INFO` (the default), `WARNING`, `ERROR`. It does **not** reach discord.py, which `setup_logging()` pins to WARNING: the bot starts with `bot.start()` rather than `bot.run()`, so the library has never configured logging here, and turning the root up writes a line per gateway heartbeat and buries everything else |
 
 Railway injects these at runtime; nothing sets them manually. `_railway_restart()` reads them to find the deployment to restart:
@@ -438,7 +440,7 @@ A monitor that wants to alert reads the body.
    intervals left open by a crash are closed at their last heartbeat before
    anything new is recorded
 2. Load `cogs.slots`, `cogs.admin`, `cogs.gameroles`, `cogs.events`, `cogs.voicelog`,
-   `cogs.memberlog`, `cogs.purge`, `cogs.redditfeed`, `cogs.campaigns` and `cogs.killtracker`. Each is wrapped in its own
+   `cogs.memberlog`, `cogs.purge`, `cogs.redditfeed`, `cogs.campaigns`, `cogs.modlists` and `cogs.killtracker`. Each is wrapped in its own
    `try`, so one cog failing to import doesn't take the others down
 3. Re-register persistent views:
    - `OrbatRequestButton` and `GameRolePanelView` — one global instance each
