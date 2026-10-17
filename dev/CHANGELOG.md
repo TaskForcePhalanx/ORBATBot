@@ -4,7 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.033 — 2026-10-11 (latest)
+## v1.034 — 2026-10-17 (latest)
+
+### Added
+- **Downed** — how often a player went unconscious (ACE), as a column next to *Deaths* in the infantry table and the per-mission breakdown, and as *Times Unconscious* on the player page. The bot counts it from the recordings (two new CSV columns); missions it has not counted again yet show a dash
+
+---
+
+## v1.033 — 2026-10-11
 
 ### Fixed
 - **Wrong weapon next to the longest kill** — the Pro Sniper card and the player page showed the player's most-used weapon of that mission (a rifle at 1216 m). The bot now records the weapon the longest kill was made with (two new CSV columns, *Longest Kill Weapon*), and that is what is shown. Missions the bot has not counted again yet show no weapon rather than a wrong one
