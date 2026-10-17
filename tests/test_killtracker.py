@@ -875,3 +875,25 @@ def test_role_filter_lists_members_with_a_selected_role_and_unmapped_on_request(
     assert not kt.passes_role_filter([], [], True, True)
     assert kt.passes_role_filter([], [1], False, True)
     assert not kt.passes_role_filter([], [1], False, False)
+
+
+# -- the dashboard served by the bot -------------------------------------------
+
+_PAGE = '<html><head><link href="favicon.svg"><title>x</title></head><body><script src="tracker.js"></script></body></html>'
+
+
+def test_stats_page_uses_absolute_asset_paths():
+    page = kt.stats_page(_PAGE)
+    assert '/stats/assets/tracker.js' in page and '/stats/assets/favicon.svg' in page
+    assert 'replaceState' not in page
+
+
+def test_stats_page_for_a_player_rewrites_the_address_and_escapes():
+    page = kt.stats_page(_PAGE, '[TFP] </script><b>"x"')
+    assert page.count('</script>') == 2          # the name did not close our script
+    assert '<b>' not in page
+    assert page.index('replaceState') < page.index('/stats/assets/tracker.js')
+
+
+def test_stats_page_ignores_an_overlong_name():
+    assert 'replaceState' not in kt.stats_page(_PAGE, 'x' * 1000)
