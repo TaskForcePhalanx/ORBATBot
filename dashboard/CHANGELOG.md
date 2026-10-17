@@ -4,7 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.036 — 2026-10-17 (latest)
+## v1.037 — 2026-10-17 (latest)
+
+### Changed
+- **More weapons merged** — every M249 (`M249E2`, `M249 PIP`, any rail kit) is one weapon, and the PIP mod's upgraded guns (`M4A1 PIP`) count as the gun they upgrade
+
+---
+
+## v1.036 — 2026-10-17
 
 ### Changed
 - **Weapon names** — one weapon is now one entry. Camo, stock and rail variants (`M4A1 Block II (Desert)` / `(SOPMOD Stock)`) were counted separately in *Top Weapons*; they are merged, and the few names that said nothing (a plain `Rifle` that is the SCAR-H) are renamed. The list is `WEAPON_RENAMES` in `tracker.js`
