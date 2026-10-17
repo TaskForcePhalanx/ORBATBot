@@ -4,10 +4,10 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.038 — 2026-10-17 (latest)
+## v1.039 — 2026-10-17 (latest)
 
 ### Changed
-- **All weapons are grouped by model** — not only the M249. Camo, attachment and mod versions are one entry (`M4A1 Block II`, `M4A1 PIP` and `M4 (Carryhandle)` are *M4A1*; `HK416 D14.5` and `HK416N (GL)` are *HK416*), so the weapon leaderboard shows guns, not loadouts. Vehicle weapons are left as they are. The one cost: two models sharing a designation (M4A1 and M4A3) are one entry. Renames are in `WEAPON_RENAMES`
+- **All weapons are grouped by model** — not only the M249. Camo, attachment and mod versions are one entry (`M4A1 Block II` and `M4A1 PIP` are *M4A1*; `HK416 D14.5` and `HK416N (GL)` are *HK416*; `M249E2` and `M249 PIP` are *M249*), so the weapon leaderboard shows guns, not loadouts. A revision stays its own gun: M4A1 and M4A3 are two entries. Vehicle weapons are left as they are. Renames are in `WEAPON_RENAMES`
 
 ---
 
