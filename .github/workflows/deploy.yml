@@ -16,10 +16,8 @@ name: Test and deploy
 on:
   push:
     branches: [main]
-    # A change that is only the dashboard is published by dashboard.yml and must not
-    # restart the bot. (A push that also touches anything else still deploys.)
-    paths-ignore:
-      - 'dashboard/**'
+    # No paths-ignore for dashboard/**: the bot serves /stats from its own copy of
+    # dashboard/ (web/killtracker.py), so a dashboard-only change has to deploy too.
   pull_request:
 
 permissions:
