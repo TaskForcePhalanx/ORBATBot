@@ -1230,9 +1230,26 @@ async def _v4_modlists(db):
                      'INTEGER REFERENCES modlists(id) ON DELETE SET NULL')
 
 
+async def _v5_kt_player_members(db):
+    # Which Discord member a Kill Tracker player is. Keyed by a name as recorded
+    # (not the shown one), so linking or re-showing names never orphans it; a
+    # linked group reads the mapping off any of its names.
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS kt_player_members (
+            guild_id TEXT NOT NULL,
+            player TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, player)
+        )
+    """)
+    await db.execute("""CREATE INDEX IF NOT EXISTS idx_kt_player_members_user
+                          ON kt_player_members (guild_id, user_id)""")
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
     Migration(3, 'tac_maps.doc is jsonb', _v3_tac_maps_doc_jsonb),
     Migration(4, 'modlists', _v4_modlists),
+    Migration(5, 'kill tracker players to discord members', _v5_kt_player_members),
 ]

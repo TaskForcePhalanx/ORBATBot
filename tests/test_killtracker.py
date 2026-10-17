@@ -597,6 +597,35 @@ def test_known_players_are_counted_across_missions():
                    {'name': 'Bob', 'missions': 1, 'kills': 1, 'last': 'M1'}]
 
 
+def test_player_missions_count_every_recording_once_per_player():
+    def rows(source, *players):
+        out = []
+        for name, kills in players:
+            row = [''] * 35
+            row[0], row[1], row[3], row[7], row[17] = source, source.upper(), name, kills, 0
+            out.append(row)
+        return json.dumps(out)
+
+    stored = [(rows('a', ('Ann', 1), ('[X] Ann', 2), ('Bob', 0)), None),
+              (rows('b', ('[X] Ann', 4)), None),
+              (rows('c', ('Bob', 3), ('', 9)), 'renamed')]
+    got = kt.player_missions(stored, {'Ann': '[X] Ann'})
+    assert got == [
+        {'name': '[X] Ann', 'names': ['[X] Ann', 'Ann'], 'missions': 2, 'kills': 7, 'last': 'B'},
+        {'name': 'Bob', 'names': ['Bob'], 'missions': 2, 'kills': 3, 'last': 'C'}]
+    # Without the link they are two players, and Ann's second name still counts once
+    assert [p['missions'] for p in kt.player_missions(stored, {})] == [2, 1, 2]
+
+
+def test_discord_ids_from_a_form():
+    assert kt.clean_discord_id('') == '' and kt.clean_discord_id('  ') == ''
+    assert kt.clean_discord_id('<@!123456789012345678>') == '123456789012345678'
+    assert kt.clean_discord_id('123456789012345678') == '123456789012345678'
+    for bad in ('Ann', '123', '12345678901234567890123'):
+        with pytest.raises(ValueError):
+            kt.clean_discord_id(bad)
+
+
 def test_unit_choices():
     assert kt.clean_unit('') is None and kt.clean_unit('auto') is None
     assert kt.clean_unit('unknown') == kt.UNKNOWN_UNIT == ''

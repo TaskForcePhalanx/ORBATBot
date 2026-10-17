@@ -157,6 +157,8 @@ from .killtracker import (  # noqa: F401
     kt_set_aliases,
     kt_unit_overrides,
     kt_set_unit_overrides,
+    kt_player_members,
+    kt_set_player_member,
 )
 from .maps import (  # noqa: F401
     get_guild_tac_maps,
