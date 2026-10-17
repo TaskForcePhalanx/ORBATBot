@@ -1272,6 +1272,12 @@ async def _v6_kt_promotion(db):
     """)
 
 
+async def _v7_kt_promotion_message(db):
+    # The text of the "due for promotion" message; '' means the built-in one.
+    await db.execute("ALTER TABLE kt_promotion_settings "
+                     "ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT ''")
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
@@ -1279,4 +1285,5 @@ MIGRATIONS = [
     Migration(4, 'modlists', _v4_modlists),
     Migration(5, 'kill tracker players to discord members', _v5_kt_player_members),
     Migration(6, 'kill tracker promotion', _v6_kt_promotion),
+    Migration(7, 'promotion message text', _v7_kt_promotion_message),
 ]

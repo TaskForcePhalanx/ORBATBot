@@ -43,11 +43,20 @@
       {% for c in channels %}<option value="{{ c.id }}"{% if settings.channel_id == c.id|string %} selected{% endif %}>#{{ c.name }}</option>{% endfor %}
     </select>
   </label>
+  <label class="field">
+    <span>Message for each person who is due</span>
+    <textarea name="message" rows="3" maxlength="1000" placeholder="{{ default_message }}">{{ settings.message }}</textarea>
+    <small class="muted">Leave empty for the default shown. You can use
+      {% for p in placeholders %}<code>{{ '{' ~ p ~ '}' }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+      The Approve and Reject buttons are added under it.</small>
+  </label>
   <label class="check"><input type="checkbox" name="enabled"{% if settings.enabled %} checked{% endif %}> Promotions are on</label>
   <label class="check"><input type="checkbox" name="auto"{% if settings.auto %} checked{% endif %}>
     Promote automatically. Left off, the bot only posts who is due and you promote them here.
     Turning this on promotes everyone who already qualifies at the next count.</label>
-  <div class="actions"><button class="button primary" type="submit">Save</button></div>
+  <div class="actions"><button class="button primary" type="submit">Save</button>
+    <button class="button" type="submit" formaction="/g/{{ guild.id }}/promotion/test"
+            title="Posts the message above in the admin channel about you; nothing is saved">Post a test message</button></div>
 </form>
 
 <h2>Due now</h2>

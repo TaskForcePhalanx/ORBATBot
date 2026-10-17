@@ -43,6 +43,15 @@ def register(app, d):
             return back(request, guild_id, 'warn', str(e))
         return back(request, guild_id, 'ok', note)
 
+    @app.post('/g/{guild_id}/promotion/test')
+    async def promotion_test(request: Request, guild_id: str):
+        context, form = await post_context(request, guild_id)
+        try:
+            note = await promotion_service.post_test(context['guild'], context['member'], form)
+        except ValueError as e:
+            return back(request, guild_id, 'warn', str(e))
+        return back(request, guild_id, 'ok', note)
+
     @app.post('/g/{guild_id}/promotion/promote')
     async def promotion_promote(request: Request, guild_id: str):
         context, form = await post_context(request, guild_id)

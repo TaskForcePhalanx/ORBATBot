@@ -17,9 +17,36 @@ DEFAULT_MISSIONS = 5
 NOTIFIED, PROMOTED, DISMISSED = 'notified', 'promoted', 'dismissed'
 
 
+# The message posted for each person who is due. An empty stored message means
+# this one, so a change here reaches every guild that never customised it.
+DEFAULT_MESSAGE = ('🎖️ {member} ({player}) has {missions} missions ({needed} needed) '
+                   'and is due for **{role}**.')
+MAX_MESSAGE = 1000
+PLACEHOLDERS = ('member', 'player', 'missions', 'needed', 'role')
+
+
 def defaults() -> dict:
     return {'enabled': False, 'auto': False, 'missions': DEFAULT_MISSIONS,
-            'from_role_id': None, 'to_role_id': None, 'channel_id': None}
+            'from_role_id': None, 'to_role_id': None, 'channel_id': None, 'message': ''}
+
+
+def clean_message(text) -> str:
+    """The message from the form: trimmed, bounded, and `''` for "the default"."""
+    text = (text or '').strip()
+    if len(text) > MAX_MESSAGE:
+        raise ValueError(f'The message can be at most {MAX_MESSAGE} characters.')
+    return '' if text == DEFAULT_MESSAGE else text
+
+
+def render_message(template: str, **values) -> str:
+    """Fill the placeholders in `template` (`{member}`, `{player}`, `{missions}`,
+    `{needed}`, `{role}`). Anything else in braces is left as typed: this is
+    `str.replace`, not `str.format`, so no stray brace can raise or reach into
+    an object."""
+    text = template or DEFAULT_MESSAGE
+    for name in PLACEHOLDERS:
+        text = text.replace('{' + name + '}', str(values.get(name, '')))
+    return text
 
 
 def _id(text, what: str):
@@ -47,6 +74,7 @@ def clean_settings(form: dict) -> dict:
         'from_role_id': _id(form.get('from_role_id'), 'role'),
         'to_role_id': _id(form.get('to_role_id'), 'role'),
         'channel_id': _id(form.get('channel_id'), 'channel'),
+        'message': clean_message(form.get('message')),
     }
     if settings['from_role_id'] and settings['from_role_id'] == settings['to_role_id']:
         raise ValueError('The two roles must be different.')

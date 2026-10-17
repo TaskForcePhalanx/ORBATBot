@@ -1272,9 +1272,12 @@ Pick two roles and a number of missions; the bot tells the admins who is due, or
 1. Map each player to their Discord member on **📊 Kill Tracker → Players**: only mapped players can be promoted.
 2. Open **🛠️ Server → Promotion**, pick the role to promote from and the role to promote to, and set how many missions are needed.
 3. Pick the admin channel to be told in, tick **Promotions are on**, and press **Save**.
-4. Whoever is due is posted in the admin channel, one message each with **Approve** and **Reject** buttons (server admins only). The **Due now** list on the page does the same.
+4. To see what the admins will get, press **Post a test message**: it posts in the admin channel about you, with the buttons greyed out, using the text as it is in the form (nothing is saved and nobody is promoted).
+5. Whoever is due is posted in the admin channel, one message each with **Approve** and **Reject** buttons (server admins only). The **Due now** list on the page does the same.
 
 > Every recording counts as a mission. Linked names are one player.
+>
+> You can change the text of the message. `{member}`, `{player}`, `{missions}`, `{needed}` and `{role}` are filled in; empty means the default. It applies to the message with the buttons, not to the note the bot posts when it promotes automatically.
 >
 > Promotions are **off** until you turn them on. **Promote automatically** makes the bot swap the roles itself after each count; turning it on promotes everyone who already qualifies at the next count.
 >
