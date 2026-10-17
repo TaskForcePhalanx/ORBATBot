@@ -1218,6 +1218,25 @@ def suggest_members(names, members: list, limit: int = 3, taken=()) -> list:
     return found[:limit]
 
 
+DEFAULT_ROLE_NAMES = ('member', 'veteran', 'recruit', 'cadet')
+
+
+def default_roles(roles, names=DEFAULT_ROLE_NAMES) -> list:
+    """The ids of the roles the Players page filters by until told otherwise.
+    `roles` is `(role id, role name)`; names are matched ignoring case."""
+    wanted = {n.lower() for n in names}
+    return [rid for rid, name in roles if (name or '').strip().lower() in wanted]
+
+
+def passes_role_filter(role_ids, selected, has_member: bool, include_unmapped: bool) -> bool:
+    """Whether a player is listed. A player with no Discord member to read roles
+    from (not mapped, or no longer on the server) is listed only when
+    `include_unmapped`; otherwise they need one of the `selected` roles."""
+    if not has_member:
+        return include_unmapped
+    return bool(set(role_ids) & set(selected))
+
+
 def unlink_name(aliases: dict, name: str) -> dict:
     """Take one name out of its person; the person's other names stay linked."""
     return {a: c for a, c in aliases.items() if a != name}

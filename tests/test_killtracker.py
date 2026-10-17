@@ -833,3 +833,17 @@ def test_suggest_members_ranks_by_closeness_and_skips_taken():
     assert '3' not in [u for u, _ in got]
     assert [u for u, _ in kt.suggest_members(['Dusty'], members, taken={'1'})][0] == '2'
     assert kt.suggest_members(['x'], members) == []
+
+
+def test_default_roles_match_names_ignoring_case():
+    roles = [(1, 'Member'), (2, 'VETERAN'), (3, ' recruit '), (4, 'Cadet'), (5, 'Officer'), (6, None)]
+    assert kt.default_roles(roles) == [1, 2, 3, 4]
+    assert kt.default_roles(roles, ['officer']) == [5]
+
+
+def test_role_filter_lists_members_with_a_selected_role_and_unmapped_on_request():
+    assert kt.passes_role_filter([1, 9], [1, 2], True, False)
+    assert not kt.passes_role_filter([9], [1, 2], True, True)
+    assert not kt.passes_role_filter([], [], True, True)
+    assert kt.passes_role_filter([], [1], False, True)
+    assert not kt.passes_role_filter([], [1], False, False)
