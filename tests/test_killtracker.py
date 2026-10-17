@@ -403,6 +403,14 @@ def test_crew_of_a_shot_down_vehicle_is_not_a_multikill():
     assert r[H['Best Multikill']] == 0
 
 
+def test_kills_from_inside_a_vehicle_are_not_a_multikill():
+    ann = unit(1, 'Ann', positions=[pos(veh=7) for _ in range(10)])
+    foes = [unit(10 + i, f'Foe{i}', 'EAST', player=0) for i in range(3)]
+    evs = [killed(5 + i, 10 + i, 1) for i in range(3)]
+    r = row(rows_of(doc([ann] + foes, evs)), 'Ann')
+    assert r[H['Best Multikill']] == 0
+
+
 # ---------------------------------------------------------------------------
 # Reading as a stream
 # ---------------------------------------------------------------------------
