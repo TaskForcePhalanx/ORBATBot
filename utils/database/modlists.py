@@ -116,6 +116,14 @@ async def get_current_modlist(guild_id: str, slot: str):
             guild_id, slot))
 
 
+async def get_modlist_guild_ids() -> list:
+    """Every guild that has published at least one list."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        rows = await db.fetch('SELECT DISTINCT guild_id FROM modlists WHERE is_current')
+    return [r['guild_id'] for r in rows]
+
+
 async def get_current_modlists(guild_id: str) -> dict:
     """`{slot: version}` for every list that has one."""
     pool = await get_pool()

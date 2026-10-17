@@ -201,6 +201,7 @@ from .modlists import (  # noqa: F401
     add_modlist,
     get_modlist,
     get_current_modlist,
+    get_modlist_guild_ids,
     get_current_modlists,
     list_modlist_versions,
     set_current_modlist,

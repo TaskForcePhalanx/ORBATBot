@@ -35,7 +35,7 @@ words per list are the guild's setting; an empty box means `DEFAULT_KEYWORDS`
 | `/g/{id}/modlists` (**Server → Modlists**) | admins | channel, keywords, history with *Make current*, delete, upload |
 | `/g/{id}/modlists/{id}/preset.html` | any member | one version as a Launcher preset |
 | `/m/{guild}` | **anyone, no login** | the selector: an evening's list as it is, or Core/Optional picked mod by mod |
-| `/mods` | anyone | redirects to `/m/{guild}` when the bot is in exactly one server |
+| `/mods` | anyone | redirects to `/m/{guild}` when exactly one server has published a list, else lists those that have (the bot may be in unrelated servers) |
 | `/m/{guild}/preset.html?operation=&core=&optional=` | anyone | the selection; `build_selection()` merges, de-duplicates by workshop id and puts CBA_A3 first |
 | `/m/{guild}/v/{id}/preset.html` | anyone | one stored version — what an event's message links |
 
