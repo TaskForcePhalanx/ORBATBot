@@ -91,6 +91,7 @@ def register(app, d):
         context = await kt_context(request, guild_id)
         return render(request, 'kt_missions.html', {
             **context, 'rows': await killtracker_service.missions_view(),
+            'progress': await killtracker_service.count_progress(),
         })
 
     @app.post('/g/{guild_id}/killtracker/missions/names')

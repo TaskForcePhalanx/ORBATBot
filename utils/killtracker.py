@@ -1611,6 +1611,29 @@ def stats_page(template: str, player: str = '', icon: str = '', bar: str = '') -
     return page.replace('</head>', head + '</head>', 1)
 
 
+def count_progress(missions, current: int = None) -> dict:
+    """How far the counting has got: `{'total', 'done', 'recount', 'open', 'pct'}`.
+
+    `done` is counted under the current rules; `recount` was counted under older
+    ones and is due again (it keeps its old rows until then); `open` is anything
+    that has no rows yet — never counted, or failed. `missions` are rows with
+    `status` and `rules_version`.
+    """
+    current = RULES_VERSION if current is None else current
+    done = recount = 0
+    for m in missions:
+        if m['status'] != 'ok':
+            continue
+        if m['rules_version'] >= current:
+            done += 1
+        else:
+            recount += 1
+    total = len(missions)
+    return {'total': total, 'done': done, 'recount': recount,
+            'open': total - done - recount,
+            'pct': 100 if not total else int(done * 100 / total)}
+
+
 def claimable_players(known, aliases) -> list:
     """The names a member can claim: each player as the dashboard shows them.
 

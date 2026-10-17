@@ -993,3 +993,15 @@ def test_valid_claim_does_not_guess_between_case_variants():
 def test_stats_page_bar_goes_first_in_the_body():
     page = kt.stats_page('<head></head><body><p>x</p></body>', bar='<nav>hi</nav>')
     assert '<body>\n<nav>hi</nav><p>x' in page
+
+
+def test_count_progress_separates_done_recount_and_open():
+    cur = kt.RULES_VERSION
+    rows = [{'status': 'ok', 'rules_version': cur}, {'status': 'ok', 'rules_version': cur},
+            {'status': 'ok', 'rules_version': cur - 1}, {'status': 'failed', 'rules_version': 0}]
+    got = kt.count_progress(rows)
+    assert got == {'total': 4, 'done': 2, 'recount': 1, 'open': 1, 'pct': 50}
+
+
+def test_count_progress_of_nothing_is_complete():
+    assert kt.count_progress([])['pct'] == 100
