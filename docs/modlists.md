@@ -34,7 +34,7 @@ words per list are the guild's setting; an empty box means `DEFAULT_KEYWORDS`
 |---|---|---|
 | `/g/{id}/modlists` (**Server → Modlists**) | admins | channel, keywords, history with *Make current*, delete, upload |
 | `/g/{id}/modlists/{id}/preset.html` | any member | one version as a Launcher preset |
-| `/mods/{guild}` | **anyone, no login** | the selector: Weekly/Joint Op and Core are each taken whole (but listed mod by mod), Optional is picked mod by mod; *Select all* is a link (`?optional=all`), not a script |
+| `/mods/{guild}` | **anyone, no login** | the selector: Weekly/Joint Op and Core are each taken whole (but listed mod by mod; Core sits last and is not ticked, because the evening's lists usually carry it already), Optional is picked mod by mod; *Select all* is a link (`?optional=all`), not a script |
 | `/mods` | anyone | redirects to `/mods/{guild}` when exactly one server has published a list, else lists those that have (the bot may be in unrelated servers) |
 | `/mods/{guild}/preset.html?operation=&core=1&optional=` | anyone | the selection; `build_selection()` merges, de-duplicates by workshop id and puts CBA_A3 first. `optional` repeats, once per ticked mod |
 | `/mods/{guild}/v/{id}/preset.html` | anyone | one stored version — what an event's message links |

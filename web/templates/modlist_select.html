@@ -14,26 +14,13 @@
 
 <p class="hint">
   Build a preset and drag the downloaded file onto the Arma 3 Launcher. CBA_A3 is always
-  included. Core and the evening's list are taken whole; Optional is yours to choose from.
+  included. The evening's list and Core are taken whole; Optional is yours to choose from. Most lists already contain Core, so it is only listed here for reference and is not ticked.
 </p>
 
 {% if not current %}
   <p class="empty">No modlists have been published yet.</p>
 {% else %}
 <form class="form" method="get" action="/mods/{{ guild.id }}/preset.html">
-
-  {% if current.get('core') %}
-    <fieldset>
-      <legend>Core Mods</legend>
-      <label class="check">
-        <input type="checkbox" name="core" value="1" checked>
-        Include all {{ current.core.mods|length }} Core mods
-      </label>
-      <ul class="modlist">
-        {% for mod in current.core.mods %}<li>{{ mod_name(mod) }}</li>{% endfor %}
-      </ul>
-    </fieldset>
-  {% endif %}
 
   <fieldset>
     <legend>Tonight's list</legend>
@@ -65,6 +52,19 @@
           {{ mod_name(mod) }}
         </label>
       {% endfor %}
+    </fieldset>
+  {% endif %}
+
+  {% if current.get('core') %}
+    <fieldset>
+      <legend>Core Mods</legend>
+      <label class="check">
+        <input type="checkbox" name="core" value="1">
+        Include all {{ current.core.mods|length }} Core mods
+      </label>
+      <ul class="modlist">
+        {% for mod in current.core.mods %}<li>{{ mod_name(mod) }}</li>{% endfor %}
+      </ul>
     </fieldset>
   {% endif %}
 
