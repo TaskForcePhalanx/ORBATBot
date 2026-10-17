@@ -7,8 +7,11 @@ All notable changes to TFP Kill Tracker are documented here.
 ## Unreleased
 
 ### Added
-- **Multi Killer** (Hall of Fame) — the player with the biggest multikill
+- **Multi Killer** (Hall of Fame) — the player with the biggest multikill, with its mission and time on hover. The profile no longer shows the multikill's position either; OCAP has it
 - **CQC Enthusiast** (Hall of Fame) — the shortest average on-foot kill distance. Needs at least 20 on-foot kills, so a few point-blank kills cannot win it
+
+### Fixed
+- **The Hall of Fame stays in one row** with its eight cards, like the Hall of Shame, instead of the last card wrapping alone onto a second row
 
 ---
 
