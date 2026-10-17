@@ -40,6 +40,7 @@ from web.routes import (
     logs,
     maps,
     modlists,
+    promotion,
     operation,
     orbats,
     pages,
@@ -289,7 +290,7 @@ def create_app(bot, config: WebConfig) -> FastAPI:
     )
 
     for feature in (login, pages, roles, slots, operation, orbats, maps, embeds,
-                    voice, logs, campaigns, helppages, killtracker, modlists):
+                    voice, logs, campaigns, helppages, killtracker, modlists, promotion):
         feature.register(app, d)
 
     # The Kill Tracker's numbers: public, read-only, no session. See web/killtracker.py.

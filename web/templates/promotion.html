@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}{{ guild.name }} · Kill Tracker promotion{% endblock %}
+{% block title %}{{ guild.name }} · Promotion{% endblock %}
 
 {% block content %}
-{% with active = 'ktpromotion' %}{% include '_nav.html' %}{% endwith %}
+{% with active = 'promotion' %}{% include '_nav.html' %}{% endwith %}
 
 <div class="pagehead">
   <h1>Promotion</h1>
@@ -16,7 +16,7 @@
   Promotions are <strong>off</strong> until you turn them on below.
 </p>
 
-<form class="form" method="post" action="/g/{{ guild.id }}/killtracker/promotion">
+<form class="form" method="post" action="/g/{{ guild.id }}/promotion">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label class="field">
     <span>Promote from</span>
@@ -52,7 +52,7 @@
 
 <h2>Due now</h2>
 {% if due %}
-  <form method="post" action="/g/{{ guild.id }}/killtracker/promotion/promote">
+  <form method="post" action="/g/{{ guild.id }}/promotion/promote">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <table class="rolelist">
       <thead><tr><th></th><th>Member</th><th>Player</th><th>Missions</th></tr></thead>
@@ -70,7 +70,7 @@
     <div class="actions">
       <button class="button primary" type="submit">Promote the ticked</button>
       <button class="button" type="submit" name="all" value="1">Promote everyone listed</button>
-      <button class="button danger" type="submit" formaction="/g/{{ guild.id }}/killtracker/promotion/dismiss"
+      <button class="button danger" type="submit" formaction="/g/{{ guild.id }}/promotion/dismiss"
               title="They are not listed or announced again">Pass over the ticked</button>
     </div>
   </form>

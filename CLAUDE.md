@@ -152,6 +152,7 @@ web/                    # Optional browser UI — Discord OAuth2 login, events, 
   operations.py         # Starting and steering an operation, on top of cogs/admin.py
   reddit.py             # The Reddit watches, on top of cogs/redditfeed.py
   killtracker.py        # The Kill Tracker's public CSV/JSON (no login, GET only) and what its admin pages do
+  promotion.py          # Cadet → Member after enough missions: the settings form and the due list, on top of cogs/killtracker.py
   tacmap.py             # Tactical maps, share links and posting, on top of utils/tacmap/
   terrain.py            # Uploaded terrains, on top of utils/tiles.py
   nav.py                # The two-level tab bar, built once rather than per template
