@@ -29,14 +29,20 @@ change what these answers say — a mission's shown name and the campaigns — a
 the functions they call are here, so that what they do can be read in one place.
 """
 
+import asyncio
 import hashlib
 import html
 import json
+import logging
+import os
 import pathlib
+import time
 from urllib.parse import quote
 
-from utils import database, killtracker
+from utils import database, killtracker, sitenav
 from web.config import LOGO_NAMES
+
+log = logging.getLogger(__name__)
 
 _CORS = {'Access-Control-Allow-Origin': '*'}
 
@@ -137,6 +143,52 @@ def _logo_url() -> str:
     return ''
 
 
+# -- the unit's website menu, for the stats page ---------------------------------
+#
+# Read off the homepage (utils/sitenav.py) and shown above the stats page so it
+# reads as part of the website. An hour old at most; a failed read keeps the
+# last menu that worked, and a page that no longer parses is logged rather than
+# shown half-read. `SITE_NAV_URL=` (empty) turns it off.
+
+SITE_NAV_URL = os.environ.get('SITE_NAV_URL', 'https://www.taskforcephalanx.com/')
+NAV_TTL = 3600
+NAV_RETRY = 300
+
+_nav = {'doc': None, 'fetched': 0.0, 'tried': 0.0}
+_nav_lock = asyncio.Lock()
+
+
+async def _fetch_page(url: str) -> str:
+    import aiohttp
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10),
+                                     headers={'User-Agent': 'ORBATBot menu sync'}) as http:
+        async with http.get(url) as response:
+            response.raise_for_status()
+            return await response.text()
+
+
+async def site_nav() -> dict:
+    """The parsed menu, refreshed when it is older than `NAV_TTL`; `{}` if never read."""
+    if not SITE_NAV_URL:
+        return {}
+    now = time.monotonic()
+    stale = _nav['doc'] is None or now - _nav['fetched'] > NAV_TTL
+    if stale and now - _nav['tried'] > NAV_RETRY and not _nav_lock.locked():
+        async with _nav_lock:
+            _nav['tried'] = time.monotonic()
+            try:
+                doc = sitenav.parse_nav(await _fetch_page(SITE_NAV_URL), SITE_NAV_URL)
+            except Exception:
+                log.exception('Could not read the website menu from %s', SITE_NAV_URL)
+            else:
+                if doc['items']:
+                    _nav.update(doc=doc, fetched=time.monotonic())
+                else:
+                    log.warning('No menu found on %s; the page may have changed. '
+                                'Keeping the last one.', SITE_NAV_URL)
+    return _nav['doc'] or {}
+
+
 # -- who the visitor is, for the stats page ------------------------------------
 #
 # The page is public and stays that way; signing in only adds a strip at the
@@ -203,6 +255,16 @@ async def claims_view(guild) -> list:
     return out
 
 
+async def site_nav_html(request, logo: str) -> str:
+    """The website menu for this request, '' when there is none."""
+    nav = await site_nav()
+    if not nav:
+        return ''
+    home = sitenav.urlparse(SITE_NAV_URL)
+    return sitenav.render_nav(nav, here=(request.url.netloc, request.url.path), logo=logo,
+                              home=f'{home.scheme}://{home.netloc}/')
+
+
 async def stats_bar(session, bot) -> str:
     """The strip above the stats page: sign in, or your profile and where to claim it."""
     from web.guilds import user_guilds
@@ -267,7 +329,10 @@ def install(app, bar=None) -> None:
     async def _page(request: Request, player: str = ''):
         from fastapi.responses import HTMLResponse
         template = (_DASHBOARD / 'index.html').read_text(encoding='utf-8')
-        strip = await bar(request) if bar else ''
+        # In an iframe (the Sites embed) the website's own menu is already above it.
+        framed = request.headers.get('sec-fetch-dest') == 'iframe'
+        strip = ('' if framed or not SITE_NAV_URL else await site_nav_html(request, _logo_url())) + \
+                (await bar(request) if bar else '')
         # A page with somebody's name in it must not be kept for the next visitor.
         cache = 'private, no-store' if strip else 'public, max-age=60'
         return HTMLResponse(killtracker.stats_page(template, player, _logo_url(), strip),
