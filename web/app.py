@@ -294,9 +294,10 @@ def create_app(bot, config: WebConfig) -> FastAPI:
         feature.register(app, d)
 
     # The Kill Tracker's numbers: public, read-only, no session. See web/killtracker.py.
-    async def stats_bar(request):
-        return await killtracker_service.stats_bar(session_of(request), bot)
+    async def stats_header(request, framed):
+        return await killtracker_service.stats_header(
+            request, session_of(request), bot, killtracker_service.logo_url(), framed)
 
-    killtracker_service.install(app, stats_bar)
+    killtracker_service.install(app, stats_header)
 
     return app

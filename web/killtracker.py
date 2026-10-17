@@ -29,14 +29,20 @@ change what these answers say — a mission's shown name and the campaigns — a
 the functions they call are here, so that what they do can be read in one place.
 """
 
+import asyncio
 import hashlib
 import html
 import json
+import logging
+import os
 import pathlib
+import time
 from urllib.parse import quote
 
-from utils import database, killtracker
+from utils import database, killtracker, sitenav
 from web.config import LOGO_NAMES
+
+log = logging.getLogger(__name__)
 
 _CORS = {'Access-Control-Allow-Origin': '*'}
 
@@ -128,13 +134,59 @@ async def players_document() -> dict:
     return _cache['players']
 
 
-def _logo_url() -> str:
+def logo_url() -> str:
     """The site logo for the tab icon, versioned by its mtime like the rest of the site; '' if none."""
     for name in LOGO_NAMES:
         path = _STATIC / name
         if path.exists():
             return f'/static/{name}?v={int(path.stat().st_mtime)}'
     return ''
+
+
+# -- the unit's website menu, for the stats page ---------------------------------
+#
+# Read off the homepage (utils/sitenav.py) and shown above the stats page so it
+# reads as part of the website. An hour old at most; a failed read keeps the
+# last menu that worked, and a page that no longer parses is logged rather than
+# shown half-read. `SITE_NAV_URL=` (empty) turns it off.
+
+SITE_NAV_URL = os.environ.get('SITE_NAV_URL', 'https://www.taskforcephalanx.com/')
+NAV_TTL = 3600
+NAV_RETRY = 300
+
+_nav = {'doc': None, 'fetched': 0.0, 'tried': 0.0}
+_nav_lock = asyncio.Lock()
+
+
+async def _fetch_page(url: str) -> str:
+    import aiohttp
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10),
+                                     headers={'User-Agent': 'ORBATBot menu sync'}) as http:
+        async with http.get(url) as response:
+            response.raise_for_status()
+            return await response.text()
+
+
+async def site_nav() -> dict:
+    """The parsed menu, refreshed when it is older than `NAV_TTL`; `{}` if never read."""
+    if not SITE_NAV_URL:
+        return {}
+    now = time.monotonic()
+    stale = _nav['doc'] is None or now - _nav['fetched'] > NAV_TTL
+    if stale and now - _nav['tried'] > NAV_RETRY and not _nav_lock.locked():
+        async with _nav_lock:
+            _nav['tried'] = time.monotonic()
+            try:
+                doc = sitenav.parse_nav(await _fetch_page(SITE_NAV_URL), SITE_NAV_URL)
+            except Exception:
+                log.exception('Could not read the website menu from %s', SITE_NAV_URL)
+            else:
+                if doc['items']:
+                    _nav.update(doc=doc, fetched=time.monotonic())
+                else:
+                    log.warning('No menu found on %s; the page may have changed. '
+                                'Keeping the last one.', SITE_NAV_URL)
+    return _nav['doc'] or {}
 
 
 # -- who the visitor is, for the stats page ------------------------------------
@@ -203,30 +255,66 @@ async def claims_view(guild) -> list:
     return out
 
 
-async def stats_bar(session, bot) -> str:
-    """The strip above the stats page: sign in, or your profile and where to claim it."""
+_ACCOUNT_CSS = """
+.sitenav .snacct{display:flex;align-items:center;gap:10px;margin-left:8px;padding:6px 0 6px 14px;
+  border-left:1px solid #ddd;font-size:13px}
+.snacct img{width:26px;height:26px;border-radius:50%}
+.snacct .snname{color:#666;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sitenav a.snbtn,.snacct button.snbtn{display:inline-block;padding:7px 14px;border-radius:6px;font:600 13px 'Open Sans',sans-serif;
+  background:#424242;color:#fff;border:1px solid #424242;cursor:pointer;white-space:nowrap}
+.sitenav a.snbtn:hover,.snacct button.snbtn:hover{background:#5a5a5a}
+.sitenav a.snbtn.ghost,.snacct button.snbtn.ghost{background:transparent;color:#424242}
+.sitenav a.snbtn.ghost:hover,.snacct button.snbtn.ghost:hover{background:#f0f0f0}
+.snacct form{margin:0}
+.sitenav.snsolo{justify-content:flex-end;border-top-width:0}
+"""
+
+
+async def account_chip(session, bot) -> str:
+    """The sign-in end of the header: a button, or who you are and where your profile is."""
     from web.guilds import user_guilds
+    from web.auth import avatar_url
     esc = html.escape
     if session is None:
-        inner = '<a href="/login?next=/stats">Sign in with Discord</a> to claim your player profile'
+        return ('<div class="snacct"><a class="snbtn" href="/login?next=/stats">'
+                'Sign in with Discord</a></div>')
+    found = None
+    for item in await user_guilds(bot, session['id']):
+        profile = await profile_of(item['guild'], session['id'])
+        if profile['player']:
+            found = profile
+            break
+    if found:
+        action = (f'<a class="snbtn" href="/stats/{quote(found["player"], safe="")}">My profile</a>')
     else:
-        found = None
-        for item in await user_guilds(bot, session['id']):
-            profile = await profile_of(item['guild'], session['id'])
-            if profile['player']:
-                found = profile
-                break
-        if found:
-            inner = (f'Signed in as {esc(session["name"])} · '
-                     f'<a href="/stats/{quote(found["player"], safe="")}">My profile: {esc(found["player"])}</a>')
-        else:
-            inner = (f'Signed in as {esc(session["name"])} · '
-                     '<a href="/stats/@me">Claim your player profile</a>')
-    return ('<div style="font:13px/1.4 sans-serif;background:#2b2b2b;color:#ddd;padding:6px 14px;'
-            f'text-align:right">{inner}</div>')
+        action = '<a class="snbtn" href="/stats/@me">Claim your profile</a>'
+    out = ('<form method="post" action="/logout">'
+           f'<input type="hidden" name="csrf" value="{esc(session.get("csrf", ""), quote=True)}">'
+           '<button class="snbtn ghost" type="submit">Sign out</button></form>')
+    return (f'<div class="snacct"><img src="{esc(avatar_url(session), quote=True)}" alt="">'
+            f'<span class="snname">{esc(session["name"])}</span>{action}{out}</div>')
 
 
-def install(app, bar=None) -> None:
+async def stats_header(request, session, bot, logo: str, framed: bool) -> str:
+    """The whole top row of the stats page: the website menu with the account at its end.
+
+    Without a menu (switched off, not read yet, or the page is in the Sites
+    iframe, which has its own) the account stands alone on a plain bar.
+    """
+    chip = await account_chip(session, bot)
+    nav = {} if framed or not SITE_NAV_URL else await site_nav()
+    if nav:
+        home = sitenav.urlparse(SITE_NAV_URL)
+        body = sitenav.render_nav(nav, here=(request.url.netloc, request.url.path), logo=logo,
+                                  home=f'{home.scheme}://{home.netloc}/', extra=chip)
+    else:
+        body = f'<nav class="sitenav snsolo">{chip}</nav>'
+    # render_nav carries the menu's stylesheet; a bar without a menu needs it too.
+    css = '' if nav else f'<style>{sitenav.CSS}</style>'
+    return css + f'<style>{_ACCOUNT_CSS}</style>' + body
+
+
+def install(app, header=None) -> None:
     from fastapi import Request
     from fastapi.responses import JSONResponse, Response
 
@@ -267,10 +355,12 @@ def install(app, bar=None) -> None:
     async def _page(request: Request, player: str = ''):
         from fastapi.responses import HTMLResponse
         template = (_DASHBOARD / 'index.html').read_text(encoding='utf-8')
-        strip = await bar(request) if bar else ''
+        # In an iframe (the Sites embed) the website's own menu is already above it.
+        framed = request.headers.get('sec-fetch-dest') == 'iframe'
+        strip = await header(request, framed) if header else ''
         # A page with somebody's name in it must not be kept for the next visitor.
         cache = 'private, no-store' if strip else 'public, max-age=60'
-        return HTMLResponse(killtracker.stats_page(template, player, _logo_url(), strip),
+        return HTMLResponse(killtracker.stats_page(template, player, logo_url(), strip),
                             headers={'Cache-Control': cache})
 
     @app.get('/stats')
