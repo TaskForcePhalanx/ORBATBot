@@ -28,7 +28,10 @@ SLOT_LABELS = dict(SLOTS)
 # Weekly and Joint Op are an evening's whole list: a member takes one of them as
 # it is. Core and Optional are picked from mod by mod.
 OPERATION_SLOTS = ('weekly', 'jointop')
-PICKABLE_SLOTS = ('core', 'optional')
+PICKABLE_SLOTS = ('optional',)
+# Core is the baseline everybody runs: taken whole or not at all, but listed mod
+# by mod so a member can see what it asks of them.
+WHOLE_SLOTS = ('core',)
 
 # What the channel's message text is searched for when nothing has been set.
 # These are the words the old sync script used, so a channel that worked keeps
@@ -298,22 +301,25 @@ def merge(selections: list) -> list:
     return out
 
 
-def build_selection(current: dict, operation: str = '', picked: dict = None) -> tuple:
+def build_selection(current: dict, operation: str = '', core: bool = False,
+                    picked: list = None) -> tuple:
     """What the public selector downloads: `(name, mods)`.
 
-    `current` is `{slot: version}`; `operation` is `weekly`, `jointop` or empty
-    — an evening's list taken as it is; `picked` is `{slot: [mod keys]}` for the
-    pickable lists. Keys that are no longer in the list are ignored rather than
-    refused, because the page a member ticked boxes on may be an older version
-    than the one they download. CBA is always included.
+    `current` is `{slot: version}`. `operation` is `weekly`, `jointop` or empty:
+    an evening's list, taken whole. `core` takes the Core list whole. `picked`
+    is a list of mod keys from Optional, the one list chosen from mod by mod.
+    Keys that are no longer in the list are ignored rather than refused,
+    because the page a member ticked boxes on may be older than the list they
+    download. CBA is always included.
     """
     chosen = []
     if operation in OPERATION_SLOTS and current.get(operation):
         chosen.append(current[operation]['mods'])
-    for slot in PICKABLE_SLOTS:
-        wanted = set((picked or {}).get(slot) or [])
-        if wanted and current.get(slot):
-            chosen.append([m for m in current[slot]['mods'] if key_of(m) in wanted])
+    if core and current.get('core'):
+        chosen.append(current['core']['mods'])
+    wanted = set(picked or [])
+    if wanted and current.get('optional'):
+        chosen.append([m for m in current['optional']['mods'] if key_of(m) in wanted])
     name = ({'weekly': 'TFP Weekly', 'jointop': 'TFP Joint Op'}[operation]
             if operation in OPERATION_SLOTS and current.get(operation) else 'TFP Custom')
     return name, with_cba(merge(chosen))

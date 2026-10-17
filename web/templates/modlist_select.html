@@ -2,46 +2,71 @@
 {% block title %}{{ guild.name }} · Mods{% endblock %}
 {% block ogtitle %}{{ guild.name }} · Mods{% endblock %}
 
+{# One mod, as a line: its name, linked to the workshop when it has a link. #}
+{% macro mod_name(mod) %}
+  {% if mod.link %}<a href="{{ mod.link }}" target="_blank" rel="noopener">{{ mod.name }}</a>{% else %}{{ mod.name }}{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="pagehead">
   <h1>Mods</h1>
 </div>
 
 <p class="hint">
-  Take the list for an evening as it is, or pick Core and Optional mods yourself, then
-  download a preset and drag it onto the Arma 3 Launcher. CBA_A3 is always included.
+  Build a preset and drag the downloaded file onto the Arma 3 Launcher. CBA_A3 is always
+  included. Core and the evening's list are taken whole; Optional is yours to choose from.
 </p>
 
 {% if not current %}
   <p class="empty">No modlists have been published yet.</p>
 {% else %}
-<form class="form" method="get" action="/m/{{ guild.id }}/preset.html">
+<form class="form" method="get" action="/mods/{{ guild.id }}/preset.html">
+
+  {% if current.get('core') %}
+    <fieldset>
+      <legend>Core Mods</legend>
+      <label class="check">
+        <input type="checkbox" name="core" value="1" checked>
+        Include all {{ current.core.mods|length }} Core mods
+      </label>
+      <ul class="modlist">
+        {% for mod in current.core.mods %}<li>{{ mod_name(mod) }}</li>{% endfor %}
+      </ul>
+    </fieldset>
+  {% endif %}
+
   <fieldset>
     <legend>Tonight's list</legend>
-    <label class="check"><input type="radio" name="operation" value="" checked> None — just what I pick below</label>
+    <label class="check"><input type="radio" name="operation" value="" checked> None</label>
     {% for slot, label in operation_slots %}
       {% if current.get(slot) %}
         <label class="check">
           <input type="radio" name="operation" value="{{ slot }}">
-          {{ label }} — {{ current[slot].name }} ({{ current[slot].mods|length }} mods)
+          {{ label }} — {{ current[slot].name }} (all {{ current[slot].mods|length }} mods)
         </label>
+        <ul class="modlist">
+          {% for mod in current[slot].mods %}<li>{{ mod_name(mod) }}</li>{% endfor %}
+        </ul>
       {% endif %}
     {% endfor %}
   </fieldset>
 
-  {% for slot, label in pickable_slots %}
-    {% if current.get(slot) %}
-      <fieldset>
-        <legend>{{ label }}</legend>
-        {% for mod in current[slot].mods %}
-          <label class="check">
-            <input type="checkbox" name="{{ slot }}" value="{{ key_of(mod) }}">
-            {% if mod.link %}<a href="{{ mod.link }}" target="_blank" rel="noopener">{{ mod.name }}</a>{% else %}{{ mod.name }}{% endif %}
-          </label>
-        {% endfor %}
-      </fieldset>
-    {% endif %}
-  {% endfor %}
+  {% if current.get('optional') %}
+    <fieldset>
+      <legend>Optional Mods</legend>
+      <p class="hint">
+        <a href="/mods/{{ guild.id }}?optional=all">Select all</a> ·
+        <a href="/mods/{{ guild.id }}">Select none</a>
+        — then tick or untick single mods. (These links reset the other choices on this page.)
+      </p>
+      {% for mod in current.optional.mods %}
+        <label class="check">
+          <input type="checkbox" name="optional" value="{{ key_of(mod) }}" {{ 'checked' if optional_all }}>
+          {{ mod_name(mod) }}
+        </label>
+      {% endfor %}
+    </fieldset>
+  {% endif %}
 
   <button class="button primary" type="submit">Download preset</button>
 </form>

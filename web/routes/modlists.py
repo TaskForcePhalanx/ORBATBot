@@ -140,8 +140,10 @@ def register(app, d):
             'guild': guild,
             'current': current,
             'operation_slots': [(s, modlist.SLOT_LABELS[s]) for s in modlist.OPERATION_SLOTS],
-            'pickable_slots': [(s, modlist.SLOT_LABELS[s]) for s in modlist.PICKABLE_SLOTS],
             'key_of': modlist.key_of,
+            # "Select all" is a link back to this page with `?optional=all`
+            # rather than a script: the site has none outside two editors.
+            'optional_all': request.query_params.get('optional') == 'all',
         })
 
     @app.get('/mods/{guild_id}/preset.html')
@@ -150,9 +152,10 @@ def register(app, d):
         if guild is None:
             return Response('Not found', status_code=404)
         current = await database.get_current_modlists(str(guild.id))
-        picked = {slot: request.query_params.getlist(slot)
-                  for slot in modlist.PICKABLE_SLOTS}
-        name, mods = modlist.build_selection(current, operation, picked)
+        params = request.query_params
+        name, mods = modlist.build_selection(
+            current, operation, core=bool(params.get('core')),
+            picked=params.getlist('optional'))
         body = modlist.render_preset(name, mods, (current.get(operation) or {}).get('dlcs', []))
         return Response(body, media_type='text/html; charset=utf-8', headers={
             'Content-Disposition': f'attachment; filename="{modlist.filename_for(name)}"'})

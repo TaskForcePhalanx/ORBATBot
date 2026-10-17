@@ -188,21 +188,31 @@ def _version(*names):
                      for n in names]}
 
 
-def test_a_selection_is_an_operation_list_plus_picked_mods_with_cba_first():
+def test_a_selection_is_an_operation_list_plus_core_plus_picked_optional_with_cba_first():
     current = {'weekly': _version('A', 'B'), 'core': _version('B', 'C'),
                'optional': _version('D', 'E')}
     name, mods = modlist.build_selection(
-        current, 'weekly', {'core': [str(ord('B'))], 'optional': [str(ord('E')), 'gone']})
+        current, 'weekly', core=True, picked=[str(ord('E')), 'gone'])
     # B is in Weekly and Core and appears once; the stale key is ignored.
-    assert [m['name'] for m in mods] == ['CBA_A3', 'A', 'B', 'E']
+    assert [m['name'] for m in mods] == ['CBA_A3', 'A', 'B', 'C', 'E']
     assert name == 'TFP Weekly'
 
 
+def test_core_is_whole_or_not_at_all():
+    current = {'core': _version('A', 'B')}
+    assert [m['name'] for m in modlist.build_selection(current, core=True)[1]] == [
+        'CBA_A3', 'A', 'B']
+    assert [m['name'] for m in modlist.build_selection(current)[1]] == ['CBA_A3']
+    # A key aimed at Core does nothing: only Optional is chosen from.
+    assert [m['name'] for m in modlist.build_selection(
+        current, picked=[str(ord('A'))])[1]] == ['CBA_A3']
+
+
 def test_picking_nothing_still_gives_a_loadable_preset():
-    name, mods = modlist.build_selection({}, '', {})
+    name, mods = modlist.build_selection({})
     assert name == 'TFP Custom' and [m['name'] for m in mods] == ['CBA_A3']
 
 
-def test_a_list_that_is_not_an_operation_list_cannot_be_taken_whole():
-    _, mods = modlist.build_selection({'core': _version('A')}, 'core', {})
+def test_a_list_that_is_not_an_operation_list_cannot_be_taken_whole_as_the_operation():
+    _, mods = modlist.build_selection({'core': _version('A')}, 'core')
     assert [m['name'] for m in mods] == ['CBA_A3']

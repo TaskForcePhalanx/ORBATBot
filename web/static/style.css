@@ -1466,3 +1466,7 @@ body.tm-focused { overflow: hidden; }
   .tmeditor .tmcanvas { height: 70vh; }
   .tmeditor .tmside { height: auto; border-left: 0; border-top: 1px solid var(--line); }
 }
+
+/* The mods inside a whole-list choice on the public selector: listed, not pickable. */
+.modlist { margin: 4px 0 12px 26px; padding: 0; list-style: none; font-size: 13px; color: var(--muted); columns: 2 260px; }
+.modlist li { padding: 1px 0; break-inside: avoid; }
