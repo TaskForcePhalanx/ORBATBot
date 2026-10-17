@@ -311,7 +311,12 @@ async def stats_header(request, session, bot, logo: str, framed: bool) -> str:
         body = f'<nav class="sitenav snsolo">{chip}</nav>'
     # render_nav carries the menu's stylesheet; a bar without a menu needs it too.
     css = '' if nav else f'<style>{sitenav.CSS}</style>'
-    return css + f'<style>{_ACCOUNT_CSS}</style>' + body
+    # The header sticks to the top, and so does the page's own section bar beneath
+    # it: that bar's `top` is this header's height, which wraps on a phone, so it is measured.
+    fit = ('<script>(function(){var n=document.querySelector(".sitenav");if(!n)return;'
+           'function f(){document.documentElement.style.setProperty("--sn-h",n.offsetHeight+"px")}'
+           'f();addEventListener("resize",f);addEventListener("load",f)})()</script>')
+    return css + f'<style>{_ACCOUNT_CSS}</style>' + body + fit
 
 
 def install(app, header=None) -> None:
