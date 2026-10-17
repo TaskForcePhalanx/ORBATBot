@@ -4,7 +4,7 @@
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
 const RELEASE_DATE = "2026-10-17";
-const VERSION      = "1.036";
+const VERSION      = "1.037";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -108,7 +108,7 @@ let zeusFilter = "all";
 const WEAPON_RENAMES = [
   [/^Rifle \[.*SCAR-H/i,  "FN SCAR-H STD"],
   [/^FN SCAR-H/i,         "FN SCAR-H STD"],
-  [/^M249\b/i,            "M249"],
+  [/^M249/i,              "M249"],   // M249, M249E2, M249 PIP, any rail kit
   [/^HK417A2\b/i,         "HK417A2"],
 ];
 function weaponName(raw) {
@@ -120,6 +120,7 @@ function weaponName(raw) {
     .replace(/\s*\[[^\]]+\]$/, '')       // the magazine
     .replace(/\s*\([^)]*\)/g, '')          // camo, stock and rail variants
     .replace(/\s*"\s*$/, '')               // a stray inch mark left behind
+    .replace(/\s+PIP\b/i, '')              // the PIP mod's upgraded version of the same gun
     .replace(/\s+/g, ' ')
     .trim();
 }
