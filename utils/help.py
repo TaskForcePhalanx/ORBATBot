@@ -1421,7 +1421,8 @@ _KILLTRACKER: tuple[Topic, ...] = (
             'Open **📊 Kill Tracker → Promotion**, pick the role to promote from and the role to '
             'promote to, and set how many missions are needed.',
             'Pick the admin channel to be told in, tick **Promotions are on**, and press **Save**.',
-            'Whoever is due is listed under **Due now**; tick them and press **Promote the ticked**.',
+            'Whoever is due is posted in the admin channel, one message each with **Approve** and **Reject** '
+            'buttons (server admins only). The **Due now** list on the page does the same.',
         ),
         notes=(
             'Every recording counts as a mission. Linked names are one player.',
