@@ -192,6 +192,21 @@ from .memberlog import (  # noqa: F401
     get_invite_labels,
     save_invite_labels,
 )
+from .modlists import (  # noqa: F401
+    _decode,
+    get_modlist_settings,
+    save_modlist_settings,
+    get_modlist_channels,
+    modlist_source_seen,
+    add_modlist,
+    get_modlist,
+    get_current_modlist,
+    get_current_modlists,
+    list_modlist_versions,
+    set_current_modlist,
+    delete_modlist,
+    set_event_modlist,
+)
 from .orbats import (  # noqa: F401
     get_guild_orbats,
     get_orbat,
