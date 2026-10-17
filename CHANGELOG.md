@@ -4,7 +4,14 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## v1.035 — 2026-10-17 (latest)
+## v1.036 — 2026-10-17 (latest)
+
+### Changed
+- **Weapon names** — one weapon is now one entry. Camo, stock and rail variants (`M4A1 Block II (Desert)` / `(SOPMOD Stock)`) were counted separately in *Top Weapons*; they are merged, and the few names that said nothing (a plain `Rifle` that is the SCAR-H) are renamed. The list is `WEAPON_RENAMES` in `tracker.js`
+
+---
+
+## v1.035 — 2026-10-17
 
 ### Added
 - **Multikill** — the most enemies a player killed inside any 10 seconds, as a column in the infantry table and the per-mission breakdown (the best one of a player's missions) and on the player page. The crew of a shot-down vehicle does not count. Missions the bot has not counted again yet show a dash
