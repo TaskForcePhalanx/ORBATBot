@@ -1278,6 +1278,21 @@ async def _v7_kt_promotion_message(db):
                      "ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT ''")
 
 
+async def _v8_kt_player_claims(db):
+    # A member's request to be recorded as a Kill Tracker player. One open claim
+    # per member; an admin approving it writes kt_player_members, so what the
+    # promotion rules read is still only ever set by an admin.
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS kt_player_claims (
+            guild_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            player TEXT NOT NULL,
+            requested_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
+            PRIMARY KEY (guild_id, user_id)
+        )
+    """)
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
@@ -1286,4 +1301,5 @@ MIGRATIONS = [
     Migration(5, 'kill tracker players to discord members', _v5_kt_player_members),
     Migration(6, 'kill tracker promotion', _v6_kt_promotion),
     Migration(7, 'promotion message text', _v7_kt_promotion_message),
+    Migration(8, 'kill tracker player claims', _v8_kt_player_claims),
 ]

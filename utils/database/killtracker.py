@@ -382,6 +382,33 @@ async def kt_set_player_member(guild_id, names, user_id) -> None:
                         'VALUES ($1, $2, $3)', str(guild_id), name, str(user_id))
 
 
+async def kt_claims(guild_id) -> list:
+    """The open claims of one guild, oldest first: `[{user_id, player}]`."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch(
+            'SELECT user_id, player FROM kt_player_claims WHERE guild_id = $1 '
+            'ORDER BY requested_at', str(guild_id))
+    return [dict(r) for r in found]
+
+
+async def kt_set_claim(guild_id, user_id, player) -> None:
+    """Open (or replace) a member's claim."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            'INSERT INTO kt_player_claims (guild_id, user_id, player) VALUES ($1, $2, $3) '
+            'ON CONFLICT (guild_id, user_id) DO UPDATE SET player = EXCLUDED.player, '
+            "requested_at = NOW() AT TIME ZONE 'UTC'", str(guild_id), str(user_id), player)
+
+
+async def kt_delete_claim(guild_id, user_id) -> None:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute('DELETE FROM kt_player_claims WHERE guild_id = $1 AND user_id = $2',
+                         str(guild_id), str(user_id))
+
+
 _PROMOTION_FIELDS = ('enabled', 'auto', 'missions', 'from_role_id', 'to_role_id',
                      'channel_id', 'message')
 
