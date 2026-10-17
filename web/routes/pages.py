@@ -31,16 +31,16 @@ def register(app, d):
     @app.get('/', response_class=HTMLResponse)
     async def index(request: Request):
         session = session_of(request)
+        # What needs no account: linked from here so a visitor, signed in or not,
+        # can see what the site holds. Mods only when a list has been published.
+        published = set(await database.get_modlist_guild_ids())
+        has_mods = any(str(g.id) in published for g in bot.guilds)
         if session is None:
-            # What needs no account: linked from the sign-in page so a visitor can
-            # see what the site holds. Mods only when a list has been published.
-            published = set(await database.get_modlist_guild_ids())
-            return render(request, 'login.html', {
-                'has_mods': any(str(g.id) in published for g in bot.guilds)})
+            return render(request, 'login.html', {'has_mods': has_mods})
         guilds = await user_guilds(bot, session['id'])
         if len(guilds) == 1:
             return RedirectResponse(f"/g/{guilds[0]['guild'].id}", status_code=303)
-        return render(request, 'guilds.html', {'guilds': guilds})
+        return render(request, 'guilds.html', {'guilds': guilds, 'has_mods': has_mods})
 
     @app.get('/g/{guild_id}', response_class=HTMLResponse)
     async def guild_events(request: Request, guild_id: str):
