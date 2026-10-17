@@ -41,7 +41,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # 4 = two more columns: the weapon the longest kill was made with.
 # 5 = two more columns: how often a player went unconscious, and for how long.
 # 6 = one more column: the most enemy kills inside any 10 seconds.
-RULES_VERSION = 7
+# 8 = two more columns: when and where the best multikill began.
+RULES_VERSION = 8
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -72,6 +73,9 @@ HEADER = [
     "Times Unconscious", "Time Unconscious (s)",
     # And the most kills inside MULTIKILL_WINDOW_S seconds
     "Best Multikill",
+    # And where that multikill was: when it began (game seconds) and the
+    # killer's position then, as "x,y" in metres
+    "Best Multikill At (s)", "Best Multikill Pos",
 ]
 
 # --- counting thresholds (the Apps Script's constants, unchanged) -----------
@@ -515,17 +519,36 @@ def is_pistol(weapon) -> bool:
     return bool(weapon) and bool(_PISTOL.search(weapon))
 
 
-def best_multikill(frames, capture) -> int:
-    """The most kills inside any `MULTIKILL_WINDOW_S` seconds: `frames` are the
-    frame numbers of one player's kills, `capture` the seconds per frame."""
+def best_multikill_window(frames, capture) -> tuple:
+    """`(count, first_frame)` of the densest `MULTIKILL_WINDOW_S` seconds, the
+    earliest one on a tie; `(0, None)` without kills. `frames` are the frame
+    numbers of one player's kills, `capture` the seconds per frame."""
     width = MULTIKILL_WINDOW_S / (capture or 1)
     frames = sorted(f for f in frames if isinstance(f, (int, float)))
-    best = lo = 0
+    best, first = 0, None
+    lo = 0
     for hi, f in enumerate(frames):
         while f - frames[lo] > width:
             lo += 1
-        best = max(best, hi - lo + 1)
-    return best
+        if hi - lo + 1 > best:
+            best, first = hi - lo + 1, frames[lo]
+    return best, first
+
+
+def best_multikill(frames, capture) -> int:
+    """The most kills inside any `MULTIKILL_WINDOW_S` seconds."""
+    return best_multikill_window(frames, capture)[0]
+
+
+def position_at(ent, frame):
+    """`"x,y"` in whole metres where a player was at `frame`, or '' if unknown."""
+    idx = frame - ent.start
+    if idx < 0 or idx >= len(ent.xs):
+        return ''
+    x, y = ent.xs[idx], ent.ys[idx]
+    if x != x or y != y:
+        return ''
+    return f'{js_round(x)},{js_round(y)}'
 
 
 def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
@@ -823,6 +846,7 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
         avg_veh = to_fixed(sum(p.kill_dist_veh) / len(p.kill_dist_veh), 0) if p.kill_dist_veh else ''
         lk_foot = max(p.kill_dist_foot) if p.kill_dist_foot else ''
         lk_veh = max(p.kill_dist_veh) if p.kill_dist_veh else ''
+        mk_n, mk_first = best_multikill_window(p.kill_frames, capture)
         weapons = sorted(p.weapon_kills.items(), key=lambda kv: kv[1], reverse=True)
         top_weapon = weapons[0][0] if weapons else ''
         weapon_json = _json(dict(weapons)) if weapons else ''
@@ -868,7 +892,9 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
             p.longest_veh_weapon if p.kill_dist_veh else '',
             p.times_unconscious,
             js_round(p.time_unconscious),
-            best_multikill(p.kill_frames, capture),
+            mk_n,
+            (js_round(mk_first * capture) if mk_n else ''),
+            (position_at(p.ent, mk_first) if mk_n else ''),
         ])
 
     rows.sort(key=lambda r: r[7], reverse=True)  # stable, like the script's sort
