@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Multikills{% endblock %}
+
+{% block content %}
+{% with active = 'ktmulti' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Multikills</h1>
+</div>
+
+<h2>The biggest multikills, to be checked</h2>
+<p class="hint">
+  Every player’s best multikill in every mission: the most enemies killed inside
+  ten seconds. <strong>Tick one that is not believable</strong> — a chain of
+  kills OCAP logged in one frame, a player who was not at the gun — and save: the kills still
+  count, but that stretch of time no longer counts as a multikill, it moves to
+  *Struck multikills* below, and the player’s next-best stretch takes its place. Untick a
+  struck one there to put it back. Kills from a vehicle and the crew of a destroyed
+  vehicle are not counted as multikills to begin with.
+</p>
+{% if waiting %}
+  <p class="flash warn">{{ waiting }} mission(s) are still waiting to be counted under the
+    current rules; their kills appear here once that is done.</p>
+{% endif %}
+
+<form class="form" method="get" action="/g/{{ guild.id }}/killtracker/multikills">
+  <label class="field">
+    <span>Mission</span>
+    <select name="mission">
+      <option value="">All missions (the {{ limit }} biggest)</option>
+      {% for id, name in missions %}
+        <option value="{{ id }}" {% if mission == id %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span>Player</span>
+    <input name="q" value="{{ query }}" placeholder="part of a name">
+  </label>
+  <div class="actions"><button class="button" type="submit">Show</button></div>
+</form>
+{% if cut %}<p class="hint">Showing the {{ limit }} biggest of {{ total }}; choose a mission or a player to see the rest.</p>{% endif %}
+
+<form method="post" action="/g/{{ guild.id }}/killtracker/multikills">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="mission" value="{{ mission or '' }}">
+  <input type="hidden" name="q" value="{{ query }}">
+  <table class="rolelist">
+    <thead>
+      <tr><th>Strike</th><th>Kills</th><th>Killer</th>
+          <th>Mission</th><th>At</th></tr>
+    </thead>
+    <tbody>
+      {% for k in kills %}
+        <tr>
+          <td>
+            <input type="hidden" name="listed" value="{{ k.id }}">
+            <input type="checkbox" name="struck" value="{{ k.id }}" aria-label="Strike this multikill">
+          </td>
+          <td><strong>{{ k.d|round|int }}</strong></td>
+          <td>{{ k.killer }}</td>
+          <td>{{ k.mission }}</td>
+          <td>{{ (k.t // 60) }}:{{ '%02d'|format(k.t % 60) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if struck %}
+    <h2>Struck multikills</h2>
+    <p class="hint">These no longer count as multikills. Untick one and save to put it back.</p>
+    <table class="rolelist">
+      <thead><tr><th>Struck</th><th>Kills</th><th>Killer</th><th>Mission</th></tr></thead>
+      <tbody>
+        {% for k in struck %}
+          <tr style="opacity:.7">
+            <td><input type="hidden" name="listed" value="{{ k.id }}">
+                <input type="checkbox" name="struck" value="{{ k.id }}" checked aria-label="Keep this multikill struck"></td>
+            <td><s>{{ k.d|round|int }}</s></td><td>{{ k.killer }}</td>
+            <td>{{ k.mission }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  {% if kills or struck %}
+    <div class="actions"><button class="button primary" type="submit">Save changes</button></div>
+  {% else %}
+    <p class="empty">No multikills to check{% if mission or query %} for this filter{% endif %}.</p>
+  {% endif %}
+</form>
+{% endblock %}

@@ -174,7 +174,7 @@ Short how-tos for everything the bot does, one per thing you might want to do. T
 
 **Reddit announcements** — [Watch a Reddit user or subreddit](#watch-a-reddit-user-or-subreddit) · [Catch a post up, or skip a backlog](#catch-a-post-up-or-skip-a-backlog) · [Follow someone whose profile hides their posts](#follow-someone-whose-profile-hides-their-posts)
 
-**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [See a player’s missions and map them to Discord](#see-a-players-missions-and-map-them-to-discord) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
+**Kill Tracker** — [Rename a mission](#rename-a-mission) · [Manage campaigns](#manage-campaigns) · [See a player’s missions and map them to Discord](#see-a-players-missions-and-map-them-to-discord) · [Link a player’s names](#link-a-players-names) · [Set a player’s unit](#set-a-players-unit) · [Check the longest kills](#check-the-longest-kills) · [Check the biggest multikills](#check-the-biggest-multikills) · [Take over the old sheet and JSON files](#take-over-the-old-sheet-and-json-files)
 
 **Server and members** — [Read Launcher presets from a channel](#read-launcher-presets-from-a-channel) · [Roll back or upload a modlist](#roll-back-or-upload-a-modlist) · [Promote Cadets to Members after enough missions](#promote-cadets-to-members-after-enough-missions) · [Log joins, leaves, kicks and bans](#log-joins-leaves-kicks-and-bans) · [Welcome new members](#welcome-new-members) · [Label your invite links](#label-your-invite-links) · [Track time in voice](#track-time-in-voice) · [Build a rich message](#build-a-rich-message) · [Delete messages in bulk](#delete-messages-in-bulk) · [Choose the channels and the timezone](#choose-the-channels-and-the-timezone) · [Sync, restart and the one-time migration](#sync-restart-and-the-one-time-migration)
 
@@ -1214,6 +1214,25 @@ Look through the farthest kills of all missions and strike the ones that cannot 
 
 See also: [Set a player’s unit](#set-a-players-unit)
 
+#### Check the biggest multikills
+
+**Who:** Admin · **Where:** Web — **📊 Kill Tracker → Multikills**
+
+Look through every player’s best multikill and strike the ones that cannot be true.
+
+1. Open **Multikills**. Every player’s best multikill in every mission is listed, biggest first, with who made it, in which mission and when it began. Choose a mission or type a player to see all of theirs.
+2. Tick **Strike** on one that is not believable, and press **Save changes**. It appears under **Struck multikills**; once the mission is counted again the player’s next-best stretch takes its place.
+3. The mission is counted again within a few minutes, and the public numbers change when that is done.
+4. To put one back, untick it under **Struck multikills** and save.
+
+> The kills of a struck multikill **still count as kills**; only that stretch of time leaves the multikill statistics.
+>
+> Kills from a vehicle and the crew of a destroyed vehicle are not counted as multikills to begin with.
+>
+> The decision is kept with the recording, so a later re-count does not undo it.
+
+See also: [Check the longest kills](#check-the-longest-kills)
+
 #### Take over the old sheet and JSON files
 
 **Who:** Admin · **Where:** Web — **📊 Kill Tracker → Import**
@@ -2235,6 +2254,7 @@ All of them are open to everyone and need no login.
 - **Players** — link a player's several names and pick the one shown.
 - **Units** — correct the unit the Kill Tracker guessed for a player.
 - **Longest kills** — the farthest infantry kills of all missions (filter by mission or player); tick the ones that cannot be true and their distance leaves the longest/average kill distance (the kill still counts).
+- **Multikills** — every player's best multikill per mission; tick the ones that cannot be true and that stretch no longer counts as a multikill (the kills still count).
 - **Import** — take over the mission names from the old sheet and the dashboard's `campaigns.json`, `player_aliases.json` and `unit_overrides.json`, once.
 
 How-tos for each are under [How-tos](#how-tos) → Kill Tracker.

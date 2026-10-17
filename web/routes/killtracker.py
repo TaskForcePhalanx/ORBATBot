@@ -309,6 +309,26 @@ def register(app, d):
             return kt_back(request, guild_id, path, 'warn', str(e))
         return kt_back(request, guild_id, path, 'ok', note)
 
+    # the biggest multikills
+
+    @app.get('/g/{guild_id}/killtracker/multikills', response_class=HTMLResponse)
+    async def kt_multikills_page(request: Request, guild_id: str, mission: str = '', q: str = ''):
+        context = await kt_context(request, guild_id)
+        return render(request, 'kt_multikills.html', {
+            **context, **await killtracker_service.multikills_view(mission.strip(), q.strip()),
+        })
+
+    @app.post('/g/{guild_id}/killtracker/multikills')
+    async def kt_multikills_save(request: Request, guild_id: str):
+        context, form = await kt_post(request, guild_id)
+        keep = urlencode({k: v for k, v in (('mission', form.get('mission')), ('q', form.get('q'))) if v})
+        path = '/multikills' + (f'?{keep}' if keep else '')
+        try:
+            note = await killtracker_service.save_multikill_strikes(form, context['member'].display_name)
+        except ValueError as e:
+            return kt_back(request, guild_id, path, 'warn', str(e))
+        return kt_back(request, guild_id, path, 'ok', note)
+
     # import from the old files
 
     @app.get('/g/{guild_id}/killtracker/import', response_class=HTMLResponse)

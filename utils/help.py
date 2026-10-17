@@ -1476,6 +1476,35 @@ _KILLTRACKER: tuple[Topic, ...] = (
         related=('killtracker-units',),
     ),
     Topic(
+        key='killtracker-multikills',
+        title='Check the biggest multikills',
+        group='killtracker',
+        audience=ADMIN,
+        where='Web — **📊 Kill Tracker → Multikills**',
+        summary='Look through every player’s best multikill and strike the ones that cannot '
+                'be true.',
+        steps=(
+            'Open **Multikills**. Every player’s best multikill in every mission is listed, '
+            'biggest first, with who made it, in which mission and when it began. Choose a '
+            'mission or type a player to see all of theirs.',
+            'Tick **Strike** on one that is not believable, and press **Save changes**. It '
+            'appears under **Struck multikills**; once the mission is counted again the '
+            'player’s next-best stretch takes its place.',
+            'The mission is counted again within a few minutes, and the public numbers change '
+            'when that is done.',
+            'To put one back, untick it under **Struck multikills** and save.',
+        ),
+        notes=(
+            'The kills of a struck multikill **still count as kills**; only that stretch of '
+            'time leaves the multikill statistics.',
+            'Kills from a vehicle and the crew of a destroyed vehicle are not counted as '
+            'multikills to begin with.',
+            'The decision is kept with the recording, so a later re-count does not undo it.',
+        ),
+        page='ktmulti',
+        related=('killtracker-kills',),
+    ),
+    Topic(
         key='killtracker-import',
         title='Take over the old sheet and JSON files',
         group='killtracker',

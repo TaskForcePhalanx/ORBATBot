@@ -742,6 +742,78 @@ async def save_strikes(form, by_name: str) -> str:
             f"minutes; the public numbers change when that is done.")
 
 
+# -- the biggest multikills ---------------------------------------------------
+
+async def _multikill_entries() -> list:
+    """Every player's best multikill per mission, biggest first, and the struck
+    ones. A strike is stored in `kt_kill_exclusions` (see `kt_multikill_strikes()`);
+    what is struck *now* is flagged here, though the mission is counted again later."""
+    missions = []
+    for r in await database.kt_mission_rows():
+        try:
+            rows = json.loads(r['rows'] or '[]')
+        except ValueError:
+            rows = []
+        missions.append((r['ocap_id'], killtracker.effective_label(r['label'], r['name_override']),
+                         rows if isinstance(rows, list) else []))
+    entries = killtracker.multikill_listing(missions)
+    names = {m[0]: m[1] for m in missions}
+    have = {e['id'] for e in entries}
+    for s in await database.kt_multikill_strikes():
+        kill_id = f"{s['ocap_id']}|{s['kill_key']}"
+        try:
+            at = int(s['kill_key'].rsplit(':', 1)[1])
+        except (IndexError, ValueError):
+            at = 0
+        n = int(s['distance'] or 0)
+        if kill_id in have:
+            for e in entries:
+                if e['id'] == kill_id:
+                    e['x'] = True
+            continue
+        # Struck and already counted again: the rows no longer show it.
+        entries.append({'id': kill_id, 'ocap_id': s['ocap_id'], 'key': s['kill_key'],
+                        'killer': s['killer'] or '', 'victim': '', 'd': float(n),
+                        'w': f'{n} kills in {killtracker.MULTIKILL_WINDOW_S} s',
+                        'mission': names.get(s['ocap_id'], f"#{s['ocap_id']}"), 't': at, 'x': True})
+    return entries
+
+
+async def multikills_view(mission: str = '', query: str = '') -> dict:
+    """The multikills to check, shaped like `kills_view()`."""
+    entries = await _multikill_entries()
+    records = await database.kt_missions()
+    missions = sorted({(e['ocap_id'], e['mission']) for e in entries}, key=lambda m: m[1].lower())
+    chosen = int(mission) if str(mission).isdigit() else None
+
+    def pick(struck):
+        return [e for e in entries if e['x'] == struck
+                and (chosen is None or e['ocap_id'] == chosen) and _matches(e['killer'], query)]
+    shown, struck = pick(False), pick(True)
+    filtered = chosen is not None or bool(query)
+    waiting = sum(1 for m in records
+                  if m['status'] == 'ok' and m['rules_version'] < killtracker.RULES_VERSION)
+    return {'kills': shown if filtered else shown[:SHOWN_KILLS], 'cut': (not filtered) and len(shown) > SHOWN_KILLS,
+            'struck': struck, 'total': sum(1 for e in entries if not e['x']), 'waiting': waiting,
+            'limit': SHOWN_KILLS, 'missions': missions, 'mission': chosen, 'query': query}
+
+
+async def save_multikill_strikes(form, by_name: str) -> str:
+    """Apply the multikill form, like `save_strikes()`: ticked windows leave the
+    multikill statistics, unticked ones come back."""
+    changes = killtracker.plan_strikes(form.getlist('listed'), form.getlist('struck'),
+                                       await _multikill_entries())
+    if not changes:
+        return 'Nothing changed.'
+    missions = await database.kt_set_exclusions(
+        [(ocap_id, key, struck, entry) for ocap_id, key, struck, entry in changes], by_name)
+    struck = sum(1 for c in changes if c[2])
+    restored = len(changes) - struck
+    parts = ([f'{struck} multikill(s) struck'] if struck else []) + ([f'{restored} put back'] if restored else [])
+    return (f"{', '.join(parts)}. {missions} mission(s) will be counted again within a few "
+            f"minutes; the public numbers change when that is done.")
+
+
 # -- the old files -----------------------------------------------------------
 
 async def import_aliases(text: str) -> dict:

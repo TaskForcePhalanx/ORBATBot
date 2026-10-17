@@ -536,6 +536,28 @@ def best_multikill_window(frames, capture) -> tuple:
     return best, first
 
 
+def multikill_key(name, first, capture) -> str:
+    """How a player's multikill in one mission is named when an admin strikes it:
+    who, and the game second it began. The `mk:` keeps it apart from `kill_key()`s
+    in the same list."""
+    return f'mk:{name}:{js_round(first * capture)}'
+
+
+def best_multikill_struck(frames, capture, name, exclude) -> tuple:
+    """`best_multikill_window()` without the windows an admin struck.
+
+    A struck window takes its kills with it and the next-best one fills the place,
+    the way the next-farthest kill does on the longest-kills page. The kills still
+    count as kills."""
+    width = MULTIKILL_WINDOW_S / (capture or 1)
+    frames = [f for f in frames if isinstance(f, (int, float))]
+    while True:
+        n, first = best_multikill_window(frames, capture)
+        if not n or multikill_key(name, first, capture) not in exclude:
+            return n, first
+        frames = [f for f in frames if not first <= f <= first + width]
+
+
 def best_multikill(frames, capture) -> int:
     """The most kills inside any `MULTIKILL_WINDOW_S` seconds."""
     return best_multikill_window(frames, capture)[0]
@@ -848,7 +870,7 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
         avg_veh = to_fixed(sum(p.kill_dist_veh) / len(p.kill_dist_veh), 0) if p.kill_dist_veh else ''
         lk_foot = max(p.kill_dist_foot) if p.kill_dist_foot else ''
         lk_veh = max(p.kill_dist_veh) if p.kill_dist_veh else ''
-        mk_n, mk_first = best_multikill_window(p.kill_frames, capture)
+        mk_n, mk_first = best_multikill_struck(p.kill_frames, capture, p.name, exclude)
         weapons = sorted(p.weapon_kills.items(), key=lambda kv: kv[1], reverse=True)
         top_weapon = weapons[0][0] if weapons else ''
         weapon_json = _json(dict(weapons)) if weapons else ''
@@ -1572,6 +1594,32 @@ def far_listing(missions, limit: int = None) -> list:
             out.append({**k, 'id': f'{ocap_id}|{key}', 'ocap_id': ocap_id, 'key': key,
                         'd': distance, 'mission': mission, 'x': bool(k.get('x'))})
     out.sort(key=lambda k: (-k['d'], k['ocap_id'], k['f']))
+    return out if limit is None else out[:limit]
+
+
+def multikill_listing(missions, limit: int = None) -> list:
+    """The best multikill of every player in every mission, biggest first, for the
+    admin page. `missions` is `[(ocap_id, shown mission name, rows)]` — the stored
+    rows, as lists. Entries look like `far_listing()`'s, so `plan_strikes()` takes
+    them: `id` is `"<ocap id>|<multikill_key>"`, `d` the number of kills, `t` the
+    game second it began. A player without a multikill (one kill is none) is left out."""
+    i_name, i_n = HEADER.index('Username'), HEADER.index('Best Multikill')
+    i_at = HEADER.index('Best Multikill At (s)')
+    out = []
+    for ocap_id, mission, rows in missions:
+        for row in rows or ():
+            try:
+                n, at = int(float(row[i_n])), int(float(row[i_at]))
+                name = str(row[i_name])
+            except (IndexError, TypeError, ValueError):
+                continue
+            if n < 2:
+                continue
+            key = f'mk:{name}:{at}'
+            out.append({'id': f'{ocap_id}|{key}', 'ocap_id': ocap_id, 'key': key, 'killer': name,
+                        'victim': '', 'w': f'{n} kills in {MULTIKILL_WINDOW_S} s', 'd': float(n),
+                        'mission': mission, 't': at, 'x': False})
+    out.sort(key=lambda k: (-k['d'], k['ocap_id'], k['t']))
     return out if limit is None else out[:limit]
 
 
