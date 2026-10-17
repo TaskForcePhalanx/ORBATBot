@@ -39,7 +39,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # 3 = the list of kills to check holds on-foot kills only (a vehicle's long shots
 # are real) and every player's own longest one, not just the mission's farthest.
 # 4 = two more columns: the weapon the longest kill was made with.
-RULES_VERSION = 4
+# 5 = two more columns: how often a player went unconscious, and for how long.
+RULES_VERSION = 5
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -66,6 +67,8 @@ HEADER = [
     "Vehicle Kills (JSON)",
     # Added by the bot, after the sheet's columns: the weapon of the longest kill
     "Longest Kill Weapon (On Foot)", "Longest Kill Weapon (In Vehicle)",
+    # And after those: ACE unconsciousness, read from the alive state (2)
+    "Times Unconscious", "Time Unconscious (s)",
 ]
 
 # --- counting thresholds (the Apps Script's constants, unchanged) -----------
@@ -96,6 +99,8 @@ EOM_CLOSE_M = 15             # grenade / pistol range
 EOM_BURST_WINDOW = 60        # rolling window for burst detection, in frames
 EOM_BURST_COUNT = 3          # TKs inside the window that make a burst
 EOM_BURST_MAX_FROMEND_S = 600  # the burst rule only applies in the last 10 minutes
+# `positions[i][2]` is 0 dead, 1 alive, 2 unconscious (ACE).
+STATE_UNCONSCIOUS = 2
 # An unnamed entity with less playtime than this is noise, not a player.
 MIN_UNKNOWN_PLAYTIME_S = 3600
 
@@ -227,7 +232,7 @@ def reduce_entity(e: dict, *, keep_track: bool = None) -> Entity:
             if out.first_role is None and len(pos) > 6 and pos[6]:
                 out.first_role = pos[6]
             if keep_track:
-                alive.append(1 if len(pos) > 2 and pos[2] == 1 else 0)
+                alive.append(pos[2] if len(pos) > 2 and pos[2] in (1, STATE_UNCONSCIOUS) else 0)
                 xy = pos[0] if pos and isinstance(pos[0], list) else None
                 if xy is not None and len(xy) > 1 and _is_number(xy[0]) and _is_number(xy[1]):
                     xs.append(float(xy[0]))
@@ -413,7 +418,8 @@ class _Player:
                  'kill_dist_foot', 'kills_veh', 'deaths_veh', 'tk_veh',
                  'vkills_foot', 'vkills_veh', 'shots_veh', 'hits_taken_veh',
                  'hits_dealt_veh', 'kill_dist_veh', 'longest_foot_weapon', 'longest_veh_weapon', 'weapon_kills', 'vehicle_kills',
-                 'suicides', 'is_unknown', 'is_zeus', 'time_played', 'distance_run')
+                 'suicides', 'is_unknown', 'is_zeus', 'time_played', 'distance_run',
+                 'times_unconscious', 'time_unconscious')
 
     def __init__(self, ent: Entity, name: str, capture_delay):
         self.ent = ent
@@ -436,6 +442,7 @@ class _Player:
         self.is_zeus = False
         self.time_played = ent.n * capture_delay
         self.distance_run = 0
+        self.times_unconscious = self.time_unconscious = 0
 
     def zero(self) -> None:
         """A Zeus has no combat stats."""
@@ -446,6 +453,7 @@ class _Player:
         self.shots_veh = self.hits_taken_veh = self.hits_dealt_veh = 0
         self.suicides = 0
         self.distance_run = 0
+        self.times_unconscious = self.time_unconscious = 0
         self.kill_dist_foot = []
         self.kill_dist_veh = []
         self.longest_foot_weapon = self.longest_veh_weapon = ''
@@ -543,6 +551,21 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
             if step <= max_step:  # NaN fails this, like the script's
                 dist += step
         p.distance_run = js_round(dist)
+
+    # -- unconsciousness (ACE) ---------------------------------------------
+    # Each entry into state 2 is one time down; a respawn is 0 -> 1 and never
+    # counts, and neither does being dead. Time is frames times the capture delay.
+    for p in players.values():
+        frames = downs = 0
+        prev = 0
+        for state in p.ent.alive:
+            if state == STATE_UNCONSCIOUS:
+                frames += 1
+                if prev != STATE_UNCONSCIOUS:
+                    downs += 1
+            prev = state
+        p.times_unconscious = downs
+        p.time_unconscious = frames * capture
 
     # -- shots fired, by context -------------------------------------------
     for p in players.values():
@@ -808,6 +831,8 @@ def compute(rec: Recording, source_name: str, exclude=frozenset()) -> dict:
             _json(p.vehicle_kills) if p.vehicle_kills else '',
             p.longest_foot_weapon if p.kill_dist_foot else '',
             p.longest_veh_weapon if p.kill_dist_veh else '',
+            p.times_unconscious,
+            js_round(p.time_unconscious),
         ])
 
     rows.sort(key=lambda r: r[7], reverse=True)  # stable, like the script's sort
