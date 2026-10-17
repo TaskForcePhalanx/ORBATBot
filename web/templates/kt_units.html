@@ -39,7 +39,7 @@
           <td>{{ row.missions }}</td>
           <td>
             <select name="unit_{{ loop.index0 }}" aria-label="Unit of {{ row.name }}">
-              <option value="auto" {% if row.value == 'auto' %}selected{% endif %}>Automatic</option>
+              <option value="auto" {% if row.value == 'auto' %}selected{% endif %}>Automatic ({{ row.guess or 'Unknown' }})</option>
               {% for unit in units %}
                 <option value="{{ unit }}" {% if row.value == unit %}selected{% endif %}>{{ unit }}</option>
               {% endfor %}
