@@ -31,6 +31,14 @@ class ORBATBot(commands.Bot):
         )
         if self.member_events:
             intents.members = True
+        # Reading a message's text and attachments is privileged too, and is what
+        # cogs/modlists.py needs. Same rule: tick "Message Content Intent" in the
+        # Developer Portal first, then set MESSAGE_CONTENT=1.
+        self.message_content = (os.getenv('MESSAGE_CONTENT') or '').strip().lower() in (
+            '1', 'true', 'yes', 'on'
+        )
+        if self.message_content:
+            intents.message_content = True
         super().__init__(
             command_prefix='!',
             intents=intents,
@@ -121,6 +129,13 @@ class ORBATBot(commands.Bot):
             log.info("✅ Loaded cogs.campaigns")
         except Exception:
             log.exception("❌ Failed to load cogs.campaigns:")
+            traceback.print_exc()
+
+        try:
+            await self.load_extension('cogs.modlists')
+            log.info("✅ Loaded cogs.modlists")
+        except Exception:
+            log.exception("❌ Failed to load cogs.modlists:")
             traceback.print_exc()
 
         try:
