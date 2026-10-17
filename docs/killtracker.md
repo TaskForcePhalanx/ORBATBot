@@ -77,7 +77,7 @@ Built on the two things above: the mission count and the Discord mapping. **Off 
 
 Rules versions 2 and 3 deliberately **differ from the ImportScript** (indirect fire, pistols and struck kills no longer feed the distance), so the cell-by-cell comparison in *Checked against the original* only holds for a rule the script also has.
 
-* The dashboard is hosted on GitHub Pages (see Deployment). It could also be served by the bot itself (one origin); it is a static page, so that is a copy, not a rewrite.
+* The dashboard is hosted on GitHub Pages (see Deployment) **and served by the bot** at `/stats` and `/stats/{player}` (`web/killtracker.py`, `killtracker.stats_page()`), from the same `dashboard/` files, so the two cannot differ. The bot's copy exists for the address: Google Sites embeds the page in an iframe with a fixed URL and does not forward its own `?player=` to it, so a link into the embedding page can never name a player. `/stats/loltorres9` is a link that works anywhere (Discord, forums, Sites as a plain link); it answers the dashboard with the address rewritten to `?player=` before `tracker.js` runs, so `tracker.js` is untouched. Assets are under `/stats/assets/` (only `tracker.js` and `favicon.svg`; a relative path would resolve under `/stats/`).
 * The old `armatfp/TFP_KillTracker` repo redirects here and is archived; release number and date live in `dashboard/tracker.js` (`VERSION`, `RELEASE_DATE`) and must be bumped together with `dashboard/CHANGELOG.md`.
 
 ---

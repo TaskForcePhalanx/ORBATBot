@@ -1504,3 +1504,39 @@ def plan_strikes(listed, checked, entries) -> list:
         if (kill_id in checked) != entry['x']:
             changes.append((entry['ocap_id'], entry['key'], kill_id in checked, entry))
     return changes
+
+
+# ---------------------------------------------------------------------------
+# The dashboard, served by the bot
+# ---------------------------------------------------------------------------
+
+PAGE_ASSETS = '/stats/assets/'
+
+
+def stats_page(template: str, player: str = '') -> str:
+    """`dashboard/index.html` as the bot serves it, for one player or for none.
+
+    Two things change. The page's own files are named by absolute path, because
+    it is answered at `/stats/<player>` and a relative `tracker.js` would resolve
+    to `/stats/tracker.js`. And a player's page gets a preview (Open Graph) and a
+    one-line script that rewrites the address to `?player=` before `tracker.js`
+    runs — the dashboard already reads that, so a path link is only a nicer way
+    to spell it. The name is escaped for HTML and for the script, and a name that
+    is not clean is treated as no name rather than an error: this is a public URL.
+    """
+    page = (template.replace('href="favicon.svg"', f'href="{PAGE_ASSETS}favicon.svg"')
+                    .replace('src="tracker.js"', f'src="{PAGE_ASSETS}tracker.js"'))
+    try:
+        player = clean_player(player)
+    except ValueError:
+        player = ''
+    if not player:
+        return page
+    from html import escape
+    title = escape(f'{player} · TFP Kill Tracker', quote=True)
+    # `</` can't end the script and `<!--` can't open a comment inside it.
+    literal = json.dumps(player).replace('<', '\\u003c')
+    head = (f'<meta property="og:title" content="{title}">\n'
+            f'<meta property="og:description" content="Career statistics for {escape(player, quote=True)}">\n'
+            f'<script>history.replaceState(null, "", "/stats?player=" + encodeURIComponent({literal}));</script>\n')
+    return page.replace('</head>', head + '</head>', 1)

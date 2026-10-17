@@ -13,6 +13,8 @@ query and a cached string.
 * `/kt/api/players.json` — missions played per player, linked names counted as
   one (`killtracker.player_missions()`). **No Discord identity in it**: which
   member a player is stays on the admin page, because this answer is public.
+* `/stats` and `/stats/{player}` — the dashboard itself, the same files as on
+  GitHub Pages, so a player has an address that survives being embedded.
 * `/kt/api/missions` — which recordings are counted, under which rules, and how
   the count compares with the OCAP server's own.
 * `/kt/api/campaigns.json`, `/kt/api/player_aliases.json`,
@@ -29,10 +31,16 @@ the functions they call are here, so that what they do can be read in one place.
 
 import hashlib
 import json
+import pathlib
 
 from utils import database, killtracker
 
 _CORS = {'Access-Control-Allow-Origin': '*'}
+
+# The dashboard is served from the repository's own copy, so the page on GitHub
+# Pages and the page on the bot can never be two different versions.
+_DASHBOARD = pathlib.Path(__file__).resolve().parent.parent / 'dashboard'
+_ASSETS = {'tracker.js': 'text/javascript; charset=utf-8', 'favicon.svg': 'image/svg+xml'}
 
 # A minute is as stale as the numbers can be after a mission is counted that
 # anybody would notice, and it keeps a busy dashboard to one query a minute.
@@ -153,6 +161,27 @@ def install(app) -> None:
         if _cache['units'] is None:
             _cache['units'] = killtracker.unit_overrides_document(await database.kt_unit_overrides())
         return JSONResponse(_cache['units'], headers={**_CORS, 'Cache-Control': cache_control})
+
+    def _page(player: str = ''):
+        from fastapi.responses import HTMLResponse
+        template = (_DASHBOARD / 'index.html').read_text(encoding='utf-8')
+        return HTMLResponse(killtracker.stats_page(template, player),
+                            headers={'Cache-Control': 'public, max-age=60'})
+
+    @app.get('/stats')
+    async def kt_stats_page():
+        return _page()
+
+    @app.get('/stats/assets/{name}')
+    async def kt_stats_asset(name: str):
+        if name not in _ASSETS:
+            return Response(status_code=404)
+        return Response(content=(_DASHBOARD / name).read_bytes(), media_type=_ASSETS[name],
+                        headers={'Cache-Control': 'public, max-age=60'})
+
+    @app.get('/stats/{player}')
+    async def kt_stats_player(player: str):
+        return _page(player)
 
     @app.get('/kt/api/missions')
     async def kt_missions():
