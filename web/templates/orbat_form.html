@@ -23,6 +23,68 @@
 
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
+{% if just_saved and is_admin and not live_operation %}
+  <div class="flash ok">
+    Saved. Ready to play it? <a href="/g/{{ guild.id }}/operation?orbat={{ record.id }}">Start an operation on this ORBAT →</a>
+  </div>
+{% endif %}
+
+{% if is_admin %}
+<details class="panel" {% if not live_operation %}open{% endif %}>
+  <summary>{{ '📋 Post the board again' if live_operation else '🎖️ Start an operation on this ORBAT' }}
+    <span class="note">{{ 'a fresh board that updates itself' if live_operation else 'loads this roster and posts the board' }}</span></summary>
+  <div class="panelbody">
+    {% if live_operation %}
+      <form class="form" method="post" action="/g/{{ guild.id }}/orbats/{{ record.id }}/board">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <p class="hint">The board posted before stops updating — only the newest one is kept track of.</p>
+        <div class="assignrow">
+          <label class="field">
+            <span>Channel</span>
+            <select name="channel_id" required>
+              {% for channel in channels_choices %}
+                <option value="{{ channel.id }}"
+                  {% if orbat_channel_id == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="button" type="submit">Post it</button>
+        </div>
+      </form>
+    {% else %}
+      <form class="form" method="post" action="/g/{{ guild.id }}/orbats/{{ record.id }}/start">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="row">
+          <label class="field">
+            <span>Name</span>
+            <input type="text" name="name" maxlength="100" placeholder="{{ record.name }}">
+          </label>
+          <label class="field">
+            <span>Start time ({{ timezone }})</span>
+            <input type="datetime-local" name="event_time">
+            <span class="hint">Optional — you can set it afterwards.</span>
+          </label>
+          <label class="field">
+            <span>Reminder</span>
+            <select name="reminder_minutes">
+              {% for minutes in reminder_choices %}
+                <option value="{{ minutes }}" {% if minutes == 30 %}selected{% endif %}>{{ minutes }} minutes before</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <p class="hint">Saved edits only — whatever is in the box below and not yet saved is not used.
+          Any running operation is archived; its bookings are kept.</p>
+        <div class="actions">
+          <button class="button primary" type="submit">Start and post the board</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</details>
+{% endif %}
+
+
 {% if pending %}
   <div class="flash err">
     <strong>This change touches existing bookings.</strong>

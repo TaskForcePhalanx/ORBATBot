@@ -27,6 +27,29 @@
     <a class="button" href="/g/{{ guild.id }}/slots">📋 Slot Approvals</a>
   </div>
 
+  <details class="panel" {% if not panel or panel == 'board' %}open{% endif %}>
+    <summary>📋 Post the live board <span class="note">a fresh board that updates itself</span></summary>
+    <div class="panelbody">
+      <p class="hint">The board posted before it stops updating — only the
+        newest one is kept track of.</p>
+      <form class="form" method="post" action="/g/{{ guild.id }}/operation/board">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="assignrow">
+          <label class="field">
+            <span>Channel</span>
+            <select name="channel_id" required>
+              {% for channel in channels_choices %}
+                <option value="{{ channel.id }}"
+                  {% if orbat_channel_id == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="button" type="submit">Post it</button>
+        </div>
+      </form>
+    </div>
+  </details>
+
   <form class="form" method="post" action="/g/{{ guild.id }}/operation/time">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="assignrow">
@@ -49,29 +72,6 @@
     <p class="hint nospace">Moving the start re-arms the reminder, so it fires
       again for the new time.</p>
   </form>
-
-  <details class="panel" {% if panel == 'board' %}open{% endif %}>
-    <summary>📋 Post the live board <span class="note">a fresh board that updates itself</span></summary>
-    <div class="panelbody">
-      <p class="hint">The board posted before it stops updating — only the
-        newest one is kept track of.</p>
-      <form class="form" method="post" action="/g/{{ guild.id }}/operation/board">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="assignrow">
-          <label class="field">
-            <span>Channel</span>
-            <select name="channel_id" required>
-              {% for channel in channels_choices %}
-                <option value="{{ channel.id }}"
-                  {% if orbat_channel_id == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <button class="button" type="submit">Post it</button>
-        </div>
-      </form>
-    </div>
-  </details>
 
   <details class="panel" {% if panel == 'announce' %}open{% endif %}>
     <summary>📣 Post an announcement <span class="note">“we play at 19:00, sign up here”</span></summary>
@@ -195,7 +195,7 @@
           <select name="orbat_id">
             {% if orbats %}
               {% for record in orbats %}
-                <option value="{{ record.id }}">{{ record.name }}
+                <option value="{{ record.id }}" {% if preselect_orbat == record.id|string %}selected{% endif %}>{{ record.name }}
                   {%- if record.live_operation %} — running now: {{ record.live_operation }}{% endif %}</option>
               {% endfor %}
             {% else %}

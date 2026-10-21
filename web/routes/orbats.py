@@ -5,8 +5,9 @@ Moved out of web/app.py unchanged — see register().
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from utils import database
-from web import auth, orbat as orbat_service
+from web import auth, operations as operation_service, orbat as orbat_service
 from web.auth import Forbidden
+from web.guilds import postable_channels
 
 def register(app, d):
     """Add this feature's routes to the app.
@@ -15,6 +16,7 @@ def register(app, d):
     the request plumbing every page shares. Rebinding them here is
     what lets every route below stay exactly as it was written.
     """
+    bot = d.bot
     render = d.render
     redirect = d.redirect
     guild_context = d.guild_context
@@ -58,9 +60,18 @@ def register(app, d):
 
     async def orbat_editor(request: Request, context: dict, text: str, nets_text: str,
                            checked: dict = None, pending: bool = False,
-                           error: str = None, status: int = 200):
+                           error: str = None, status: int = 200,
+                           just_saved: bool = False):
+        guild_id = str(context['guild'].id)
         return render(request, 'orbat_form.html', {
             **context,
+            'just_saved': just_saved,
+            # What the "Run it" card needs: the same choices the Operation page
+            # offers, so starting from here is the same form with the roster fixed.
+            'channels_choices': postable_channels(context['guild']),
+            'orbat_channel_id': (await database.get_guild_channels(guild_id)).get('orbat'),
+            'timezone': context['tz'],
+            'reminder_choices': operation_service.REMINDER_CHOICES,
             'text': text,
             'nets_text': nets_text,
             'result': (checked or {}).get('result'),
@@ -105,6 +116,7 @@ def register(app, d):
             request, context,
             await orbat_service.editor_text(context['record']),
             await orbat_service.editor_nets_text(context['record']),
+            just_saved=request.query_params.get('saved') == '1',
         )
 
     @app.post('/g/{guild_id}/orbats/{orbat_id}', response_class=HTMLResponse)
@@ -130,6 +142,48 @@ def register(app, d):
                                       pending=True)
 
         note = await orbat_service.apply(orbat_id, text, nets_text, checked)
+        return redirect(request, f"/g/{guild_id}/orbats/{orbat_id}?saved=1", 'ok', note)
+
+    @app.post('/g/{guild_id}/orbats/{orbat_id}/start', response_class=HTMLResponse)
+    async def orbat_start(request: Request, guild_id: str, orbat_id: int):
+        """Start an operation on this ORBAT — `/operation/start` with the roster
+        already chosen. The same service call, so it is the same operation."""
+        context = await orbat_context(request, guild_id, orbat_id)
+        require_orbat_admin(context)
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        values = {**dict(form), 'backing': 'orbat', 'orbat_id': str(orbat_id)}
+        try:
+            note = await operation_service.start(bot, context['guild'], values,
+                                                 context['tz'])
+        except ValueError as e:
+            return await orbat_editor(
+                request, context,
+                await orbat_service.editor_text(context['record']),
+                await orbat_service.editor_nets_text(context['record']),
+                error=str(e), status=400,
+            )
+        return redirect(request, f"/g/{guild_id}/operation", 'ok', note)
+
+    @app.post('/g/{guild_id}/orbats/{orbat_id}/board', response_class=HTMLResponse)
+    async def orbat_board(request: Request, guild_id: str, orbat_id: int):
+        """Post the live board again, when this ORBAT is the running operation's."""
+        context = await orbat_context(request, guild_id, orbat_id)
+        require_orbat_admin(context)
+        form = await request.form()
+        auth.check_csrf(context['session'], form.get('csrf'))
+        op = await database.get_active_operation(str(context['guild'].id))
+        try:
+            if op is None or op['orbat_id'] != orbat_id:
+                raise ValueError('This ORBAT is not the running operation.')
+            note = await operation_service.post_board(bot, context['guild'], op, form)
+        except ValueError as e:
+            return await orbat_editor(
+                request, context,
+                await orbat_service.editor_text(context['record']),
+                await orbat_service.editor_nets_text(context['record']),
+                error=str(e), status=400,
+            )
         return redirect(request, f"/g/{guild_id}/orbats/{orbat_id}", 'ok', note)
 
     @app.post('/g/{guild_id}/orbats/{orbat_id}/rename', response_class=HTMLResponse)

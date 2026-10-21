@@ -31,7 +31,7 @@ def register(app, d):
 
     async def operation_page(request: Request, context: dict, error: str = None,
                              status: int = 200, debug: dict = None,
-                             panel: str = None):
+                             panel: str = None, preselect: str = None):
         """The operation page. *panel* names a collapsed section to re-open,
         so a form that comes back with an error is not folded away with what
         the person typed still in it."""
@@ -41,6 +41,7 @@ def register(app, d):
             'channels_choices': postable_channels(context['guild']),
             'debug': debug,
             'panel': panel,
+            'preselect_orbat': preselect,
             'error': error,
         }, status=status)
 
@@ -87,7 +88,14 @@ def register(app, d):
 
     @app.get('/g/{guild_id}/operation', response_class=HTMLResponse)
     async def operation_overview(request: Request, guild_id: str):
-        return await operation_page(request, await operation_context(request, guild_id))
+        # ?orbat=<id> comes from the ORBAT editor: open the start panel with that
+        # roster already picked.
+        orbat = request.query_params.get('orbat') or ''
+        return await operation_page(
+            request, await operation_context(request, guild_id),
+            panel='start' if orbat.isdigit() else None,
+            preselect=orbat if orbat.isdigit() else None,
+        )
 
     @app.post('/g/{guild_id}/operation/start', response_class=HTMLResponse)
     async def operation_start(request: Request, guild_id: str):
