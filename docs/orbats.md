@@ -87,6 +87,18 @@ guild has one active operation. It is said in three places, all of which are
 `web/orbat.delete()` already refused a live ORBAT; the banner means you know
 before you get there rather than after.
 
+### Starting from the editor
+
+Starting an operation used to live only on the Operation tab, two clicks and a
+dropdown away from the roster you had just written. The editor now carries a
+card at the top: **Start an operation on this ORBAT** when it is not live, **Post
+the board again** when it is. The list has a **Start** button per row, and a save
+shows a link to `/operation?orbat=<id>`, which opens the start panel with that
+roster picked. All of these post to `web/operations.start()` / `post_board()` —
+the same calls as the Operation tab and `/setup-slots` — so there is still one
+way to start an operation. Starting uses the **saved** roster, never the text
+in the box. On the Operation tab the live-board panel is first, and open.
+
 ### The edit must never unseat anybody silently
 
 A slot's id is what a booking hangs off, so re-parsing the text cannot drop every
