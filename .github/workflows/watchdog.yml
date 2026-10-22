@@ -1,0 +1,72 @@
+# Redeploys the bot when it is down. Runs every ten minutes and by hand.
+#
+# It reads /healthz and does nothing while the bot answers `bot ok`. It only
+# redeploys when the site gives no answer at all, or says the bot never became
+# ready, on three tries a minute apart — so a database blip (`db unreachable`)
+# or a restart already in progress is left alone.
+#
+# This is a second pair of hands for Railway's own restart policy, which gives
+# up after `restartPolicyMaxRetries` crashes in a row (railway.json). It cannot
+# fix a crash that comes back every time, such as a bad DISCORD_TOKEN: it will
+# just redeploy into the same failure every ten minutes.
+#
+# Needs the same secret and variable as deploy.yml (RAILWAY_TOKEN,
+# RAILWAY_SERVICE), plus optionally the variable HEALTH_URL — the bot's
+# /healthz address. Scheduled runs are not exact; GitHub may start one several
+# minutes late.
+
+name: Bot watchdog
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    # Shares deploy.yml's group so a redeploy never overlaps a normal deploy.
+    concurrency:
+      group: railway-deploy
+      cancel-in-progress: false
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+      HEALTH_URL: ${{ vars.HEALTH_URL || 'https://bot.taskforcephalanx.com/healthz' }}
+    steps:
+      - name: Check the bot
+        id: health
+        run: |
+          for attempt in 1 2 3; do
+            body="$(curl -fsS --max-time 15 "$HEALTH_URL" || true)"
+            echo "try $attempt: ${body:-no answer}"
+            case "$body" in
+              "bot ok"*) echo "down=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            esac
+            [ "$attempt" -lt 3 ] && sleep 60
+          done
+          echo "down=true" >> "$GITHUB_OUTPUT"
+      - name: Check the deploy is configured
+        id: configured
+        if: steps.health.outputs.down == 'true'
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_SERVICE" ]; then
+            echo "The bot is down, but RAILWAY_TOKEN or RAILWAY_SERVICE is not set — cannot redeploy."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.configured.outputs.ok == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.configured.outputs.ok == 'true'
+        with:
+          node-version: 20
+      - name: Redeploy
+        if: steps.configured.outputs.ok == 'true'
+        run: |
+          npm install --global @railway/cli
+          railway up --ci --service "$RAILWAY_SERVICE"
