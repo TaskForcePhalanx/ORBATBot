@@ -1,6 +1,9 @@
 services:
   bot:
     build: .
+    # Portainer sets BOT_IMAGE to the image CI publishes (ghcr.io/<owner>/orbatbot:latest)
+    # and pulls it on each deploy; without it compose builds the checkout as before.
+    image: ${BOT_IMAGE:-orbatbot:local}
     restart: unless-stopped
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
