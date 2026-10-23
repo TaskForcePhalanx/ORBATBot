@@ -55,14 +55,17 @@ services:
         condition: service_healthy
 
   db:
-    image: postgres:16-alpine
+    # Same major as the old Railway database (18) so a pg_dump from there restores
+    # as-is. 18's image keeps its data under /var/lib/postgresql/<major>, so the
+    # volume mounts one level up and has its own name.
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       - POSTGRES_DB=orbatbot
       - POSTGRES_USER=orbatuser
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres18_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orbatuser -d orbatbot"]
       interval: 5s
@@ -76,4 +79,4 @@ networks:
     name: ${PROXY_NETWORK:-ocap-with-https_default}
 
 volumes:
-  postgres_data:
+  postgres18_data:
