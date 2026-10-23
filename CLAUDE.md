@@ -355,6 +355,14 @@ none of them should have to reach sideways for it.
   twice, so switch Railway's own source off when the workflow takes over.
   Without the token the workflow's deploy job is skipped and only the tests run.
 
+### Portainer (alongside Railway during the move)
+- `deploy.yml`'s `portainer` job builds the image, pushes it to
+  `ghcr.io/<owner>/orbatbot` and POSTs the stack's webhook. It does nothing until
+  the secret `PORTAINER_WEBHOOK` exists, so merging it changes nothing on Railway.
+- In Portainer set `BOT_IMAGE=ghcr.io/<owner>/orbatbot:latest` on the stack and
+  enable image re-pull on the webhook. Never run both hosts with the same
+  `DISCORD_TOKEN` — see [One process](#one-process-and-what-assumes-it).
+
 ### GitHub Pages (the Kill Tracker page)
 - `dashboard/` is a static page; `.github/workflows/dashboard.yml` publishes it to the
   `gh-pages` branch (`main` → root, `claude/**` → `dev/`). Pages must be switched on once:

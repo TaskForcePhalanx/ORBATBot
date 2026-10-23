@@ -68,3 +68,54 @@ jobs:
         run: |
           npm install --global @railway/cli
           railway up --ci --service "$RAILWAY_SERVICE"
+
+  # Portainer: build the image, publish it to GHCR and tell Portainer to pull it.
+  # Inert until the secret PORTAINER_WEBHOOK (the stack's webhook URL) is set, so
+  # it runs alongside the Railway deploy above during the move and does nothing
+  # before it. Once Railway is switched off, delete the `deploy` job.
+  portainer:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: portainer-deploy
+      cancel-in-progress: false
+    env:
+      PORTAINER_WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK }}
+    steps:
+      - name: Check the deploy is configured
+        id: configured
+        run: |
+          if [ -z "$PORTAINER_WEBHOOK" ]; then
+            echo "PORTAINER_WEBHOOK is not set — skipping the Portainer deploy."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.configured.outputs.ok == 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: steps.configured.outputs.ok == 'true'
+      - uses: docker/login-action@v3
+        if: steps.configured.outputs.ok == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the image
+        if: steps.configured.outputs.ok == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/orbatbot:latest
+            ghcr.io/${{ github.repository_owner }}/orbatbot:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Tell Portainer to pull and restart
+        if: steps.configured.outputs.ok == 'true'
+        run: curl -fsS --retry 3 --max-time 60 -X POST "$PORTAINER_WEBHOOK"
