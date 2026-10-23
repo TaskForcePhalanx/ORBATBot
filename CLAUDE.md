@@ -359,6 +359,12 @@ none of them should have to reach sideways for it.
 - `deploy.yml`'s `portainer` job builds the image, pushes it to
   `ghcr.io/<owner>/orbatbot` and POSTs the stack's webhook. It does nothing until
   the secret `PORTAINER_WEBHOOK` exists, so merging it changes nothing on Railway.
+- `docker-compose.portainer.yml` is the variant for a host that already runs a
+  jwilder/nginx-proxy + acme-companion stack: no published port, the bot joins the
+  proxy's network (`PROXY_NETWORK`) and is announced by `VIRTUAL_HOST` /
+  `LETSENCRYPT_HOST`. The bot service has `profiles: [live]`, so the stack can be
+  created and the database filled with the bot still off; setting
+  `COMPOSE_PROFILES=live` on the stack is the cutover.
 - In Portainer set `BOT_IMAGE=ghcr.io/<owner>/orbatbot:latest` on the stack and
   enable image re-pull on the webhook. Never run both hosts with the same
   `DISCORD_TOKEN` — see [One process](#one-process-and-what-assumes-it).

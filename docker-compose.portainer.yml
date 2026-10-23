@@ -1,0 +1,79 @@
+# Portainer variant of docker-compose.yml: the bot sits behind the existing
+# nginx-proxy stack instead of publishing a port. Created as a Git stack with
+# this file as the compose path. See docs / CLAUDE.md → Deployment → Portainer.
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    # Stays off until COMPOSE_PROFILES=live is set on the stack — never run this
+    # and another host with the same DISCORD_TOKEN at once (CLAUDE.md: one process).
+    profiles: [live]
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      # Optional: only needed for sheet-backed operations. An empty value is
+      # fine — the bot only reads it when a sheet is actually touched.
+      - GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS:-}
+      - DATABASE_URL=postgresql://orbatuser:${DB_PASSWORD}@db:5432/orbatbot
+      # Join/leave announcements. Only set this to 1 once the privileged
+      # "Server Members Intent" is ticked in the Developer Portal — requesting an
+      # ungranted intent stops the bot from starting at all.
+      - MEMBER_EVENTS=${MEMBER_EVENTS:-0}
+      # Modlist presets posted to a channel. Same rule as above, for the
+      # privileged "Message Content Intent".
+      - MESSAGE_CONTENT=${MESSAGE_CONTENT:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Web UI — empty values simply leave it switched off
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
+      - WEB_SECRET_KEY=${WEB_SECRET_KEY:-}
+      - WEB_BASE_URL=${WEB_BASE_URL:-}
+      - WEB_BRAND=${WEB_BRAND:-}
+      - WEB_ENABLED=${WEB_ENABLED:-1}
+      - WEB_PORT=8080
+      - OCAP_BASE_URL=${OCAP_BASE_URL:-}
+      - KT_SYNC=${KT_SYNC:-1}
+      - VIRTUAL_HOST=${PROXY_HOST:-bot.taskforcephalanx.com}
+      - VIRTUAL_PORT=8080
+      - LETSENCRYPT_HOST=${PROXY_HOST:-bot.taskforcephalanx.com}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}
+      # Lets /restart go through the Railway API; harmless and unused elsewhere.
+      - RAILWAY_API_TOKEN=${RAILWAY_API_TOKEN:-}
+      # How the bot identifies itself to Reddit when reading a watched feed.
+      - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
+      # The website whose menu /stats wears. `-` not `:-`: an empty value turns it off.
+      - SITE_NAV_URL=${SITE_NAV_URL-https://www.taskforcephalanx.com/}
+    # Published through the existing jwilder/nginx-proxy + acme-companion stack
+    # (stack `ocap-with-https`): it picks the container up by these variables.
+    # No `ports:` — the site is only reachable through the proxy.
+    expose:
+      - "8080"
+    networks:
+      - default
+      - proxy
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=orbatbot
+      - POSTGRES_USER=orbatuser
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbatuser -d orbatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  # The network the nginx-proxy container is on (Portainer → Networks).
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-ocap-with-https_default}
+
+volumes:
+  postgres_data:
