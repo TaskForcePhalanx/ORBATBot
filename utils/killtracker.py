@@ -44,7 +44,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # 8 = two more columns: when and where the best multikill began.
 # 9 = a multikill counts on-foot shooters only.
 # 10 = the mission name is the one the OCAP server lists, not the one in the file.
-RULES_VERSION = 10
+# 11 = the same, after a variable of the same name inside compute() had spoiled it.
+RULES_VERSION = 11
 
 # The column schema — identical to the Apps Script's `header`, in order.
 HEADER = [
@@ -575,14 +576,14 @@ def position_at(ent, frame):
     return f'{js_round(x)},{js_round(y)}'
 
 
-def compute(rec: Recording, source_name: str, exclude=frozenset(), name: str = '') -> dict:
+def compute(rec: Recording, source_name: str, exclude=frozenset(), listed_name: str = '') -> dict:
     """Count one recording. Returns `{'mission', 'world', 'rows', 'kills', 'far'}`.
 
     `rows` follow `HEADER`, sorted by on-foot kills. `kills` is every counted
     enemy kill by a (non-Zeus) player — the number to hold against the OCAP
     server's own `player_kill_count`.
 
-    `name` is the mission's name as the OCAP server lists it. It wins over the
+    `listed_name` is the mission's name as the OCAP server lists it. It wins over the
     `missionName` inside the file: renaming a recording in the OCAP web changes
     the server's record and leaves the file as it was written.
 
@@ -858,7 +859,7 @@ def compute(rec: Recording, source_name: str, exclude=frozenset(), name: str = '
                     players[shooter_id].hits_dealt_foot += 1
 
     # -- rows ---------------------------------------------------------------
-    label = mission_label(name or rec.mission_name, source_name)
+    label = mission_label(listed_name or rec.mission_name, source_name)
     rows = []
     kills = 0
     for p in players.values():
