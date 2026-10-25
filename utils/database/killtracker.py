@@ -13,6 +13,26 @@ import json as _json
 from .core import (get_pool)
 
 
+# The recordings with the name each is shown under. Recordings that share one name
+# are numbered 1, 2, 3 ... oldest first, so five "The Winter War" nights do not
+# read as one mission. `base` is the admin's name if there is one, else the
+# counted label without its date; the date stays the recording's own and is
+# added by `killtracker.effective_label()`. `shown_override` is what to hand to
+# it: the numbered name for a repeated one, the stored `name_override` otherwise.
+# It is computed here rather than stored, so a new recording numbers its siblings
+# without touching their rows, and nothing that edits a name ever sees a number.
+_SHOWN = r"""(
+    SELECT t.*,
+           CASE WHEN t.base <> '' AND COUNT(*) OVER (PARTITION BY t.base) > 1
+                THEN t.base || ' ' || (ROW_NUMBER() OVER (PARTITION BY t.base ORDER BY t.ocap_id))::text
+                ELSE t.name_override END AS shown_override
+      FROM (SELECT k.*,
+                   COALESCE(NULLIF(k.name_override, ''),
+                            regexp_replace(COALESCE(k.label, ''), ' \(\d{4}-\d{2}-\d{2}\)$', '')) AS base
+              FROM kt_missions k) t
+) m"""
+
+
 async def _link_kt_campaign(db, name: str, user_name: str) -> tuple:
     """(kt id, created) — the Kill Tracker campaign of this name, created when
     there is none. `created` is what lets a later delete take it along."""
@@ -128,8 +148,8 @@ async def kt_missions() -> list:
             '''SELECT ocap_id, filename, mission, label, name_override, world, tag,
                       played_on, duration, ocap_kills, ocap_player_kills,
                       counted_kills, rules_version, status, error, attempts,
-                      retry_at, imported_at
-                 FROM kt_missions ORDER BY ocap_id DESC'''
+                      retry_at, imported_at, shown_override
+                 FROM ''' + _SHOWN + ' ORDER BY ocap_id DESC'
         )
 
 
@@ -138,8 +158,8 @@ async def kt_far_kills() -> list:
     pool = await get_pool()
     async with pool.acquire() as db:
         return await db.fetch(
-            "SELECT ocap_id, label, name_override, far_kills FROM kt_missions "
-            "WHERE rows <> '[]' ORDER BY ocap_id"
+            "SELECT ocap_id, label, shown_override AS name_override, far_kills FROM "
+            + _SHOWN + " WHERE rows <> '[]' ORDER BY ocap_id"
         )
 
 
@@ -148,8 +168,8 @@ async def kt_mission_rows() -> list:
     pool = await get_pool()
     async with pool.acquire() as db:
         return await db.fetch(
-            "SELECT ocap_id, label, name_override, rows FROM kt_missions "
-            "WHERE rows <> '[]' ORDER BY ocap_id"
+            "SELECT ocap_id, label, shown_override AS name_override, rows FROM "
+            + _SHOWN + " WHERE rows <> '[]' ORDER BY ocap_id"
         )
 
 
@@ -216,7 +236,8 @@ async def kt_rows() -> list:
     pool = await get_pool()
     async with pool.acquire() as db:
         found = await db.fetch(
-            "SELECT rows, name_override FROM kt_missions WHERE rows <> '[]' ORDER BY ocap_id"
+            "SELECT rows, shown_override AS name_override FROM " + _SHOWN
+            + " WHERE rows <> '[]' ORDER BY ocap_id"
         )
     return [(r['rows'], r['name_override']) for r in found]
 

@@ -72,7 +72,7 @@ def _public(record) -> dict:
         'filename': record['filename'],
         'mission': record['mission'],
         'label': record['label'],
-        'shown_as': killtracker.effective_label(record['label'], record['name_override'])
+        'shown_as': killtracker.effective_label(record['label'], record['shown_override'])
                     if record['label'] else None,
         'world': record['world'],
         'tag': record['tag'],
@@ -110,7 +110,7 @@ def shown_labels(missions) -> dict:
     out = {}
     for m in missions:
         label = m['label'] or (f"{m['mission']} ({m['played_on']})" if m['played_on'] else m['mission'])
-        out[m['ocap_id']] = killtracker.effective_label(label, m['name_override'])
+        out[m['ocap_id']] = killtracker.effective_label(label, m['shown_override'])
     return out
 
 

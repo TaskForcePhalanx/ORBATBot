@@ -135,6 +135,7 @@ from .guilds import (  # noqa: F401
     set_guild_channels,
 )
 from .killtracker import (  # noqa: F401
+    _SHOWN,
     _link_kt_campaign,
     kt_recordings_between,
     kt_recording,
