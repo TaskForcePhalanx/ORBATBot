@@ -391,21 +391,32 @@ the route renders it as a flash on the same page. The denial reason is capped at
 
 ### The tab bar (`web/nav.py`)
 
-Eight flat tabs stopped saying anything: nothing showed that Operation, Slot
-Approvals and ORBATs are three views of the same evening. The bar is now two
-levels, and `build()` returns the whole structure — the top row, the second row
-per group, and the page-key → group map, so a page names only itself and
-`_nav.html` works out where that sits.
+The bar is two levels, and `build()` returns the whole structure — the top row,
+the second row per group, the page-key → group map, and a flat `pages` list for
+the page finder — so a page names only itself and `_nav.html` works out where
+that sits.
+
+**The groups follow who uses them.** *Missions* is what a mission maker does from
+one evening to the next — Events, Modlists, ORBATs, Slot Approvals, Operation —
+in one group, not three places to look. *Community* is the standing housekeeping
+(Game roles and Voice time for every member; the member log, Embeds, Reddit,
+Promotion and Operation settings for admins). *Stats* is the Kill Tracker, its
+reports first and the name-keeping pages after. *Campaigns* and *Maps* are still
+in a trial period: they go last and carry a `beta` tag, and the planner keeps all
+of its own pages in its one tab.
 
 **The top row has to fit 860px, and that is a measurement rather than a
-preference.** `main` is 900px wide whatever the window is, so the row's nine
-tabs wrapped onto a second line at *every* width — 919px of tabs in 860px of
-bar. Embeds, the member log and the Reddit watches are one **🛠️ Server** group
-now (all three admin-only, none of them touched during an operation), and the
-two longest labels are *Roles* and *Voice* beside their icons; seven group tabs
-plus the `?` come to 824px. So anything added to the top row goes inside a
-group, or the row wraps again for everybody. `tests/test_nav.py` holds the
-count; the width itself was measured in Chromium against the real stylesheet.
+preference.** `main` is 900px wide whatever the window is, and nine tabs wrapped
+onto a second line at *every* width. The finder now shares the row, so
+`tests/test_nav.py` holds the budget at five groups; anything else goes inside
+one.
+
+**The page finder** is a plain GET form to `/g/<guild>/search?q=…` — the site has
+no script, so Enter shows the matches rather than offering them as you type.
+`nav.search()` matches every typed word against a page's name, its group and the
+keywords given to `_item()`, ranks a name match first, and searches only
+`built['pages']`, which holds what this member may open — it checks no
+permission of its own.
 
 Four things about it are deliberate:
 

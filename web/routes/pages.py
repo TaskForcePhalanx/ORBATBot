@@ -5,7 +5,7 @@ Moved out of web/app.py unchanged — see register().
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from utils import database
-from web import auth, modlists as modlist_service, service
+from web import auth, nav as nav_service, modlists as modlist_service, service
 from web.auth import Forbidden
 from web.guilds import mentionable_roles, postable_channels, user_guilds
 from web.helpers import fmt_input
@@ -41,6 +41,15 @@ def register(app, d):
         if len(guilds) == 1:
             return RedirectResponse(f"/g/{guilds[0]['guild'].id}", status_code=303)
         return render(request, 'guilds.html', {'guilds': guilds, 'has_mods': has_mods})
+
+    @app.get('/g/{guild_id}/search', response_class=HTMLResponse)
+    async def search_pages(request: Request, guild_id: str, q: str = ''):
+        context = await guild_context(request, guild_id)
+        q = q.strip()[:60]
+        return render(request, 'search.html', {
+            **context, 'search_query': q,
+            'results': nav_service.search(context['nav'], q),
+        })
 
     @app.get('/g/{guild_id}', response_class=HTMLResponse)
     async def guild_events(request: Request, guild_id: str):
