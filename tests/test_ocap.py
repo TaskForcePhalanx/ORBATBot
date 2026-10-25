@@ -17,8 +17,11 @@ def op(i, completed=True, filename=None):
     return {'id': i, 'filename': filename or f'm{i}', 'completed': completed}
 
 
-def stored(version=1, status='ok', retry_at=None, attempts=0):
-    return {'rules_version': version, 'status': status, 'retry_at': retry_at, 'attempts': attempts}
+def stored(version=1, status='ok', retry_at=None, attempts=0, mission=None):
+    row = {'rules_version': version, 'status': status, 'retry_at': retry_at, 'attempts': attempts}
+    if mission is not None:
+        row['mission'] = mission
+    return row
 
 
 # -- the list -----------------------------------------------------------------
@@ -84,6 +87,13 @@ def ids(due):
 
 def test_a_new_finished_recording_is_due_and_an_unfinished_one_is_not():
     assert ids(ocap.plan([op(1), op(2, completed=False)], {}, NOW, 1, 10)) == [1]
+
+
+def test_a_recording_renamed_on_the_server_is_read_again():
+    renamed = dict(op(1), mission='Operation Harmonious Waves (2)')
+    assert ids(ocap.plan([renamed], {1: stored(mission='Nine-Dash Line Strategy')}, NOW, 1, 10)) == [1]
+    assert ocap.plan([renamed], {1: stored(mission='Operation Harmonious Waves (2)')}, NOW, 1, 10) == []
+    assert ocap.plan([dict(op(1), mission='')], {1: stored(mission='x')}, NOW, 1, 10) == []
 
 
 def test_a_counted_recording_is_left_alone():
