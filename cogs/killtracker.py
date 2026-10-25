@@ -52,11 +52,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _count(path: str, source_name: str, exclude=frozenset()) -> tuple:
+def _count(path: str, source_name: str, exclude=frozenset(), name: str = '') -> tuple:
     """Read and count one downloaded recording. CPU-bound, so it runs in a thread."""
     import json
 
-    result = killtracker.compute(killtracker.open_recording(path), source_name, exclude)
+    result = killtracker.compute(killtracker.open_recording(path), source_name, exclude, name)
     return (result['mission'], json.dumps(result['rows'], ensure_ascii=False),
             result['kills'], json.dumps(result['far'], ensure_ascii=False))
 
@@ -72,7 +72,7 @@ async def import_one(base: str, op: dict) -> dict:
         # a re-count never undoes a decision.
         exclude = (await database.kt_exclusions(op['id'])).get(op['id'], set())
         label, rows_json, kills, far_json = await asyncio.to_thread(
-            _count, path, f"{op['filename']}.json.gz", exclude)
+            _count, path, f"{op['filename']}.json.gz", exclude, op['mission'])
     finally:
         try:
             os.unlink(path)

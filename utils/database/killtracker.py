@@ -62,7 +62,7 @@ async def kt_known() -> dict:
     pool = await get_pool()
     async with pool.acquire() as db:
         found = await db.fetch(
-            '''SELECT ocap_id, filename, rules_version, status, attempts, retry_at
+            '''SELECT ocap_id, filename, mission, rules_version, status, attempts, retry_at
                  FROM kt_missions'''
         )
     return {r['ocap_id']: r for r in found}

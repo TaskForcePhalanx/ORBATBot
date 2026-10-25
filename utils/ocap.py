@@ -184,7 +184,7 @@ def plan(ops: list, known: dict, now, rules_version: int, limit: int) -> list:
     * it is finished (`conversionStatus: completed`) — an unfinished one is
       still being written, and counting it would store half a mission;
     * and it has never been seen, **or** it was counted under older rules, **or**
-      it failed and its back-off has run out.
+      it was renamed on the server since, **or** it failed and its back-off has run out.
 
     A recording that failed is not retried before its `retry_at`, and one that
     was counted under older rules but fails now keeps its old rows (see
@@ -199,7 +199,9 @@ def plan(ops: list, known: dict, now, rules_version: int, limit: int) -> list:
             fresh.append(op)
             continue
         retry_at = row['retry_at']
-        if row['status'] == 'failed' or row['rules_version'] < rules_version:
+        # A recording renamed on the server is read again to take the new name.
+        renamed = bool(op.get('mission')) and op['mission'] != row.get('mission', op['mission'])
+        if row['status'] == 'failed' or row['rules_version'] < rules_version or renamed:
             if retry_at is None or retry_at <= now:
                 again.append(op)
     # Recordings never tried go first. A recording that keeps failing comes due

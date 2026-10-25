@@ -1063,3 +1063,12 @@ def test_the_multikill_listing_is_biggest_first_and_leaves_out_single_kills():
     assert got[0]['id'] == '7|mk:z:90'
     # and plan_strikes takes it as it takes a far kill
     assert kt.plan_strikes([e['id'] for e in got], ['7|mk:z:90'], got)[0][:3] == (7, 'mk:z:90', True)
+
+
+def test_the_name_the_ocap_server_lists_wins_over_the_one_in_the_file():
+    document = doc([], [], mission='Nine-Dash Line Strategy')
+    source = 'Nine-Dash Line Strategy_20261024_212527.json.gz'
+    assert kt.compute(kt.reduce_document(document), source)['mission'] == (
+        'Nine-Dash Line Strategy (2026-10-24)')
+    renamed = kt.compute(kt.reduce_document(document), source, name='Operation Harmonious Waves (2)')
+    assert renamed['mission'] == 'Operation Harmonious Waves (2) (2026-10-24)'

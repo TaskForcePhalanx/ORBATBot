@@ -40,6 +40,8 @@ JavaScript rounds halves **up** (`toFixed`, `Math.round`); Python rounds them to
 
 ### Changing a rule
 
+**The mission name is the one the OCAP server lists** (`mission_name` in `/api/v1/operations`), not the `missionName` inside the file. Renaming a recording in the OCAP web only changes the server's record, so the file keeps the old name; `compute(name=…)` takes the listed one, and `ocap.plan()` reads a recording again when its listed name differs from the stored `mission`. A name set by hand on the Missions page still wins over both.
+
 **Bump `RULES_VERSION`.** Every stored mission carries the version it was counted with, and the loop counts again — from the file, which stays on the OCAP server — any mission below the current one. That replaces "re-import every mission by hand". A re-count that fails leaves the old rows in place.
 
 The **Mission names** page shows how far a recount has got: a plain `<progress>` bar from `count_progress()` (counted under the current rules / all missions, plus how many wait for a recount or have no count yet). It is drawn on the server and moves when the page is reloaded; the site has no JavaScript for it.
