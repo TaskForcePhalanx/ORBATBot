@@ -1070,5 +1070,15 @@ def test_the_name_the_ocap_server_lists_wins_over_the_one_in_the_file():
     source = 'Nine-Dash Line Strategy_20261024_212527.json.gz'
     assert kt.compute(kt.reduce_document(document), source)['mission'] == (
         'Nine-Dash Line Strategy (2026-10-24)')
-    renamed = kt.compute(kt.reduce_document(document), source, name='Operation Harmonious Waves (2)')
+    renamed = kt.compute(kt.reduce_document(document), source, listed_name='Operation Harmonious Waves (2)')
     assert renamed['mission'] == 'Operation Harmonious Waves (2) (2026-10-24)'
+
+
+def test_the_listed_name_survives_a_victim_with_a_name():
+    # a player's own death binds a local `name` inside `compute()`; the
+    # label must still come out as the listed name, not as whoever died last.
+    entities = [unit(1, 'Ocke', 'WEST')]
+    document = doc(entities, [killed(10, 1, 1)], mission='Karl')
+    result = kt.compute(kt.reduce_document(document), '2026_04_04__20_32_InvasionDay2.json.gz',
+                        listed_name='Invasion Day 2')
+    assert result['mission'] == 'Invasion Day 2 (2026-04-04)'

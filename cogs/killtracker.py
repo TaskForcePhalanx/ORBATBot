@@ -52,11 +52,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _count(path: str, source_name: str, exclude=frozenset(), name: str = '') -> tuple:
+def _count(path: str, source_name: str, exclude=frozenset(), listed_name: str = '') -> tuple:
     """Read and count one downloaded recording. CPU-bound, so it runs in a thread."""
     import json
 
-    result = killtracker.compute(killtracker.open_recording(path), source_name, exclude, name)
+    result = killtracker.compute(killtracker.open_recording(path), source_name, exclude, listed_name)
     return (result['mission'], json.dumps(result['rows'], ensure_ascii=False),
             result['kills'], json.dumps(result['far'], ensure_ascii=False))
 
