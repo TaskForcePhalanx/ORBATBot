@@ -6,8 +6,15 @@
 <nav class="tabs">
   {% for group in nav.groups %}
     <a class="tab {{ 'active' if group.key == group_key else '' }}"
-       href="{{ group.href }}">{{ group.label }}</a>
+       href="{{ group.href }}">{{ group.label }}{% if group.beta %} <span class="betatag">beta</span>{% endif %}</a>
   {% endfor %}
+  {# Find a page by name. A plain GET form, because the site has no script on
+     it: Enter shows the matching pages, which are only the ones this member
+     may open (`nav.search`). #}
+  <form class="navsearch" method="get" action="/g/{{ guild.id }}/search" role="search">
+    <input type="search" name="q" value="{{ search_query or '' }}" placeholder="Find a page…"
+           aria-label="Find a page" maxlength="60">
+  </form>
   {# The contextual `?`. It lives here rather than in each page's own heading
      because the nav is the one template that already knows which page this is,
      so a new page gets its help link by naming itself — and cannot forget to. #}

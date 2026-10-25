@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Find a page{% endblock %}
+
+{% block content %}
+{% with active = 'search' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Find a page</h1>
+</div>
+
+{% if not search_query %}
+  <p class="muted">Type part of a page's name above — "mods", "voice", "approve" — and press Enter.</p>
+{% elif not results %}
+  <p class="muted">No page matches “{{ search_query }}”.</p>
+{% else %}
+  <ul class="searchhits">
+    {% for page in results %}
+      <li><a href="{{ page.href }}">{{ page.label }}</a> <span class="muted">· {{ page.group }}</span></li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}
