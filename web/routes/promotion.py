@@ -71,3 +71,12 @@ def register(app, d):
         except ValueError as e:
             return back(request, guild_id, 'warn', str(e))
         return back(request, guild_id, 'ok', note)
+
+    @app.post('/g/{guild_id}/promotion/active-duty')
+    async def active_duty_save(request: Request, guild_id: str):
+        context, form = await post_context(request, guild_id)
+        try:
+            note = await promotion_service.save_active_duty(context['guild'], form)
+        except ValueError as e:
+            return back(request, guild_id, 'warn', str(e))
+        return back(request, guild_id, 'ok', note)

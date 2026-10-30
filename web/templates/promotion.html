@@ -86,4 +86,27 @@
 {% else %}
   <p class="empty">{% if settings.enabled %}Nobody is due.{% else %}Promotions are off.{% endif %}</p>
 {% endif %}
+
+<h2>Active Duty</h2>
+<p class="hint">
+  Members mapped to a player who took part in one of the last few operations get this role;
+  everyone else loses it. The role is managed by the bot, so don't hand it out by hand.
+  It is updated after every count and when you save.
+</p>
+<form class="form" method="post" action="/g/{{ guild.id }}/promotion/active-duty">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field">
+    <span>Role</span>
+    <select name="role_id">
+      <option value="">Pick a role…</option>
+      {% for r in roles %}<option value="{{ r.id }}"{% if duty.role_id == r.id|string %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span>Last operations</span>
+    <input type="number" name="operations" min="{{ duty_limits[0] }}" max="{{ duty_limits[1] }}" value="{{ duty.operations }}" required>
+  </label>
+  <label class="check"><input type="checkbox" name="enabled"{% if duty.enabled %} checked{% endif %}> Active Duty is on</label>
+  <div class="actions"><button class="button primary" type="submit">Save</button></div>
+</form>
 {% endblock %}
