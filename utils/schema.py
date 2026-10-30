@@ -1293,6 +1293,19 @@ async def _v8_kt_player_claims(db):
     """)
 
 
+async def _v9_kt_active_duty(db):
+    # The Active Duty role: held by whoever played in the last N recordings. One
+    # row per guild, off until an admin turns it on.
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS kt_active_duty_settings (
+            guild_id TEXT PRIMARY KEY,
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            role_id TEXT,
+            operations INTEGER NOT NULL DEFAULT 4
+        )
+    """)
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
@@ -1302,4 +1315,5 @@ MIGRATIONS = [
     Migration(6, 'kill tracker promotion', _v6_kt_promotion),
     Migration(7, 'promotion message text', _v7_kt_promotion_message),
     Migration(8, 'kill tracker player claims', _v8_kt_player_claims),
+    Migration(9, 'kill tracker active duty', _v9_kt_active_duty),
 ]

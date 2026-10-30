@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from utils import database, killtracker, ocap, promotion
+from utils import activeduty, database, killtracker, ocap, promotion
 
 log = logging.getLogger(__name__)
 
@@ -327,6 +327,57 @@ async def run_promotions(bot: commands.Bot) -> None:
                 guild.id, [d['user_id'] for d in fresh], promotion.NOTIFIED)
 
 
+# -- Active Duty: the role for whoever played in the last few operations ----
+#
+# The rules are `utils/activeduty.py`. The page and the poll loop both call
+# `sync_active_duty()`, so the role is the same whoever asks.
+
+async def sync_active_duty(guild: discord.Guild, settings: dict = None) -> tuple:
+    """Give the role to everyone who played in the last N recordings and take it
+    from everyone else. Returns `(given, taken, problems)`; a problem is a
+    sentence for the admin."""
+    settings = settings or await database.kt_active_duty_settings(guild.id)
+    if not (settings['enabled'] and settings['role_id']):
+        return [], [], []
+    role = guild.get_role(int(settings['role_id']))
+    if role is None:
+        return [], [], ['The Active Duty role no longer exists; pick it again.']
+    if not guild.me.guild_permissions.manage_roles or role >= guild.me.top_role:
+        return [], [], [f'I cannot hand out **{role.name}**: I need Manage Roles and a role '
+                        'above it in Server Settings → Roles.']
+    recent = await database.kt_recent_players(settings['operations'])
+    active = activeduty.active_users(recent, await database.kt_player_members(guild.id))
+    holders = {str(m.id) for m in role.members}
+    present = {str(m.id) for m in guild.members}
+    give, take = activeduty.changes(active, holders, present)
+    given, taken, problems = [], [], []
+    for user_id in give:
+        try:
+            await guild.get_member(int(user_id)).add_roles(role, reason='Kill Tracker: Active Duty')
+            given.append(user_id)
+        except discord.HTTPException as e:
+            problems.append(f'<@{user_id}>: Discord refused ({e.status}).')
+    for user_id in take:
+        member = guild.get_member(int(user_id))
+        if member is None:
+            continue
+        try:
+            await member.remove_roles(role, reason='Kill Tracker: Active Duty')
+            taken.append(user_id)
+        except discord.HTTPException as e:
+            problems.append(f'<@{user_id}>: Discord refused ({e.status}).')
+    return given, taken, problems
+
+
+async def run_active_duty(bot: commands.Bot) -> None:
+    for guild in bot.guilds:
+        given, taken, problems = await sync_active_duty(guild)
+        if given or taken:
+            log.info(f'ℹ️ killtracker: Active Duty in {guild.name}: +{len(given)} -{len(taken)}')
+        for problem in problems:
+            log.warning(f'⚠️ killtracker: Active Duty in {guild.name}: {problem}')
+
+
 class KillTrackerCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -367,6 +418,10 @@ class KillTrackerCog(commands.Cog):
             await run_promotions(self.bot)
         except Exception as e:
             log.exception(f"❌ killtracker promotions failed: {e!r}")
+        try:
+            await run_active_duty(self.bot)
+        except Exception as e:
+            log.exception(f"❌ killtracker active duty failed: {e!r}")
 
     @poll.error
     async def _poll_error(self, error: BaseException):

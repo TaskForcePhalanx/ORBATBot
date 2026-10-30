@@ -500,3 +500,38 @@ async def kt_set_promotion(guild_id, user_ids, status: str) -> None:
                        ON CONFLICT (guild_id, user_id) DO UPDATE
                        SET status = EXCLUDED.status, updated_at = NOW() AT TIME ZONE 'UTC'""",
                     str(guild_id), str(user_id), status)
+
+
+# -- Active Duty -------------------------------------------------------------
+
+async def kt_recent_players(count: int) -> list:
+    """The player names (as recorded) of each of the last `count` counted
+    recordings, newest first — one list per recording."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetch(
+            """SELECT rows FROM kt_missions WHERE rows <> '[]'
+                ORDER BY played_on DESC NULLS LAST, ocap_id DESC LIMIT $1""", count)
+    return [sorted({row[3] for row in _json.loads(r['rows']) if row[3]}) for r in found]
+
+
+async def kt_active_duty_settings(guild_id) -> dict:
+    """The guild's Active Duty settings; off, with the defaults, until saved."""
+    from utils import activeduty
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        found = await db.fetchrow(
+            'SELECT enabled, role_id, operations FROM kt_active_duty_settings '
+            'WHERE guild_id = $1', str(guild_id))
+    return dict(found) if found else activeduty.defaults()
+
+
+async def kt_save_active_duty_settings(guild_id, settings: dict) -> None:
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        await db.execute(
+            """INSERT INTO kt_active_duty_settings (guild_id, enabled, role_id, operations)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (guild_id) DO UPDATE SET enabled = EXCLUDED.enabled,
+                   role_id = EXCLUDED.role_id, operations = EXCLUDED.operations""",
+            str(guild_id), settings['enabled'], settings['role_id'], settings['operations'])

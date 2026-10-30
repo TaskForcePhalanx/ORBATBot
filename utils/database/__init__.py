@@ -170,6 +170,9 @@ from .killtracker import (  # noqa: F401
     kt_save_promotion_settings,
     kt_promotion_log,
     kt_set_promotion,
+    kt_recent_players,
+    kt_active_duty_settings,
+    kt_save_active_duty_settings,
 )
 from .maps import (  # noqa: F401
     get_guild_tac_maps,
