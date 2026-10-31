@@ -148,7 +148,7 @@ async def kt_missions() -> list:
             '''SELECT ocap_id, filename, mission, label, name_override, world, tag,
                       played_on, duration, ocap_kills, ocap_player_kills,
                       counted_kills, rules_version, status, error, attempts,
-                      retry_at, imported_at, shown_override
+                      retry_at, imported_at, shown_override, excluded
                  FROM ''' + _SHOWN + ' ORDER BY ocap_id DESC'
         )
 
@@ -159,7 +159,7 @@ async def kt_far_kills() -> list:
     async with pool.acquire() as db:
         return await db.fetch(
             "SELECT ocap_id, label, shown_override AS name_override, far_kills FROM "
-            + _SHOWN + " WHERE rows <> '[]' ORDER BY ocap_id"
+            + _SHOWN + " WHERE rows <> '[]' AND NOT excluded ORDER BY ocap_id"
         )
 
 
@@ -169,7 +169,7 @@ async def kt_mission_rows() -> list:
     async with pool.acquire() as db:
         return await db.fetch(
             "SELECT ocap_id, label, shown_override AS name_override, rows FROM "
-            + _SHOWN + " WHERE rows <> '[]' ORDER BY ocap_id"
+            + _SHOWN + " WHERE rows <> '[]' AND NOT excluded ORDER BY ocap_id"
         )
 
 
@@ -237,7 +237,7 @@ async def kt_rows() -> list:
     async with pool.acquire() as db:
         found = await db.fetch(
             "SELECT rows, shown_override AS name_override FROM " + _SHOWN
-            + " WHERE rows <> '[]' ORDER BY ocap_id"
+            + " WHERE rows <> '[]' AND NOT excluded ORDER BY ocap_id"
         )
     return [(r['rows'], r['name_override']) for r in found]
 
@@ -252,7 +252,7 @@ async def kt_generation() -> str:
             """SELECT COUNT(*) AS n, MAX(imported_at) AS last, MIN(rules_version) AS rules,
                       md5(COALESCE(string_agg(ocap_id || ':' || COALESCE(name_override, ''),
                                               ',' ORDER BY ocap_id), '')) AS names
-                 FROM kt_missions WHERE rows <> '[]'"""
+                 FROM kt_missions WHERE rows <> '[]' AND NOT excluded"""
         )
         c = await db.fetchrow(
             """SELECT COUNT(*) AS n, MAX(updated_at) AS last FROM kt_campaigns"""
@@ -265,6 +265,19 @@ async def kt_generation() -> str:
                           COALESCE((SELECT string_agg(player || '=' || unit, ',' ORDER BY player)
                                       FROM kt_unit_overrides), ''))""")
     return f"{r['n']}:{r['last']}:{r['rules']}:{r['names']}:{c['n']}:{c['last']}:{m['n']}:{a}"
+
+
+async def kt_set_excluded(ocap_ids, excluded: bool) -> int:
+    """Take recordings out of the statistics, or put them back. Nothing is
+    re-counted: the stored rows stay, only the readers skip them."""
+    if not ocap_ids:
+        return 0
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        result = await db.execute(
+            'UPDATE kt_missions SET excluded = $2 WHERE ocap_id = ANY($1::int[]) AND excluded <> $2',
+            list(ocap_ids), excluded)
+    return int(result.split()[-1])
 
 
 async def kt_set_name_overrides(pairs) -> int:
@@ -510,7 +523,7 @@ async def kt_recent_players(count: int) -> list:
     pool = await get_pool()
     async with pool.acquire() as db:
         found = await db.fetch(
-            """SELECT rows FROM kt_missions WHERE rows <> '[]'
+            """SELECT rows FROM kt_missions WHERE rows <> '[]' AND NOT excluded
                 ORDER BY played_on DESC NULLS LAST, ocap_id DESC LIMIT $1""", count)
     return [sorted({row[3] for row in _json.loads(r['rows']) if row[3]}) for r in found]
 

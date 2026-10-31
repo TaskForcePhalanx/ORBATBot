@@ -150,6 +150,7 @@ from .killtracker import (  # noqa: F401
     kt_set_exclusions,
     kt_rows,
     kt_generation,
+    kt_set_excluded,
     kt_set_name_overrides,
     _campaign,
     kt_campaigns,

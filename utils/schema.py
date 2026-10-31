@@ -1306,6 +1306,13 @@ async def _v9_kt_active_duty(db):
     """)
 
 
+async def _v10_kt_mission_excluded(db):
+    # A recording an admin has taken out of the statistics (a test, a broken
+    # run). It stays stored and listed on the admin page; nothing counts it.
+    await db.execute("ALTER TABLE kt_missions "
+                     "ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE")
+
+
 MIGRATIONS = [
     Migration(1, 'baseline', _v1_baseline),
     Migration(2, 'guild indexes', _v2_guild_indexes),
@@ -1316,4 +1323,5 @@ MIGRATIONS = [
     Migration(7, 'promotion message text', _v7_kt_promotion_message),
     Migration(8, 'kill tracker player claims', _v8_kt_player_claims),
     Migration(9, 'kill tracker active duty', _v9_kt_active_duty),
+    Migration(10, 'kill tracker excluded missions', _v10_kt_mission_excluded),
 ]
