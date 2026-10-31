@@ -3,8 +3,8 @@
 // that are managed on its admin pages. Nothing here reads a Google Sheet.
 const BOT_API = "https://bot.taskforcephalanx.com/kt/api/";
 const CSV_URL = BOT_API + "stats.csv";
-const RELEASE_DATE = "2026-10-17";
-const VERSION      = "1.039";
+const RELEASE_DATE = "2026-10-31";
+const VERSION      = "1.040";
 
 // ── UNIT CLASSIFICATION ───────────────────────────────────────────────────
 const UNIT_SEEDS = {
@@ -586,6 +586,7 @@ function buildUI() {
   document.getElementById("sectionNav").style.display = "";
 
   initSectionStates();
+  readFilterFromUrl();
   buildFilters();
   applyFilters();
 
@@ -839,6 +840,37 @@ function renderSelectablePills(containerId, items, selectedSet, searchId, onSele
 
 function filterChanged() {
   applyFilters();
+  syncFilterUrl();
+}
+
+// ── Shareable filter: ?filter_campaign=Name  or  ?mission=A&mission=B ────────
+// Kept apart from ?campaign= (the campaign page) and ?player= (the career page).
+// replaceState, not pushState: a pill click is not a page to go back to.
+function syncFilterUrl() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('filter_campaign');
+    url.searchParams.delete('mission');
+    if (selectedCampaign) {
+      url.searchParams.set('filter_campaign', selectedCampaign);
+    } else if (selectedMissions) {
+      [...selectedMissions].forEach(m => url.searchParams.append('mission', m));
+    }
+    history.replaceState(history.state, '', url);
+  } catch (e) { /* a sandboxed frame may refuse; the filter still works */ }
+}
+
+function readFilterFromUrl() {
+  const q = new URLSearchParams(window.location.search);
+  const camp = q.get('filter_campaign');
+  if (camp && campaignData[camp] && !camp.startsWith('_')) {
+    selectedCampaign = camp;
+    selectedMissions = new Set(getCampaignMissions(camp));
+    return;
+  }
+  const known = new Set(rawRows.map(r => r["Mission"] || "").filter(Boolean));
+  const wanted = q.getAll('mission').filter(m => known.has(m));
+  if (wanted.length) selectedMissions = new Set(wanted);
 }
 
 function applyFilters() {
