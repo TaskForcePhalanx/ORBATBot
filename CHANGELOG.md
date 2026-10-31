@@ -4,18 +4,22 @@ All notable changes to TFP Kill Tracker are documented here.
 
 ---
 
-## Unreleased
+## v1.040 — 2026-10-31 (latest)
 
 ### Added
+- **Shareable filters** — picking a campaign or missions in the filter panel puts it in the address (`?filter_campaign=…` / `?mission=…`), and a link carrying one opens with the filter applied
 - **Multi Killer** (Hall of Fame) — the player with the biggest multikill, with its mission and time on hover. The profile no longer shows the multikill's position either; OCAP has it
 - **CQC Enthusiast** (Hall of Fame) — the shortest average on-foot kill distance. Needs at least 20 on-foot kills, so a few point-blank kills cannot win it
+
+### Changed
+- The browser tab says **TFP Stats** instead of TFP Kill Tracker
 
 ### Fixed
 - **The Hall of Fame stays in one row** with its eight cards, like the Hall of Shame, instead of the last card wrapping alone onto a second row
 
 ---
 
-## v1.039 — 2026-10-17 (latest)
+## v1.039 — 2026-10-17
 
 ### Changed
 - **All weapons are grouped by model** — not only the M249. Camo, attachment and mod versions are one entry (`M4A1 Block II` and `M4A1 PIP` are *M4A1*; `HK416 D14.5` and `HK416N (GL)` are *HK416*; `M249E2` and `M249 PIP` are *M249*), so the weapon leaderboard shows guns, not loadouts. A revision stays its own gun: M4A1 and M4A3 are two entries. Vehicle weapons are left as they are. Renames are in `WEAPON_RENAMES`
