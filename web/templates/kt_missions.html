@@ -16,6 +16,12 @@
   only the names you changed are written, and none are if one of them is not valid.
   The statistics themselves are not touched, so this survives every re-count.
 </p>
+<p class="hint">
+  Tick <strong>Don’t count</strong> to take a recording out of the Kill Tracker —
+  a test run or a broken mission. It then adds nothing to the statistics, the
+  mission counts or the Active Duty role, and it stays on this page so you can
+  tick it off again.
+</p>
 
 {% if rows %}
   <div class="count-progress">
@@ -43,6 +49,7 @@
             <td>
               <strong>{{ m.played_on or '—' }}</strong>
               {% if m.tag %}<span class="chip">{{ m.tag }}</span>{% endif %}
+              {% if m.excluded %}<span class="chip contested">not counted</span>{% endif %}
               {% if m.status != 'ok' %}<span class="chip contested">not counted yet</span>{% endif %}
               <div class="muted">OCAP: {{ row.own or m.mission }}
                 {% if m.counted_kills is not none %}
@@ -59,6 +66,8 @@
               <input type="hidden" name="mission_{{ loop.index0 }}" value="{{ m.ocap_id }}">
               <input name="name_{{ loop.index0 }}" maxlength="120" value="{{ m.name_override or '' }}"
                      placeholder="{{ row.own or m.mission }}" aria-label="Shown as, {{ row.own or m.mission }}">
+              <label class="muted"><input type="checkbox" name="exclude_{{ loop.index0 }}" value="1"
+                     {% if m.excluded %}checked{% endif %}> Don’t count</label>
             </td>
           </tr>
         {% endfor %}

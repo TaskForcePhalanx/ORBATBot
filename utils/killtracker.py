@@ -1684,7 +1684,7 @@ def stats_page(template: str, player: str = '', icon: str = '', bar: str = '') -
         player = ''
     if not player:
         return page
-    title = escape(f'{player} · TFP Kill Tracker', quote=True)
+    title = escape(f'{player} · TFP Stats', quote=True)
     # `</` can't end the script and `<!--` can't open a comment inside it.
     literal = json.dumps(player).replace('<', '\\u003c')
     head = (f'<meta property="og:title" content="{title}">\n'

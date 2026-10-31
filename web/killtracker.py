@@ -423,8 +423,11 @@ async def save_names(form) -> str:
     Only the rows whose name changed are written, and none are if any name is not
     valid, so a typo in one box does not leave the form half saved.
     """
-    current = {m['ocap_id']: m['name_override'] for m in await database.kt_missions()}
+    records = await database.kt_missions()
+    current = {m['ocap_id']: m['name_override'] for m in records}
+    was_excluded = {m['ocap_id'] for m in records if m['excluded']}
     submitted = []
+    ticked = set()
     for key in form.keys():
         if not key.startswith('mission_'):
             continue
@@ -434,13 +437,29 @@ async def save_names(form) -> str:
         except (TypeError, ValueError):
             continue
         submitted.append((ocap_id, form.get(f'name_{index}')))
+        if form.get(f'exclude_{index}'):
+            ticked.add(ocap_id)
     changes = killtracker.plan_name_edits(current, submitted)
+    # Only rows the form really carried count: a recording missing from it keeps
+    # whatever it had.
+    seen = {ocap_id for ocap_id, _ in submitted if ocap_id in current}
+    to_exclude = (ticked & seen) - was_excluded
+    to_include = (was_excluded & seen) - ticked
     await database.kt_set_name_overrides(list(changes.items()))
-    if not changes:
+    await database.kt_set_excluded(to_exclude, True)
+    await database.kt_set_excluded(to_include, False)
+    if not changes and not to_exclude and not to_include:
         return 'Nothing changed.'
-    cleared = sum(1 for name in changes.values() if name is None)
-    text = f'Saved {len(changes)} name(s).'
-    return text + (f' {cleared} went back to the name OCAP has.' if cleared else '')
+    parts = []
+    if changes:
+        cleared = sum(1 for name in changes.values() if name is None)
+        parts.append(f'Saved {len(changes)} name(s).'
+                     + (f' {cleared} went back to the name OCAP has.' if cleared else ''))
+    if to_exclude:
+        parts.append(f'{len(to_exclude)} mission(s) no longer count.')
+    if to_include:
+        parts.append(f'{len(to_include)} mission(s) count again.')
+    return ' '.join(parts)
 
 
 async def import_names(text: str, *, overwrite: bool) -> dict:
