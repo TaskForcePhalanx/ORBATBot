@@ -5,9 +5,8 @@ services:
   bot:
     build: .
     restart: unless-stopped
-    # Stays off until COMPOSE_PROFILES=live is set on the stack — never run this
-    # and another host with the same DISCORD_TOKEN at once (CLAUDE.md: one process).
-    profiles: [live]
+    # Never run this and another host with the same DISCORD_TOKEN at once
+    # (CLAUDE.md: one process).
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       # Optional: only needed for sheet-backed operations. An empty value is
