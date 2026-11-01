@@ -362,9 +362,11 @@ none of them should have to reach sideways for it.
 - `docker-compose.portainer.yml` is the variant for a host that already runs a
   jwilder/nginx-proxy + acme-companion stack: no published port, the bot joins the
   proxy's network (`PROXY_NETWORK`) and is announced by `VIRTUAL_HOST` /
-  `LETSENCRYPT_HOST`. The bot service has `profiles: [live]`, so the stack can be
-  created and the database filled with the bot still off; setting
-  `COMPOSE_PROFILES=live` on the stack is the cutover.
+  `LETSENCRYPT_HOST`. The bot service had a `live` profile so the database could be
+  filled with the bot still off, but Portainer did not apply `COMPOSE_PROFILES` from
+  the stack's variables (the stack deployed with no bot container), so the profile
+  is gone: the stack starts the bot, and the cutover is "Update the stack" once the
+  old host's bot is stopped.
 - In Portainer set `BOT_IMAGE=ghcr.io/<owner>/orbatbot:latest` on the stack and
   enable image re-pull on the webhook. Never run both hosts with the same
   `DISCORD_TOKEN` — see [One process](#one-process-and-what-assumes-it).
