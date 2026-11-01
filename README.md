@@ -134,7 +134,7 @@ Per-player kills, deaths, kill distance, shots and more for every Arma mission, 
 |---|---|---|
 | `/set-timezone <tz>` | Admin | Server timezone used when reading any time you type — operations and events alike (default UTC) |
 | `/sync` | Admin | Force-sync slash commands with Discord and refresh the ORBAT embed |
-| `/restart` | Admin | Restart the bot container on Railway |
+| `/restart` | Admin | Restart the bot (the container relaunches itself — see [`/restart`](#restart)) |
 | `/debug-slots [squad]` | Admin | Show the raw slot data the bot reads, whichever roster is in use, for diagnosing missing slots |
 | `/archive-old-approvals` | Admin | One-time migration of pre-existing approved messages into `#approval-archive` |
 | `/purge [amount] [since]` | Manage Messages | Delete messages in the channel it is run in — the last *N*, everything since a date or an age, or both |
@@ -1616,6 +1616,8 @@ The optional [web interface](#web-ui) adds `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_
 
 ### 4a. Deploy to Railway
 
+> The Task Force Phalanx bot moved off Railway to a Portainer stack on 2026-11-01 — see [4c](#4c-deploy-with-portainer-behind-nginx-proxy). These steps still work for a fresh Railway setup.
+
 1. Push this repo to GitHub
 2. Go to [Railway](https://railway.app) → **New Project → Deploy from GitHub** → select this repo
 3. Add a **Postgres** service to your project (Railway dashboard → **+ New** → **Database → PostgreSQL**)
@@ -1689,6 +1691,22 @@ docker compose restart bot
 ```
 
 > Bot data is stored in a named Docker volume (`postgres_data`) and survives container restarts, rebuilds, and updates.
+
+---
+
+### 4c. Deploy with Portainer behind nginx-proxy
+
+This is how the bot runs in production. It needs a Docker host that already runs Portainer and a [jwilder/nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) + [acme-companion](https://github.com/nginx-proxy/acme-companion) stack, which terminates TLS and fetches Let's Encrypt certificates.
+
+1. **DNS:** an `A` record for the bot's name (`bot.example.com`) pointing at the host. The certificate is only issued once it resolves; until then Let's Encrypt validation reaches whatever the name pointed at before and fails.
+2. **Stack:** Portainer → **Stacks → Add stack → Repository**, this repository, branch `main`, compose path `docker-compose.portainer.yml`.
+3. **Variables** (Environment variables → *Advanced mode*, one `NAME=value` per line, no quotes): `DISCORD_TOKEN`, `DB_PASSWORD` (letters and digits only), `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `WEB_SECRET_KEY`, `WEB_BASE_URL=https://bot.example.com`, `PROXY_HOST=bot.example.com`, `LETSENCRYPT_EMAIL`, and `PROXY_NETWORK` set to the network the nginx-proxy container is on (Portainer → Networks). Optional: `GOOGLE_CREDENTIALS` as one line, `MEMBER_EVENTS=1` and `MESSAGE_CONTENT=1` once those intents are ticked in the Developer Portal. Do **not** set `DATABASE_URL` — the compose file builds it.
+4. **Deploy the stack.** The first start builds the image from the repository, which takes a few minutes. A changed variable only applies after **Pull and redeploy**.
+5. **Check:** the bot's log shows the migrations, `Logged in` and `Web UI listening`; `https://bot.example.com/healthz` answers `bot ok · db ok`. Add `https://bot.example.com/auth/callback` as a redirect in the Developer Portal (OAuth2).
+6. **Updates:** *Pull and redeploy* on the stack, or set the repository secret `PORTAINER_WEBHOOK` to the stack's webhook so every push to `main` builds the image to `ghcr.io/<owner>/orbatbot` and redeploys it (then set `BOT_IMAGE` on the stack to that image).
+7. **Backups are yours to arrange.** The database is a Docker volume on the host; schedule a daily `pg_dump` to another disk.
+
+`/restart` works without any token here: the bot exits and `restart: unless-stopped` starts it again. To move an existing database in, stop the old bot, `pg_dump --format=custom` it and `pg_restore --clean --if-exists --no-owner --role=orbatuser` into the `db` container, and compare a few row counts before starting the new bot — never run both at once.
 
 ---
 
@@ -1865,10 +1883,10 @@ in the server's audit log.
 /restart
 ```
 
-Restarts the bot container on Railway — useful if the bot hangs or misbehaves. Two modes:
+Restarts the bot — useful if the bot hangs or misbehaves. Two modes:
 
-- **Railway API** (preferred) — if `RAILWAY_API_TOKEN` is set in the service variables, the bot triggers a clean deployment restart via the Railway API
-- **Process exit** (fallback) — without a token, the bot exits with a non-zero code and Railway's `ON_FAILURE` restart policy relaunches the container
+- **Process exit** — the bot exits with a non-zero code and the platform relaunches it: `restart: unless-stopped` on Docker/Portainer, Railway's `ON_FAILURE` policy on Railway. This is what runs on Portainer.
+- **Railway API** (Railway only) — if `RAILWAY_API_TOKEN` is set in the service variables, the bot triggers a clean deployment restart via the Railway API
 
 Either way the bot is back online in ~30–60 seconds. Slots, buttons, and data survive the restart (PostgreSQL + persistent views). The confirmation is ephemeral and every restart is logged with the requesting user.
 
@@ -2504,6 +2522,7 @@ WEB_BASE_URL=https://orbat.example.com
 
 - **Railway** — service → **Settings → Networking → Generate Domain**. Railway injects `PORT` and the app listens on it; use that domain as `WEB_BASE_URL`. A domain of your own goes in the same place (**Custom Domain**, then the CNAME it gives you at your DNS provider); put both names in `WEB_BASE_URL` if the old one should keep working — **your own domain first**, because the first name is the one share links carry. Each name also needs its own redirect URI in the Developer Portal.
 - **Docker** — port `8080` is published by `docker-compose.yml`; put it behind a reverse proxy that terminates TLS (Caddy or nginx), and point `WEB_BASE_URL` at the public name.
+- **Portainer** — `docker-compose.portainer.yml` publishes nothing; the bot joins an existing nginx-proxy's network and is announced by `VIRTUAL_HOST` / `LETSENCRYPT_HOST`, which also gets the certificate. See [4c](#4c-deploy-with-portainer-behind-nginx-proxy).
 
 Restart the bot. The log line `✅ Web UI listening on …` means it is up; `/healthz` answers `ok` once the bot is connected to Discord.
 

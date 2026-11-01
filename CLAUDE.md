@@ -15,7 +15,9 @@ is written on approval; an ORBAT has nothing to write, because the approved
 request *is* the booking. See
 [the roster provider](docs/slots.md#the-roster-provider-utilsrosterpy).
 
-**Current state:** Fully operational bot deployed on Railway, plus an optional
+**Current state:** Fully operational bot, running since 2026-11-01 as a Docker
+stack in Portainer behind an nginx-proxy (Railway was the host before that and is
+kept only as a rollback — see [Deployment](#deployment)), plus an optional
 web UI (`web/`) with Discord OAuth2 login for events, game roles, embeds, the
 member log, voice time, the ORBAT editor, the slot-approval queue and the
 [tactical map](docs/tacmap.md#tactical-maps-utilstacmap--webtacmappy).
@@ -176,7 +178,8 @@ scripts/
 tests/                  # pytest — reddit, tacmap, tiles, web/config.py, check_feed(), help
 requirements.txt
 Dockerfile
-docker-compose.yml      # Bot + PostgreSQL 16
+docker-compose.yml      # Bot + PostgreSQL 16, for a plain Docker host
+docker-compose.portainer.yml  # Bot + PostgreSQL 18 behind nginx-proxy — what production runs
 Procfile                # Railway: python bot.py
 railway.json            # Railway build + ON_FAILURE restart policy (backs /restart)
 .env.example            # Template for local/Docker runs — keep in sync with the table below
@@ -247,8 +250,8 @@ or splitting the emoji check out — and the second is what was done, see
 | `DISCORD_TOKEN` | Bot token from Discord Developer Portal |
 | `GOOGLE_CREDENTIALS` | **Optional.** Full JSON content of the service account key file. Only read when a sheet-backed operation is actually touched — `sheets.get_client()` raises on the first call, not at import — so the bot starts and runs without it as long as every operation is ORBAT-backed |
 | `DB_PASSWORD` | PostgreSQL password (docker-compose only) |
-| `DATABASE_URL` | Full connection string — injected automatically by Railway; constructed by docker-compose; set by hand for local development |
-| `RAILWAY_API_TOKEN` | **Optional.** Account or team token that lets `/restart` trigger a clean deployment restart via the Railway GraphQL API. Without it `/restart` still works, by exiting non-zero so Railway's `ON_FAILURE` policy relaunches the container. Project tokens do **not** work — `_railway_restart()` authenticates with a `Bearer` header |
+| `DATABASE_URL` | Full connection string — constructed by both compose files from `DB_PASSWORD` (so never set it on a Portainer stack); injected automatically by Railway; set by hand for local development |
+| `RAILWAY_API_TOKEN` | **Optional, and only meaningful on Railway — leave it unset on Portainer**, where `/restart` exits the process and `restart: unless-stopped` brings it back. Account or team token that lets `/restart` trigger a clean deployment restart via the Railway GraphQL API. Without it `/restart` still works, by exiting non-zero so Railway's `ON_FAILURE` policy relaunches the container. Project tokens do **not** work — `_railway_restart()` authenticates with a `Bearer` header |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | **Optional.** OAuth2 credentials for the web UI. Missing → no web server is started |
 | `WEB_SECRET_KEY` | **Optional.** Signs the session, OAuth-state and flash cookies. Changing it signs everyone out |
 | `WEB_BASE_URL` | **Optional.** Public origin, no trailing slash — or **several**, separated by spaces or commas, when the site answers on more than one name. Each one needs its own redirect URI registered in the Developer Portal. The first is canonical: it is what a link built with no request in hand uses. Empty → derived from the request, which is only meant for local runs. See [answering on more than one name](docs/web.md#answering-on-more-than-one-name) |
@@ -263,7 +266,7 @@ or splitting the emoji check out — and the second is what was done, see
 | `SITE_NAV_URL` | **Optional.** The unit's website (Google Sites), whose menu the bot's `/stats` page shows at the top. `utils/sitenav.py` reads it off the homepage at most hourly and keeps the last menu that parsed. Defaults to `https://www.taskforcephalanx.com/`; set it **empty** to show no menu. See [the stats page](docs/killtracker.md#the-dashboard-reads-only-the-bot) |
 | `LOG_LEVEL` | **Optional.** How much this project's own code logs — `DEBUG`, `INFO` (the default), `WARNING`, `ERROR`. It does **not** reach discord.py, which `setup_logging()` pins to WARNING: the bot starts with `bot.start()` rather than `bot.run()`, so the library has never configured logging here, and turning the root up writes a line per gateway heartbeat and buries everything else |
 
-Railway injects these at runtime; nothing sets them manually. `_railway_restart()` reads them to find the deployment to restart:
+While the bot runs on Railway, Railway injects these at runtime and nothing sets them manually (on Portainer they do not exist). `_railway_restart()` reads them to find the deployment to restart:
 
 | Variable | Used for |
 |---|---|
@@ -340,7 +343,12 @@ none of them should have to reach sideways for it.
 
 ## Deployment
 
-### Railway (production)
+### Railway (the previous host — a rollback until it is deleted)
+- Production moved to Portainer on 2026-11-01 (below). The Railway bot service
+  is **stopped** and its Postgres service is untouched, so going back is
+  possible; the cost is that anything written on Portainer since is not there.
+  Never start the Railway bot while the Portainer one runs.
+- How it was set up, while it still applies:
 - Bot service: `python -u bot.py` (`railway.json` `startCommand`; the `Procfile`
   declares the same as a `worker` process)
 - PostgreSQL service: `DATABASE_URL` injected automatically
@@ -355,21 +363,45 @@ none of them should have to reach sideways for it.
   twice, so switch Railway's own source off when the workflow takes over.
   Without the token the workflow's deploy job is skipped and only the tests run.
 
-### Portainer (alongside Railway during the move)
-- `deploy.yml`'s `portainer` job builds the image, pushes it to
+### Portainer (production)
+- **What runs:** the Git stack `orbatbot` from `docker-compose.portainer.yml`:
+  the `bot` (built from this repo) and `db` (`postgres:18-alpine`, volume
+  `postgres18_data`, database `orbatbot`, user `orbatuser`). No published port:
+  the bot joins the network of the host's existing jwilder/nginx-proxy +
+  acme-companion stack (`PROXY_NETWORK`, `web` on this host) and is announced by
+  `VIRTUAL_HOST` / `LETSENCRYPT_HOST` (`bot.taskforcephalanx.com`, certificate
+  by Let's Encrypt, issued automatically once DNS points at the host). DNS is an
+  A record at Namecheap.
+- **Variables** are set on the stack in Portainer (Environment variables →
+  Advanced mode), not in a file: `DISCORD_TOKEN`, `DB_PASSWORD`,
+  `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET`, `WEB_SECRET_KEY`,
+  `WEB_BASE_URL`, `GOOGLE_CREDENTIALS` (one line), `MEMBER_EVENTS`,
+  `MESSAGE_CONTENT`, `LETSENCRYPT_EMAIL`, `PROXY_NETWORK`. Never `DATABASE_URL`,
+  `PORT` or `RAILWAY_*`. A changed variable takes effect only on **Pull and
+  redeploy**. The stack once had a `COMPOSE_PROFILES` switch to keep the bot off
+  while the database was filled; Portainer did not apply it (the stack came up
+  with no bot container), so the profile was removed.
+- **Updates:** `deploy.yml`'s `portainer` job builds the image, pushes it to
   `ghcr.io/<owner>/orbatbot` and POSTs the stack's webhook. It does nothing until
-  the secret `PORTAINER_WEBHOOK` exists, so merging it changes nothing on Railway.
-- `docker-compose.portainer.yml` is the variant for a host that already runs a
-  jwilder/nginx-proxy + acme-companion stack: no published port, the bot joins the
-  proxy's network (`PROXY_NETWORK`) and is announced by `VIRTUAL_HOST` /
-  `LETSENCRYPT_HOST`. The bot service had a `live` profile so the database could be
-  filled with the bot still off, but Portainer did not apply `COMPOSE_PROFILES` from
-  the stack's variables (the stack deployed with no bot container), so the profile
-  is gone: the stack starts the bot, and the cutover is "Update the stack" once the
-  old host's bot is stopped.
-- In Portainer set `BOT_IMAGE=ghcr.io/<owner>/orbatbot:latest` on the stack and
-  enable image re-pull on the webhook. Never run both hosts with the same
-  `DISCORD_TOKEN` — see [One process](#one-process-and-what-assumes-it).
+  the secret `PORTAINER_WEBHOOK` exists; until then, update by hand with *Pull
+  and redeploy* (the bot is built from the repo while `BOT_IMAGE` is empty). When
+  using the webhook, set `BOT_IMAGE=ghcr.io/<owner>/orbatbot:latest` on the stack
+  and enable image re-pull on the webhook.
+- **Restarts:** `restart: unless-stopped` relaunches the bot after a crash or
+  `/restart`, and, unlike Railway's `restartPolicyMaxRetries`, never gives up.
+- **Moving the database** (what the cutover did): stop the old bot first, then
+  inside the `db` container (it has the version-18 client) run
+  `pg_dump --format=custom --no-owner --no-acl "<source url>" -f /tmp/x.dump` and
+  `pg_restore --clean --if-exists --no-owner --role=orbatuser -U orbatuser -d orbatbot /tmp/x.dump`,
+  then compare `max(version)` in `schema_version` and a few row counts on both
+  sides. The new bot applies any migration the dump lacks on start. The volume's
+  password is fixed when the volume is created, so a changed `DB_PASSWORD` needs
+  `ALTER USER orbatuser PASSWORD '…'` as well.
+- **Not done yet:** backups (a daily `pg_dump` to another disk — Railway used to
+  take care of this), an external uptime check on `/healthz` (look for `bot ok`),
+  and removing the Railway deploy job and `watchdog.yml` from the repo.
+- Never run two hosts with the same `DISCORD_TOKEN` — see
+  [One process](#one-process-and-what-assumes-it).
 
 ### GitHub Pages (the Kill Tracker page)
 - `dashboard/` is a static page; `.github/workflows/dashboard.yml` publishes it to the
@@ -429,7 +461,8 @@ would sit under the root's WARNING and never be seen.
 **The bot runs as a single instance, and at least seven things depend on
 that.** Nothing enforces it, nothing warns about it, and the way it surfaces
 is a campaign drop posted twice to a public channel on the night somebody
-scales the Railway service to two replicas. Written down here because it is
+scales the service to two replicas — or starts the old Railway bot while the
+new Portainer one is up. Written down here because it is
 invisible in every file that relies on it:
 
 | | What a second process would do |
@@ -446,7 +479,10 @@ Underneath all of it: two processes signed in as the same bot both receive
 every gateway event and both act on it. Making the service multi-instance is
 therefore not a deployment setting but a piece of work — advisory locks around
 the loops, the caches moved to the database or dropped — and until it is done,
-**keep Railway at one replica**.
+**keep exactly one instance running, on one host**. While Railway still exists as
+a rollback, that means its bot service stays stopped: a push to `main` revives it
+(`deploy.yml`'s `railway up`) and so does `watchdog.yml`, which is why the
+`RAILWAY_TOKEN` secret is gone and the watchdog is disabled.
 
 ### `/healthz` reports, it does not judge
 
