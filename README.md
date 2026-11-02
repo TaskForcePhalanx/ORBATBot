@@ -664,7 +664,7 @@ Put unit symbols, movement lines, objectives and boxes on the terrain.
 5. A drawing tool draws one thing and hands you back **Select** with it selected, so a click on empty ground just deselects it. **Double-click** a tool to keep it on (🔒) for drawing several; **Esc** puts it down.
 6. Names are written as in Arma: beside a unit or marker, in its colour. **Map settings → Text size** makes every name on the map bigger or smaller. Markers turn with **Rotation** in the inspector, and arrive in Arma turned.
 7. Lines work as on Arma’s map: hold **Ctrl** and **click** each corner, then let go of **Ctrl** to finish — or hold **Ctrl** and **drag** for freehand. The Line and Area tools do the same without Ctrl; double-click or press **Enter** to finish. **Shift** keeps a segment straight and snaps it to 15°.
-8. Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 pixels — it stays that thin at every zoom) and its arrow heads (end, start or both) in the toolbar or the inspector.
+8. Pick a line’s style (solid, dashed or dotted) and its arrow heads (end, start or both) in the toolbar or the inspector. There is no thickness to choose: Arma draws every line at one width, so a thickness picked here would only ever have been true of the website.
 9. The **Phase line** tool draws a line named at both ends — type the name after the *PL* it starts with. Any line can be named in the middle, at the end or at both ends from the inspector.
 10. Select a line or area to edit it: drag a corner to move it, drag the dot in the middle of a segment to add a corner, **Alt**+click or right-click a corner to delete it. Tick **Snap** and new or moved corners land on the nearest corner, symbol or marker.
 11. **Shift**+click adds to the selection and **Shift**+drag on empty ground selects by box; move them together by dragging any of them. **Ctrl**+**C** and **Ctrl**+**V** copy and paste — into another map too — and **Ctrl**+**D** duplicates.
@@ -798,7 +798,7 @@ Paste the plan into a running mission as markers, with no mod on either side.
 >
 > AOs come across as their borders. The grey mask around them does not: Arma cannot draw a cover with holes in it from a pasted script.
 >
-> Arma has no dashed line and draws every line at one width, so a dashed or dotted line arrives as its dashes — one short line marker each, at most 150 per line — and thickness stays on the website. Arrow heads arrive as Arma arrow markers at whichever ends have one.
+> Arma has no dashed line and draws every line at one width, so a dashed or dotted line arrives as its dashes — one short line marker each. Arrow heads arrive as Arma arrow markers at whichever ends have one.
 >
 > A line’s name arrives as text alone at the same place — the middle, or both ends of a phase line — on an invisible marker, because a line marker shows no text in Arma.
 >

@@ -859,6 +859,20 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   selects the marker. Sizes are compared on the artwork for the same reason the
   ring is: comparing hit shapes would compare the generosity rather than the
   symbols.
+- **There is no line thickness to choose, by design.** Arma draws every line
+  at one width, so a thickness set here was only ever true of this website —
+  the export report has always said so (*"Line thickness stays on this map"*).
+  Both pickers are gone: the toolbar one that set the next line's weight and
+  the inspector one that changed a drawn line's.
+  - **The `weight` field itself stays.** The parser still accepts it, the
+    renderer still honours it and the export note still fires, so **a map drawn
+    before this keeps the widths it was drawn with** rather than silently
+    redrawing. What has gone is the ability to pick one, not the ability to
+    read one — new lines take `DEFAULT_WEIGHT`.
+  - That leaves a value an old map carries and nobody can now edit, which is
+    the price of not rewriting other people's maps. Flattening every stored
+    weight to the default would make the website match Arma exactly and is a
+    one-line change, but it is destructive and was deliberately not done.
 - **Several selected** is `state.selected` (the last picked) plus
   `state.extra`; `selection()` is the list. Shift+click toggles, Shift+drag on
   empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes
