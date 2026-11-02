@@ -342,7 +342,7 @@ async def match_recordings(today) -> list[str]:
     mission is tried again each minute until its recording turns up."""
     done = []
     for mission in await database.cp_missions_awaiting_recording(
-            today - timedelta(days=LOOK_BACK_DAYS), today):
+            today - timedelta(days=LOOK_BACK_DAYS), today, rules.SILENT_STATUSES):
         found = await candidate_recordings(mission['op_date'])
         ocap_id = rules.auto_recording(mission['op_date'], found)
         if ocap_id:
@@ -410,8 +410,8 @@ class CampaignsCog(commands.Cog):
         if mission is None:
             return []
         campaign = await database.get_cp_campaign(mission['campaign_id'])
-        if campaign is None or campaign['status'] == 'archived':
-            return []               # an archived campaign posts nothing
+        if campaign is None or not rules.posts_drops(campaign['status']):
+            return []               # a draft or archived campaign posts nothing
         mission['is_test'] = bool(campaign['is_test'])
         return await self.process_mission(mission)
 
@@ -493,7 +493,8 @@ class CampaignsCog(commands.Cog):
         today = _now().date()
         try:
             missions = await database.cp_missions_near(
-                today - timedelta(days=LOOK_BACK_DAYS), today + timedelta(days=LOOK_AHEAD_DAYS))
+                today - timedelta(days=LOOK_BACK_DAYS), today + timedelta(days=LOOK_AHEAD_DAYS),
+                rules.SILENT_STATUSES)
         except Exception as e:
             log.exception(f"❌ campaigns: could not read the missions: {e!r}")
             return

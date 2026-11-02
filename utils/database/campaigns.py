@@ -519,16 +519,22 @@ async def set_cp_mission_recording(mission_id: int, ocap_id, *, manual: bool):
                     WHERE id = $1""", mission_id, ocap_id, manual, bool(ocap_id) and added)
 
 
-async def cp_missions_awaiting_recording(first, last) -> list:
+async def cp_missions_awaiting_recording(first, last, silent=()) -> list:
     """Missions played between two days whose recording nobody has chosen yet,
-    in campaigns that are not archived — what the loop tries to match."""
+    in campaigns that are not silent — what the loop tries to match.
+
+    `silent` is `campaign.SILENT_STATUSES`, passed in rather than named here:
+    the rule about which campaigns the bot acts on lives in one Python
+    function, and SQL cannot call it.
+    """
     pool = await get_pool()
     async with pool.acquire() as db:
         rows = await db.fetch(
             """SELECT m.id, m.op_date FROM cp_missions m
                  JOIN cp_campaigns c ON c.id = m.campaign_id
                 WHERE m.ocap_id IS NULL AND NOT m.ocap_manual
-                  AND m.op_date BETWEEN $1 AND $2 AND c.status <> 'archived'""", first, last)
+                  AND m.op_date BETWEEN $1 AND $2
+                  AND c.status <> ALL($3::text[])""", first, last, list(silent))
     return [dict(r) for r in rows]
 
 
@@ -879,17 +885,24 @@ async def mark_cp_drop_pinged(mission_id: int, kind: str):
                   SET held_pinged_at = EXCLUDED.held_pinged_at""", mission_id, kind)
 
 
-async def cp_missions_near(start, end) -> list:
-    """Missions dated between two days, in campaigns that are not archived,
+async def cp_missions_near(start, end, silent=()) -> list:
+    """Missions dated between two days, in campaigns that are not silent,
     with their guild and whether their campaign is a test — what the posting
-    loop looks at each minute."""
+    loop looks at each minute.
+
+    **A mission with no `op_date` is not here at all**, and that is what makes
+    an undated mission a safe draft: `NULL BETWEEN` is never true, so it is
+    never selected, never posted and never pinged about. `silent` is
+    `campaign.SILENT_STATUSES`, passed in rather than named here.
+    """
     pool = await get_pool()
     async with pool.acquire() as db:
         rows = await db.fetch(
             """SELECT m.*, c.guild_id, c.name AS campaign_name, c.is_test
                  FROM cp_missions m JOIN cp_campaigns c ON c.id = m.campaign_id
-                WHERE m.op_date BETWEEN $1 AND $2 AND c.status <> 'archived'
-                ORDER BY m.op_date, m.id""", start, end)
+                WHERE m.op_date BETWEEN $1 AND $2
+                  AND c.status <> ALL($3::text[])
+                ORDER BY m.op_date, m.id""", start, end, list(silent))
     return [_mission_dict(r) for r in rows]
 
 

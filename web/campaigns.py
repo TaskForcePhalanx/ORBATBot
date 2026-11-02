@@ -151,7 +151,11 @@ async def campaigns_page(guild, tz: str) -> dict:
         shaped.append({**campaign, 'missions': missions,
                        'open_slots': max(0, campaign['planned_missions'] - len(missions))})
     return {
-        'campaigns': [c for c in shaped if c['status'] != 'archived'],
+        # Three lists, not two: a campaign being written sits apart from the
+        # one that is actually running, which is the whole point of `draft`.
+        'drafts': [c for c in shaped if c['status'] == 'draft'],
+        'campaigns': [c for c in shaped
+                      if c['status'] not in ('draft', 'archived')],
         'archived': [c for c in shaped if c['status'] == 'archived'],
         'statuses': rules.CAMPAIGN_STATUSES,
     }
@@ -634,9 +638,11 @@ async def drop_action(bot, guild, mission: dict, kind: str, action: str, member,
     if kind not in rules.DROP or action not in DROP_ACTIONS:
         raise NotFound('No such drop.')
     campaign = await database.get_cp_campaign(mission['campaign_id'])
-    if campaign and campaign['status'] == 'archived' and action in ('approve', 'unskip'):
-        raise ValueError('This campaign is archived, so nothing in it posts. Set it back '
-                         'to active on the campaign page first.')
+    if (campaign and not rules.posts_drops(campaign['status'])
+            and action in ('approve', 'unskip')):
+        raise ValueError(
+            f"This campaign is a {campaign['status']}, so nothing in it posts. "
+            'Set it to Active on the campaign page first.')
     worked = await mission_drops(str(guild.id), mission,
                                  is_test=bool(campaign and campaign['is_test']))
     drop = next(d for d in worked['drops'] if d['key'] == kind)

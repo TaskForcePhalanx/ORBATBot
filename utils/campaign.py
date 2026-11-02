@@ -1421,7 +1421,26 @@ def clean_campaign(form) -> dict:
             'status': status}
 
 
-CAMPAIGN_STATUSES = ('active', 'complete', 'archived')
+CAMPAIGN_STATUSES = ('draft', 'active', 'complete', 'archived')
+
+# A campaign in one of these **posts nothing**, and its drops cannot be
+# approved: `draft` is still being written, `archived` is finished with. They
+# are listed together because the posting loop, the approval routes and the
+# per-mission guard all need the same answer, and each of them used to name
+# `'archived'` by hand — four copies of a rule that decides whether something
+# reaches a public channel.
+SILENT_STATUSES = ('draft', 'archived')
+
+
+def posts_drops(status) -> bool:
+    """Whether a campaign in this status may post, edit or approve a drop.
+
+    The one place that decides it. The two SQL queries that pick missions for
+    the loop cannot call this, so they take `SILENT_STATUSES` as a parameter
+    from their caller rather than spelling the statuses again — a second copy
+    in SQL is the kind that drifts silently and ends with a draft posting.
+    """
+    return status not in SILENT_STATUSES
 
 # How long after an op the bot keeps looking for its recording
 # (`cogs/campaigns.LOOK_BACK_DAYS`). A mission with no recording by then counts
