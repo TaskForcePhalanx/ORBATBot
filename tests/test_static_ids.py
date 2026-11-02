@@ -217,3 +217,58 @@ def test_a_reader_still_gets_pointer_handlers_of_their_own():
     for event in ('pointerdown', 'pointermove', 'pointerup', 'pointercancel'):
         assert f"addEventListener('{event}'" in reader, (
             f'the read-only branch no longer handles {event}')
+
+
+# ---------------------------------------------------------------------------
+# The selection ring measures the artwork, not the click target
+# ---------------------------------------------------------------------------
+
+def test_the_artwork_and_the_hit_shape_stay_in_separate_groups():
+    """What the selection ring is sized from.
+
+    An item is drawn as `.tm-paint` (the symbol) beside an invisible, roomy
+    hit shape that keeps small things grabbable. They used to be siblings in
+    one group, and the ring was sized from `getBBox()` of both — so it
+    outlined the click target rather than the symbol. Measured in Chromium on
+    a labelled marker, that was a ring of 128.5 x 53.6 around artwork of
+    104.5 x 17.7: the hit circle alone was 41.6 tall.
+
+    Put them back in one group and nothing fails — the ring just quietly
+    inflates again, which is how it shipped.
+    """
+    js = (ROOT / 'web' / 'static' / 'tacmap.js').read_text(encoding='utf-8')
+    # Both the full redraw and the narrow one build the pair.
+    assert js.count('class="tm-paint"') >= 2, (
+        'an item is no longer drawn with its artwork in its own group')
+    assert "querySelector('.tm-paint')" in js, (
+        'the selection ring no longer measures the artwork'
+    )
+
+
+def test_the_ring_is_a_hairline_whatever_the_zoom():
+    """Its width and dashes are in document units, so without this the ring
+    grew heavier the further you zoomed in — a thick fence around a small
+    marker, which is the other half of the same complaint."""
+    css = (ROOT / 'web' / 'static' / 'style.css').read_text(encoding='utf-8')
+    ring = css[css.index('.tm-ring {'):]
+    ring = ring[:ring.index('}')]
+    assert 'vector-effect' in ring and 'non-scaling-stroke' in ring, (
+        '.tm-ring no longer pins its stroke to the screen')
+
+
+def test_a_click_picks_the_smallest_thing_under_it():
+    """The hit shapes are generous on purpose, so on a dense plan two overlap
+    and paint order decides which you got. `itemAt()` is what makes that a
+    rule instead of an accident."""
+    js = (ROOT / 'web' / 'static' / 'tacmap.js').read_text(encoding='utf-8')
+    assert 'function itemAt(' in js
+    # Sliced to the function body: checking the whole file for
+    # `elementsFromPoint` passes on the feature guard alone, so gutting the
+    # call itself went unnoticed — which a mutation caught.
+    body = js[js.index('function itemAt('):]
+    body = body[:body.index('\n  function ', 1)]
+    assert body.count('elementsFromPoint') >= 2, (
+        'itemAt no longer looks past the topmost item')
+    assert 'getBBox()' in body and 'smallest' in body, (
+        'itemAt no longer compares the candidates by size')
+    assert "closest('.tm-item')" in body

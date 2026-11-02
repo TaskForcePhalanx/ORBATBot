@@ -1459,6 +1459,28 @@ def mission_over(mission: dict, today: date) -> bool:
                 or today - day > RECORDING_WAIT)
 
 
+def objective_names(rows) -> list[str]:
+    """The library's objective names, for offering as labels on a map.
+
+    Objectives only — a complication is something that happens *to* a mission
+    rather than a thing on the ground, so it is not a label for a marker. Names
+    are deduped case-insensitively because a library edited by hand grows near
+    duplicates, and the first spelling wins so the list reads in library order
+    rather than alphabetically: the order is the planner's own grouping.
+    """
+    seen = set()
+    names = []
+    for row in rows:
+        if (row.get('kind') or 'objective') != 'objective':
+            continue
+        name = (row.get('name') or '').strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        names.append(name)
+    return names
+
+
 def campaign_finished(campaign: dict, missions: list[dict], today: date) -> bool:
     """Whether the bot may mark a campaign Complete by itself: it is active,
     nobody has settled that already (`auto_completed_at`: the bot closed it

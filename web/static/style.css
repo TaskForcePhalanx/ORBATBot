@@ -844,8 +844,12 @@ svg.tacmap.tm-drawing { cursor: crosshair; }
 .tm-ring {
   fill: none;
   stroke: #ffffff;
-  stroke-width: 2;
-  stroke-dasharray: 7 5;
+  /* Pinned to the screen, not the sheet. Without this the width and the dashes
+     are in document units, so the ring grew heavier the further you zoomed in —
+     a thick white fence around a small marker. */
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
   pointer-events: none;
 }
 /* A selected shape's handles: corners resize, the round one turns it. */
