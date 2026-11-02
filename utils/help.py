@@ -865,9 +865,10 @@ _MAPS: tuple[Topic, ...] = (
             'freehand. The Line and Area tools do the same without Ctrl; double-click '
             'or press **Enter** to finish. **Shift** keeps a segment straight and '
             'snaps it to 15°.',
-            'Pick a line’s style (solid, dashed or dotted), its thickness (1 to 6 '
-            'pixels — it stays that thin at every zoom) and its arrow heads (end, '
-            'start or both) in the toolbar or the inspector.',
+            'Pick a line’s style (solid, dashed or dotted) and its arrow heads '
+            '(end, start or both) in the toolbar or the inspector. There is no '
+            'thickness to choose: Arma draws every line at one width, so a '
+            'thickness picked here would only ever have been true of the website.',
             'The **Phase line** tool draws a line named at both ends — type the '
             'name after the *PL* it starts with. Any line can be named in the '
             'middle, at the end or at both ends from the inspector.',
@@ -1114,7 +1115,7 @@ _MAPS: tuple[Topic, ...] = (
             'Arma cannot draw a cover with holes in it from a pasted script.',
             'Arma has no dashed line and draws every line at one width, so a '
             'dashed or dotted line arrives as its dashes — one short line marker '
-            'each, at most 150 per line — and thickness stays on the website. '
+            'each. '
             'Arrow heads arrive as Arma arrow markers at whichever ends have one.',
             'A line’s name arrives as text alone at the same place — the middle, '
             'or both ends of a phase line — on an invisible marker, because a line '

@@ -2449,20 +2449,10 @@
   var styleOptions = catalog.lineStyles.map(function (key) {
     return { value: key, label: catalog.lineStyleLabels[key] || key };
   });
-  var weightOptions = catalog.lineWeights.map(function (value) {
-    return { value: String(value), label: value + ' px' };
-  });
   var stylePick = document.getElementById('tmstyle');
   if (stylePick) {
     fillOptions(stylePick, styleOptions, state.style);
     stylePick.addEventListener('change', function () { state.style = stylePick.value; });
-  }
-  var weightPick = document.getElementById('tmweight');
-  if (weightPick) {
-    fillOptions(weightPick, weightOptions, String(state.weight));
-    weightPick.addEventListener('change', function () {
-      state.weight = Number(weightPick.value) || catalog.defaultWeight;
-    });
   }
 
   /* -- the inspector -------------------------------------------------------- */
@@ -2479,7 +2469,6 @@
     size: document.getElementById('tmf-size'),
     style: document.getElementById('tmf-style'),
     arrow: document.getElementById('tmf-arrow'),
-    weight: document.getElementById('tmf-weight'),
     labelAt: document.getElementById('tmf-labelat'),
     layer: document.getElementById('tmf-layer'),
     color: document.getElementById('tmf-color'),
@@ -2495,7 +2484,6 @@
   }), catalog.defaultFill);
   fillOptions(fields.side, sideOptions, state.side);
   fillOptions(fields.style, styleOptions, 'solid');
-  fillOptions(fields.weight, weightOptions, String(catalog.defaultWeight));
   fillOptions(fields.arrow, catalog.arrows.map(function (entry) {
     return { value: entry.key, label: entry.label };
   }), '');
@@ -2529,13 +2517,6 @@
     fields.size.value = item.size;
     fields.style.value = item.style || 'solid';
     fields.arrow.value = item.arrow === true ? 'end' : (item.arrow || '');
-    var weight = String(weightOf(item));
-    // A weight off the list (a hand-made document) still shows what it is.
-    if (!fields.weight.querySelector('option[value="' + weight + '"]')) {
-      fields.weight.insertAdjacentHTML('beforeend',
-        '<option value="' + weight + '">' + weight + ' px</option>');
-    }
-    fields.weight.value = weight;
     fields.labelAt.value = item.label_at || 'middle';
     fields.layer.value = item.layer;
     fields.color.value = item.color || colours[item.side].fill;
@@ -2624,7 +2605,6 @@
   editField(fields.size, function (item) { item.size = Number(fields.size.value); });
   editField(fields.style, function (item) { item.style = fields.style.value; });
   editField(fields.arrow, function (item) { item.arrow = fields.arrow.value; });
-  editField(fields.weight, function (item) { item.weight = Number(fields.weight.value); });
   editField(fields.labelAt, function (item) { item.label_at = fields.labelAt.value; });
   editField(fields.layer, function (item) { item.layer = fields.layer.value; });
   editField(fields.color, function (item) { item.color = fields.color.value; });
