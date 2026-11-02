@@ -820,6 +820,28 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   corner being placed or dragged on the nearest corner, shape corner or
   centre, or symbol within 12 screen pixels, and closes a line on its own
   first corner.
+- **The selection ring measures the artwork, not the click target.** An item
+  is drawn as `.tm-paint` (the symbol) beside an invisible, roomy hit shape
+  that keeps small things grabbable. Those used to be siblings in one group and
+  the ring was sized from `getBBox()` of both, so it outlined what you could
+  *click* rather than what you could see — measured in Chromium on a labelled
+  marker, a ring of 128.5 × 53.6 around artwork of 104.5 × 17.7, because the
+  hit circle alone is 41.6 tall. Separating them takes the ring to 29% of its
+  old area. Put them back in one group and nothing fails; the ring just
+  quietly inflates again, which is how it shipped.
+  - The ring's stroke carries `vector-effect: non-scaling-stroke`. Its width
+    and dashes are in document units, so without it the ring grew heavier the
+    further you zoomed in.
+  - The ring still spans an item's **label**, which is part of the artwork
+    rather than padding — a named marker therefore gets a wide, shallow ring.
+- **A click picks the smallest thing under it** (`itemAt()`). The browser hands
+  back whatever is topmost in paint order, and the hit shapes are deliberately
+  generous — so on a dense town plan two of them overlap and draw order
+  silently decides which item you got. `elementsFromPoint()` gives every
+  candidate and the smallest `.tm-paint` wins, so a marker sitting on an area
+  selects the marker. Sizes are compared on the artwork for the same reason the
+  ring is: comparing hit shapes would compare the generosity rather than the
+  symbols.
 - **Several selected** is `state.selected` (the last picked) plus
   `state.extra`; `selection()` is the list. Shift+click toggles, Shift+drag on
   empty ground boxes (wholly inside: every corner of a line), Ctrl+A takes

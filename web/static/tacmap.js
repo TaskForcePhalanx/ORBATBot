@@ -716,7 +716,13 @@
     maskLayer.innerHTML = maskSVG();
     layer.innerHTML = drawOrder().map(function (index) {
       var item = state.doc.items[index];
-      return '<g class="tm-item" data-i="' + index + '">' + itemSVG(item) + hitSVG(item) + '</g>';
+      // The artwork and the hit shape are separate groups on purpose: the
+      // selection ring measures `.tm-paint`, so it outlines what you can see
+      // rather than what you can click. They used to be siblings in one group
+      // and the ring was sized from `getBBox()` of both, which drew it around
+      // the invisible hit disc — a tiny marker in a box the size of a house.
+      return '<g class="tm-item" data-i="' + index + '"><g class="tm-paint">' +
+        itemSVG(item) + '</g>' + hitSVG(item) + '</g>';
     }).join('');
     back.innerHTML = backgroundSVG() + gridSVG() + placesSVG();
     overlay.innerHTML = draftSVG();
@@ -737,11 +743,44 @@
   // is a narrower redraw rather than a transform on the group: a transform
   // would move the picture without moving the plan, and the mask's holes, the
   // rings and `getBBox()` would all then be reading stale geometry.
+  // Which item a click lands on.
+  //
+  // The browser hands back whatever is topmost in paint order, and the hit
+  // shapes above are deliberately generous so small things stay grabbable — so
+  // on a dense town plan two of them overlap and **draw order silently
+  // decides** which one you got. Smallest visible thing wins instead: a marker
+  // sitting on an area selects the marker, which is what you were pointing at.
+  //
+  // Measured on `.tm-paint`, the artwork, for the same reason the ring is:
+  // comparing hit shapes would compare the generosity rather than the symbols.
+  function itemAt(event) {
+    var direct = event.target.closest ? event.target.closest('.tm-item') : null;
+    if (!document.elementsFromPoint) return direct;
+    var under = document.elementsFromPoint(event.clientX, event.clientY);
+    var best = null;
+    var smallest = Infinity;
+    for (var i = 0; i < under.length; i++) {
+      var group = under[i].closest ? under[i].closest('.tm-item') : null;
+      if (!group || !layer.contains(group)) continue;
+      var paint = group.querySelector('.tm-paint') || group;
+      var box = paint.getBBox();
+      var area = Math.max(box.width, 1) * Math.max(box.height, 1);
+      if (area < smallest) {
+        smallest = area;
+        best = group;
+      }
+    }
+    return best || direct;
+  }
+
+
   function redrawItems(indices) {
     indices.forEach(function (index) {
       var group = layer.querySelector('[data-i="' + index + '"]');
       var item = state.doc.items[index];
-      if (group && item) group.innerHTML = itemSVG(item) + hitSVG(item);
+      if (group && item) {
+        group.innerHTML = '<g class="tm-paint">' + itemSVG(item) + '</g>' + hitSVG(item);
+      }
     });
     // An AO that moves takes its hole in the grey cover with it. The cover is
     // one rect and a path per AO, so this is cheap beside the item layer.
@@ -770,13 +809,20 @@
     picked.forEach(function (index) {
       var group = layer.querySelector('[data-i="' + index + '"]');
       if (!group) return;
-      var box = group.getBBox();
+      // `.tm-paint` is the artwork alone. Falling back to the group keeps a
+      // ring on screen if the structure ever changes, rather than throwing
+      // inside a redraw.
+      var paint = group.querySelector('.tm-paint') || group;
+      var box = paint.getBBox();
       var ring = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       ring.setAttribute('class', 'tm-ring');
-      ring.setAttribute('x', box.x - 6);
-      ring.setAttribute('y', box.y - 6);
-      ring.setAttribute('width', box.width + 12);
-      ring.setAttribute('height', box.height + 12);
+      // A hair of room so the ring sits beside the artwork rather than on it,
+      // scaled to the view so it stays a constant gap at any zoom.
+      var pad = view.w / 300;
+      ring.setAttribute('x', box.x - pad);
+      ring.setAttribute('y', box.y - pad);
+      ring.setAttribute('width', box.width + pad * 2);
+      ring.setAttribute('height', box.height + pad * 2);
       overlay.appendChild(ring);
     });
     // Handles only for one thing at a time — several are moved as a group.
@@ -1642,7 +1688,7 @@
       if (state.pinch) return;
     }
     var point = at(event);
-    var group = event.target.closest ? event.target.closest('.tm-item') : null;
+    var group = itemAt(event);
 
     // Dragging is the only way to draw a line, and it is the gesture Arma's
     // own map uses. Ctrl does it from any tool — including Select, so you
