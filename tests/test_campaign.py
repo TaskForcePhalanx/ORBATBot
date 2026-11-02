@@ -985,3 +985,124 @@ def test_each_step_says_how_long_it_has_left():
     assert cp.days_left_label(-1) == '1 day overdue'
     assert cp.days_left_label(-3) == '3 days overdue'
     assert cp.days_left_label(-3, locked=True) == 'Locked'
+
+
+# ---------------------------------------------------------------------------
+# Drafts: a campaign being written, and a mission with no date yet
+# ---------------------------------------------------------------------------
+
+def test_a_draft_and_an_archived_campaign_both_post_nothing():
+    """One rule, four statuses. Before `posts_drops()` existed, four places
+    named `'archived'` by hand — the loop, the per-mission guard, the approval
+    route and a SQL filter — which is four copies of a rule deciding whether
+    something reaches a public channel."""
+    assert not cp.posts_drops('draft')
+    assert not cp.posts_drops('archived')
+    assert cp.posts_drops('active')
+    assert cp.posts_drops('complete')
+
+
+def test_the_silent_statuses_are_exactly_the_ones_that_post_nothing():
+    """`SILENT_STATUSES` is handed to SQL, which cannot call `posts_drops()`.
+    If the two ever disagree, the queries and the guards disagree."""
+    silent = {s for s in cp.CAMPAIGN_STATUSES if not cp.posts_drops(s)}
+    assert silent == set(cp.SILENT_STATUSES)
+    assert set(cp.SILENT_STATUSES) <= set(cp.CAMPAIGN_STATUSES)
+
+
+def test_draft_is_a_status_a_campaign_may_be_saved_with():
+    assert 'draft' in cp.CAMPAIGN_STATUSES
+    assert cp.clean_campaign({'name': 'X', 'status': 'draft'})['status'] == 'draft'
+
+
+def test_a_mission_with_no_date_has_no_schedule_at_all():
+    """Not an empty schedule with gaps — nothing. There are no drop dates to
+    work out from a date that is not there, so there is nothing to fall due,
+    nothing to hold and nothing to approve."""
+    assert cp.schedule({'op_date': None, 'fields': {}},
+                          {'drop_weekday': 2}, date(2026, 11, 2)) == []
+
+
+def test_a_mission_with_no_date_is_never_over():
+    """Which is what stops a campaign holding one from closing itself."""
+    assert not cp.mission_over({'op_date': None}, date(2026, 11, 2))
+
+
+def test_one_undated_mission_keeps_a_campaign_open():
+    """The safe direction, and worth pinning: a campaign being built in
+    parallel with a live one must not quietly mark itself Complete because the
+    missions that *do* have dates are all played."""
+    today = date(2026, 11, 2)
+    played = {'op_date': date(2026, 9, 1), 'ocap_manual': True}
+    campaign = {'status': 'active', 'planned_missions': 2, 'auto_completed_at': None}
+    assert cp.campaign_finished(campaign, [played, dict(played)], today)
+    assert not cp.campaign_finished(campaign, [played, {'op_date': None}], today)
+
+
+def test_a_draft_campaign_never_closes_itself():
+    campaign = {'status': 'draft', 'planned_missions': 1, 'auto_completed_at': None}
+    played = {'op_date': date(2026, 9, 1), 'ocap_manual': True}
+    assert not cp.campaign_finished(campaign, [played], date(2026, 11, 2))
+
+
+def test_an_undated_mission_raises_nothing_anywhere_it_is_read():
+    """The checks are what the mission page runs on every render, so an
+    undated mission has to be an ordinary state rather than one that throws."""
+    mission = {'id': 1, 'name': 'Draft', 'op_date': None, 'fields': {}}
+    assert cp.checks(mission) == [] or all(
+        c['level'] in ('warn', 'crit') for c in cp.checks(mission))
+    assert cp.date_label(None) is not None
+
+
+# ---------------------------------------------------------------------------
+# The half of the draft rule that lives in SQL
+# ---------------------------------------------------------------------------
+#
+# `utils/campaign.py` is pure, so the rest of this file calls it. These two
+# read source instead, because what keeps an undated mission out of the
+# posting loop is a property of two SQL queries and nothing else: `NULL
+# BETWEEN` is never true, so a mission with no `op_date` is not selected,
+# never posted, and never pinged about. That is load-bearing and was
+# accidental — it held for a year with nothing naming it.
+
+import pathlib
+import re
+
+_LOOP_QUERIES = ('cp_missions_near', 'cp_missions_awaiting_recording')
+
+
+def _query_source(name):
+    source = (pathlib.Path(__file__).resolve().parent.parent
+              / 'utils' / 'database' / 'campaigns.py').read_text(encoding='utf-8')
+    start = source.index(f'async def {name}(')
+    rest = source[start + 1:]
+    nxt = re.search(r'\nasync def ', rest)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def test_the_loop_only_ever_sees_missions_that_have_a_date():
+    """Widen either of these to include undated missions — `OR op_date IS
+    NULL`, a `COALESCE` to make the sort tidy — and every half-written
+    mission in every draft becomes due at once, in a public channel."""
+    for name in _LOOP_QUERIES:
+        sql = _query_source(name)
+        assert 'op_date BETWEEN' in sql, f'{name} no longer bounds op_date'
+        # Scoped to op_date on purpose: one of these legitimately asks
+        # `ocap_id IS NULL` for "nobody has chosen a recording yet", and a
+        # blanket ban on IS NULL fails on that instead of on the real thing.
+        assert not re.search(r'op_date\s+IS\s+NULL', sql, re.I), (
+            f'{name} now admits an undated mission')
+        assert not re.search(r'COALESCE\s*\(\s*\w*\.?op_date', sql, re.I), (
+            f'{name} now substitutes for a missing date')
+
+
+def test_the_loop_takes_the_silent_statuses_rather_than_naming_one():
+    """`posts_drops()` is the rule and SQL cannot call it, so the statuses are
+    passed in. A literal here would be a second copy of the rule, and the kind
+    that drifts without anything failing."""
+    for name in _LOOP_QUERIES:
+        sql = _query_source(name)
+        assert 'ALL($' in sql, f'{name} does not take the statuses as a parameter'
+        for status in cp.CAMPAIGN_STATUSES:
+            assert f"'{status}'" not in sql, (
+                f'{name} names {status!r} instead of taking SILENT_STATUSES')

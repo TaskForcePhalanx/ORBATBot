@@ -57,6 +57,48 @@ and the bot's own posting can never disagree. In particular:
 - **Private fields** (`Field.private`, e.g. *Held back for Zeus*) are never read
   by `build_post()` or the checks.
 
+### Drafts, and a mission with no date
+
+A campaign can be built before anybody decides when it runs, so several can be
+written side by side and moved into the schedule when they are ready. Two
+independent things make that safe, and they are worth keeping apart because
+only one of them is new.
+
+**`draft` is a campaign status** (`CAMPAIGN_STATUSES`), and a new campaign
+starts as one — it has no missions yet, so there is nothing it could usefully
+post. A draft posts nothing and **no drop in one can be approved**, whatever
+dates its missions carry. That last clause is the reason a status exists at
+all rather than relying on dates alone: one finished mission inside a
+half-written campaign would otherwise reach the channel on its own schedule.
+Set it to **Active** on the campaign page to put it in the pipeline.
+
+`posts_drops(status)` is the only place that decides this. Four places used to
+name `'archived'` by hand — the posting loop's query, the recording matcher's
+query, `process_mission_id()` and the approval route — which was four copies of
+a rule about whether something reaches a public channel. `SILENT_STATUSES`
+(`draft`, `archived`) is what the two SQL queries take **as a parameter**,
+since SQL cannot call the function and a status spelled in SQL is the copy that
+drifts without anything failing.
+
+**A mission's `op_date` has always been nullable**, and an undated mission was
+already a safe draft before any of this — but by accident, and nothing said so:
+
+- `schedule()` returns `[]`, so there are no drop dates, nothing to fall due,
+  nothing to hold and nothing to approve.
+- `mission_over()` is False, so `campaign_finished()` is False: **a campaign
+  holding an undated mission never closes itself.** A campaign being written
+  alongside a live one cannot quietly mark itself Complete.
+- `cp_missions_near()` and `cp_missions_awaiting_recording()` both bound
+  `op_date BETWEEN`, and **`NULL BETWEEN` is never true** — so an undated
+  mission is not selected, not posted and not pinged about.
+
+That last one is the fragile one. It is a property of two SQL queries and
+nothing else, so widening either of them — `OR op_date IS NULL`, a `COALESCE`
+to tidy the sort — would make every half-written mission in every draft fall
+due at once, in public. `tests/test_campaign.py` reads those two queries and
+pins it, which is why a source-reading test sits in a file that is otherwise
+about a pure module.
+
 ### The pages
 
 | Page | |

@@ -43,7 +43,7 @@
   lock a step, and the drop it feeds goes out a few days later.
 </p>
 
-{% set tests = (campaigns + archived)|selectattr('is_test')|list %}
+{% set tests = (drafts + campaigns + archived)|selectattr('is_test')|list %}
 {% if tests %}
   <form class="cptestbar" method="post" action="/g/{{ guild.id }}/campaigns/delete-tests"
         onsubmit="return confirm('Delete every test campaign, with all their missions and images?')">
@@ -53,12 +53,24 @@
   </form>
 {% endif %}
 
+{% if drafts %}
+  <h2>In planning <span class="note">({{ drafts|length }})</span></h2>
+  <p class="hint">Nothing in a draft posts and no drop in one can be approved,
+    whatever dates its missions carry. Set a campaign to <strong>Active</strong>
+    on its own page to put it into the schedule.</p>
+  <div class="cards">
+    {% for c in drafts %}{{ campaign_card(c) }}{% endfor %}
+  </div>
+{% endif %}
+
 {% if campaigns %}
   <div class="cards">
     {% for c in campaigns %}{{ campaign_card(c) }}{% endfor %}
   </div>
 {% else %}
-  <p class="empty">No campaigns yet. Start the first one below.</p>
+  <p class="empty">{% if drafts %}Nothing in the schedule yet — the drafts above
+    post nothing until one is set to Active.{% else %}No campaigns yet. Start the
+    first one below.{% endif %}</p>
 {% endif %}
 
 {% if archived %}
@@ -92,7 +104,10 @@
       <span>Missions planned</span>
       <input type="number" name="planned_missions" min="1" max="8" value="4">
     </label>
-    <input type="hidden" name="status" value="active">
+    {# A new campaign starts as a draft: it has no missions yet, so there is
+       nothing it could usefully post, and this is what lets several be built
+       side by side. Promote it on the campaign page when it is ready. #}
+    <input type="hidden" name="status" value="draft">
   </div>
   <label class="check">
     <input type="checkbox" name="is_test" value="1">
