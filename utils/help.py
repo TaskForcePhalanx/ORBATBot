@@ -882,6 +882,10 @@ _MAPS: tuple[Topic, ...] = (
             'Scroll to zoom and drag the background to pan. On a tablet or a '
             'phone, **pinch** to zoom — the same two fingers pan at the same '
             'time, so you can frame a compound in one gesture.',
+            'The **Label** box suggests your unit\'s objectives — SEIZE, CLEAR, '
+            'DESTROY and the rest of the Objectives library — so an objective '
+            'marker can be named by picking one. Typing your own name still '
+            'works: the list is a suggestion, not a menu.',
             'The **arrow keys** nudge whatever is selected, and **Shift** with an '
             'arrow moves it ten times as far, for lining a symbol up by eye. '
             '**Undo** and **Redo** sit next to Save: **Ctrl**+**Z** steps back, '

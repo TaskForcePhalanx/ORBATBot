@@ -100,8 +100,18 @@
         <div class="tmpanel" id="tminspector" hidden>
           <h3>Selected</h3>
           <p class="tmmeasure" id="tmf-measure" hidden></p>
+          {# A datalist, not a select: the browser offers the library's
+             objectives and still accepts anything typed, which is both halves
+             of what was asked for and needs no JavaScript to do it. Absent on
+             a shared map, where nothing is labelled. #}
           <label class="field"><span>Label</span>
-            <input id="tmf-label" maxlength="48"></label>
+            <input id="tmf-label" maxlength="48"
+                   {% if objectives %}list="tmobjectives"{% endif %}></label>
+          {% if objectives %}
+            <datalist id="tmobjectives">
+              {% for name in objectives %}<option value="{{ name }}"></option>{% endfor %}
+            </datalist>
+          {% endif %}
           <label class="field" data-for="unit point line area shape"><span>Note</span>
             <textarea id="tmf-note" rows="2" maxlength="240"></textarea></label>
           <label class="field"><span>Layer</span>

@@ -6,6 +6,7 @@ import json
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from utils import campaign as campaign_rules
 from utils import database
 from utils import tacmap as tacmap_lib
 from web import (
@@ -90,6 +91,11 @@ def register(app, d):
             'svg': tacmap_lib.render(doc, places=places, marker_images=icons),
             'icon_keys_json': tacmap_lib.json_payload(sorted(icons)),
             'places_json': tacmap_lib.json_payload(places),
+            # Offered as label suggestions on the inspector's Label field. The
+            # editor only: a reader names nothing, so the view route sends none
+            # and the template draws no list.
+            'objectives': campaign_rules.objective_names(
+                await database.list_cp_objectives(str(context['guild'].id))),
             'places_sqf': tacmap_lib.places_sqf(),
             'summary': tacmap_lib.summarise(doc),
             'editable': context['may_draw'],

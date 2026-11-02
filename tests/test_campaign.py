@@ -1106,3 +1106,54 @@ def test_the_loop_takes_the_silent_statuses_rather_than_naming_one():
         for status in cp.CAMPAIGN_STATUSES:
             assert f"'{status}'" not in sql, (
                 f'{name} names {status!r} instead of taking SILENT_STATUSES')
+
+
+# ---------------------------------------------------------------------------
+# The library's objectives, offered as map labels
+# ---------------------------------------------------------------------------
+
+def _lib(*rows):
+    return [{'kind': k, 'name': n} for k, n in rows]
+
+
+def test_only_objectives_are_offered_as_labels():
+    """A complication happens *to* a mission rather than sitting on the
+    ground, so it is not a label for a marker."""
+    rows = _lib(('objective', 'SEIZE'), ('complication', 'Counter-attack'),
+                ('objective', 'CLEAR'))
+    assert cp.objective_names(rows) == ['SEIZE', 'CLEAR']
+
+
+def test_a_row_with_no_kind_counts_as_an_objective():
+    """The column defaults to 'objective' in the schema, so a row read from
+    somewhere that leaves it out should not vanish."""
+    assert cp.objective_names([{'name': 'SEIZE'}]) == ['SEIZE']
+
+
+def test_library_order_is_kept_rather_than_sorted():
+    """The order is the planner's own grouping — Offensive, then Defensive and
+    so on — which is more use than the alphabet when picking one."""
+    rows = _lib(('objective', 'SEIZE'), ('objective', 'AMBUSH'),
+                ('objective', 'CLEAR'))
+    assert cp.objective_names(rows) == ['SEIZE', 'AMBUSH', 'CLEAR']
+
+
+def test_near_duplicates_are_folded_and_the_first_spelling_wins():
+    """A library edited by hand grows them."""
+    rows = _lib(('objective', 'SEIZE'), ('objective', 'seize'),
+                ('objective', ' Seize '))
+    assert cp.objective_names(rows) == ['SEIZE']
+
+
+def test_blank_and_whitespace_names_are_dropped():
+    rows = _lib(('objective', ''), ('objective', '   '), ('objective', 'CLEAR'))
+    assert cp.objective_names(rows) == ['CLEAR']
+
+
+def test_names_are_trimmed():
+    assert cp.objective_names(_lib(('objective', '  DESTROY  '))) == ['DESTROY']
+
+
+def test_an_empty_library_offers_nothing():
+    """Which is what makes the template draw no list at all."""
+    assert cp.objective_names([]) == []

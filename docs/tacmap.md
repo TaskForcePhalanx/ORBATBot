@@ -820,6 +820,23 @@ grid references, label places) has a Python twin in `utils/tacmap.py`.
   corner being placed or dragged on the nearest corner, shape corner or
   centre, or symbol within 12 screen pixels, and closes a line on its own
   first corner.
+- **The Label field offers the guild's objectives** (`campaign.objective_names()`,
+  passed to the edit page as `objectives`). It is a `<datalist>` rather than a
+  select, which is both halves of the ask in one control: the browser offers
+  SEIZE, CLEAR, DESTROY and the rest, and still accepts anything typed. **No
+  JavaScript was added for it** — the browser does the whole thing, so this is
+  not a third exception to the no-script rule.
+  - Complications are left out: one happens *to* a mission rather than sitting
+    on the ground, so it is not a label for a marker.
+  - Library order is kept rather than sorted, because that order is the
+    planner's own grouping. Near-duplicate names are folded case-insensitively
+    and the first spelling wins — a library edited by hand grows them.
+  - The share page sends no `objectives`, so the template draws no list there:
+    a reader labels nothing.
+  - It is offered on **any** item's label, not only markers. Scoping it to one
+    kind would need script, and a suggestion list costs nothing to ignore.
+  - An objective marker needs no new artwork: `mil_objective` and
+    `hd_objective` are already in the marker list.
 - **The selection ring measures the artwork, not the click target.** An item
   is drawn as `.tm-paint` (the symbol) beside an invisible, roomy hit shape
   that keeps small things grabbable. Those used to be siblings in one group and
