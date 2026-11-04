@@ -383,12 +383,15 @@ none of them should have to reach sideways for it.
   redeploy**. The stack once had a `COMPOSE_PROFILES` switch to keep the bot off
   while the database was filled; Portainer did not apply it (the stack came up
   with no bot container), so the profile was removed.
-- **Updates:** `deploy.yml`'s `portainer` job builds the image, pushes it to
-  `ghcr.io/<owner>/orbatbot` and POSTs the stack's webhook. It does nothing until
-  the secret `PORTAINER_WEBHOOK` exists; until then, update by hand with *Pull
-  and redeploy* (the bot is built from the repo while `BOT_IMAGE` is empty). When
-  using the webhook, set `BOT_IMAGE=ghcr.io/<owner>/orbatbot:latest` on the stack
-  and enable image re-pull on the webhook.
+- **Updates:** the stack is a Git stack (`docker-compose.portainer.yml`,
+  `build: .`). *GitOps updates* → *Webhook* in Portainer gives a URL; stored as
+  the GitHub secret `PORTAINER_WEBHOOK`, it is what `deploy.yml`'s `portainer`
+  job POSTs after green tests on `main`. The job does nothing until the secret
+  exists, and the workflow itself must be enabled on GitHub (Actions → Test and
+  deploy). The redeploy rebuilds from the Git checkout; the GHCR image the job
+  also pushes is not what the stack runs (the compose file has no `image:` for
+  the bot), and Portainer CE locks *Re-pull image* and *Force redeployment*.
+  Without the secret, update by hand with *Pull and redeploy*.
 - **Restarts:** `restart: unless-stopped` relaunches the bot after a crash or
   `/restart`, and, unlike Railway's `restartPolicyMaxRetries`, never gives up.
 - **Moving the database** (what the cutover did): stop the old bot first, then
