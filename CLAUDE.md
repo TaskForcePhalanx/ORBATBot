@@ -388,9 +388,9 @@ none of them should have to reach sideways for it.
   the GitHub secret `PORTAINER_WEBHOOK`, it is what `deploy.yml`'s `portainer`
   job POSTs after green tests on `main`. The job does nothing until the secret
   exists, and the workflow itself must be enabled on GitHub (Actions → Test and
-  deploy). The redeploy rebuilds from the Git checkout; the GHCR image the job
-  also pushes is not what the stack runs (the compose file has no `image:` for
-  the bot), and Portainer CE locks *Re-pull image* and *Force redeployment*.
+  deploy). The redeploy rebuilds from the Git checkout; nothing is built or
+  pushed to GHCR (the compose file has no `image:` for the bot), and Portainer
+  CE locks *Re-pull image* and *Force redeployment*.
   Without the secret, update by hand with *Pull and redeploy*.
 - **Restarts:** `restart: unless-stopped` relaunches the bot after a crash or
   `/restart`, and, unlike Railway's `restartPolicyMaxRetries`, never gives up.
