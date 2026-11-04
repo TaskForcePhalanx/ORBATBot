@@ -112,6 +112,7 @@ from .events import (  # noqa: F401
     get_upcoming_events,
     delete_event,
     get_guild_events,
+    get_events_between,
     get_live_events,
     set_event_signup,
     remove_event_signup,
