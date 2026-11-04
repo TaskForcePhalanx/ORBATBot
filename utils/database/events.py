@@ -176,6 +176,19 @@ async def get_guild_events(guild_id: str, limit: int = 25) -> list:
         )
 
 
+async def get_events_between(guild_id: str, start, end) -> list:
+    """Scheduled, completed and cancelled events whose time falls in
+    [start, end) — naive UTC, like the column. The calendar's one query."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetch(
+            '''SELECT * FROM events
+               WHERE guild_id = $1 AND event_time >= $2 AND event_time < $3
+               ORDER BY event_time''',
+            guild_id, start, end,
+        )
+
+
 async def get_live_events() -> list:
     """Every event whose message still needs working buttons — used to restore
     persistent views after a restart."""

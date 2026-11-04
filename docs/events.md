@@ -5,7 +5,7 @@
 
 Apollo-style standalone events. **Deliberately independent of the slot/ORBAT system** — no Google Sheet, no `operations` row, no `requests`. An event is a message with Accept / Tentative / Decline buttons and a live attendee list.
 
-Staged build toward Apollo parity. Done: sign-ups, reminders, editing, cancelling, auto close-out, **recurring events**, **custom responses**. Still to come: **sign-up roles with per-role caps**, then waitlist, templates and a calendar view.
+Staged build toward Apollo parity. Done: sign-ups, reminders, editing, cancelling, auto close-out, **recurring events**, **custom responses**. Still to come: **sign-up roles with per-role caps**, then waitlist and templates. The **calendar view** is done, see [the calendar](#the-calendar-utilseventcalpy).
 
 ### Commands
 
@@ -110,6 +110,17 @@ If the next occurrence can't be posted (channel gone, `Forbidden`), the freshly 
 `cog_unload()` cancels the loop; verified not to leak past unload.
 
 **Both stages catch per-item.** `discord.ext.tasks` stops a loop permanently on an unhandled exception — it logs and never runs again — so one transient failure (a database blip during a redeploy, say) would silently kill every reminder and close-out until the next restart. Each item is therefore wrapped individually, and the two fetch queries separately, so a single bad event can't take the tick down. `bot.py`'s `reminder_task` does the same, which is why its body lives in `_send_operation_reminder()`. **Anything added to either loop needs the same treatment.**
+
+### The calendar (`utils/eventcal.py`)
+
+`/g/<guild>/calendar?month=YYYY-MM&span=1|2` shows one or two months, Monday-first, in whole weeks. It is a **view over what exists**, not a second source of truth: Discord keeps exactly one live event per series, and nothing here changes when or what the bot posts.
+
+- Real events (any status) link to their page, where they are edited as before.
+- The later dates of a *scheduled* recurring event are **previewed** from `project_series()`, which walks `nth_occurrence()` from the anchor exactly as the hand-over does and honours `recurrence_until`. They are dashed and have no link, because no row exists until the previous occurrence ends. Editing a series happens on the live event.
+- Days are placed in the guild's timezone; the query fetches a day either side of the grid so an event near midnight is not cut off. Preview times follow the naive-UTC arithmetic the bot itself uses, so across a DST change they shift by an hour in local time just as the posted events will.
+- It is a toggle on the events page (List | Calendar), not a nav item, so the tab bar is unchanged. No JavaScript.
+
+`tests/test_eventcal.py` covers the grid, month paging and the preview.
 
 ### Notes for future changes
 

@@ -4,11 +4,12 @@ Moved out of web/app.py unchanged — see register().
 """
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from utils import database
+from datetime import datetime, timedelta, timezone
+from utils import database, eventcal
 from web import auth, nav as nav_service, modlists as modlist_service, service
 from web.auth import Forbidden
 from web.guilds import mentionable_roles, postable_channels, user_guilds
-from web.helpers import fmt_input
+from web.helpers import fmt_input, to_local
 
 def register(app, d):
     """Add this feature's routes to the app.
@@ -66,6 +67,46 @@ def register(app, d):
 
         return render(request, 'events.html', {
             **context, 'upcoming': upcoming, 'past': past,
+        })
+
+    @app.get('/g/{guild_id}/calendar', response_class=HTMLResponse)
+    async def events_calendar(request: Request, guild_id: str,
+                              month: str = '', span: str = '1'):
+        """The events as one or two months. What is shown is what the bot will
+        do: real events link to their page, and the later dates of a series are
+        previewed from the same rule the bot posts them by, without a link
+        because no row exists for them yet."""
+        context = await guild_context(request, guild_id)
+        tz = context['tz']
+        today = to_local(datetime.now(timezone.utc), tz).date()
+        first = eventcal.parse_month(month, today)
+        span_n = eventcal.parse_span(span)
+
+        grid_start, grid_end = eventcal.range_bounds(first, span_n)
+        # The grid is drawn in the guild's zone, the column is naive UTC: fetch a
+        # day either side so an event near midnight is not cut off at the edge.
+        lo = datetime.combine(grid_start, datetime.min.time()) - timedelta(days=1)
+        hi = datetime.combine(grid_end, datetime.min.time()) + timedelta(days=2)
+        events = await database.get_events_between(str(guild_id), lo, hi)
+
+        entries = []
+        for event in events:
+            entries.append({'when': to_local(event['event_time'], tz).replace(tzinfo=None),
+                            'event': event, 'preview': False})
+            if event['status'] == 'scheduled':
+                for later in eventcal.project_series(event, hi):
+                    entries.append({'when': to_local(later, tz).replace(tzinfo=None),
+                                    'event': event, 'preview': True})
+
+        months = [
+            eventcal.build_month(eventcal.shift_month(first, i), entries, today)
+            for i in range(span_n)
+        ]
+        return render(request, 'calendar.html', {
+            **context, 'months': months, 'span': span_n,
+            'prev_month': eventcal.shift_month(first, -span_n).strftime('%Y-%m'),
+            'next_month': eventcal.shift_month(first, span_n).strftime('%Y-%m'),
+            'this_month': today.strftime('%Y-%m'),
         })
 
     @app.get('/g/{guild_id}/events/new', response_class=HTMLResponse)

@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}{{ guild.name }} · Calendar{% endblock %}
+{% block tzfoot %}{{ tz }}{% endblock %}
+
+{% block content %}
+{% with active = 'events' %}{% include '_nav.html' %}{% endwith %}
+
+<div class="pagehead">
+  <h1>Events</h1>
+  <span class="viewtabs"><a href="/g/{{ guild.id }}">List</a><span class="on">Calendar</span></span>
+  {% if may_create %}
+    <a class="button primary" href="/g/{{ guild.id }}/events/new">+ New event</a>
+  {% endif %}
+</div>
+
+<div class="calnav">
+  <a class="button" href="/g/{{ guild.id }}/calendar?month={{ prev_month }}&span={{ span }}">← Previous</a>
+  <a class="button" href="/g/{{ guild.id }}/calendar?month={{ this_month }}&span={{ span }}">Today</a>
+  <a class="button" href="/g/{{ guild.id }}/calendar?month={{ next_month }}&span={{ span }}">Next →</a>
+  <span class="viewtabs">
+    {% for n in (1, 2) %}
+      {% if n == span %}<span class="on">{{ n }} month{{ 's' if n > 1 }}</span>
+      {% else %}<a href="/g/{{ guild.id }}/calendar?month={{ months[0].weeks[1][0].date.strftime('%Y-%m') }}&span={{ n }}">{{ n }} month{{ 's' if n > 1 }}</a>{% endif %}
+    {% endfor %}
+  </span>
+</div>
+
+{% for month in months %}
+  <h2>{{ month.label }}</h2>
+  <div class="calgrid">
+    {% for name in ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun') %}
+      <div class="calhead">{{ name }}</div>
+    {% endfor %}
+    {% for week in month.weeks %}{% for cell in week %}
+      <div class="calcell{{ ' out' if not cell.in_month }}{{ ' today' if cell.today }}">
+        <span class="calday">{{ cell.day }}</span>
+        {% for entry in cell.entries %}
+          {% set event = entry.event %}
+          {% if entry.preview %}
+            <span class="calevent preview" title="{{ event.title }} · repeats: {{ recurrence_text(event) }}">
+              {{ entry.when.strftime('%H:%M') }} {{ event.title }}
+            </span>
+          {% else %}
+            <a class="calevent {{ event.status }}" href="/g/{{ guild.id }}/events/{{ event.id }}"
+               title="{{ event.title }}{% if event.location %} · {{ event.location }}{% endif %}">
+              {{ entry.when.strftime('%H:%M') }} {{ event.title }}
+            </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endfor %}{% endfor %}
+  </div>
+{% endfor %}
+
+<p class="muted">
+  Times are {{ tz }}. Dashed entries are later dates of a repeating event: the bot posts each one when the
+  one before it is over, so there is nothing to open until then. Change the series on the event that is live.
+</p>
+{% endblock %}
