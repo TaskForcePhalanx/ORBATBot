@@ -94,7 +94,7 @@ goes stale, so the repair is skipped outright on an ORBAT-backed operation.
 **`/restart`**
 Restarts the bot. Two paths, in order:
 1. **Railway GraphQL API** — used when `RAILWAY_API_TOKEN` is set. `_railway_restart()` prefers `RAILWAY_DEPLOYMENT_ID` so the bot restarts *itself* rather than whatever a list query happens to return, falling back to the service's latest `SUCCESS` deployment. Returns the deployment id, which the reply shows truncated.
-2. **Process exit** — the fallback, also used when the API call raises. `os._exit(1)` after a 1 s pause (so Discord can deliver the ephemeral reply) trips Railway's `ON_FAILURE` restart policy.
+2. **Process exit** — the fallback, also used when the API call raises. `os._exit(1)` after a 1 s pause (so Discord can deliver the ephemeral reply) trips Railway's `ON_FAILURE` restart policy. **This is the path production uses** since the move to Portainer (no `RAILWAY_API_TOKEN` there): `restart: unless-stopped` relaunches the container on any exit.
 
 Nothing is lost either way: state lives in PostgreSQL and every view is re-registered by `setup_hook()`. Every invocation is printed with the requesting user and guild.
 
