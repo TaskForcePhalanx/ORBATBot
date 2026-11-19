@@ -236,13 +236,27 @@ def test_an_absurd_wait_is_bounded(monkeypatch):
     assert error.retry_after == reddit.MAX_RETRY_AFTER
 
 
-def test_a_missing_feed_is_not_asked_about_twice(monkeypatch):
-    # A 404 says the same thing from either host — only a refusal aimed at us
-    # is worth asking the other one about.
-    error, urls = fetch_with(monkeypatch, FakeResponse(404), FakeResponse(200, FEED))
+def test_a_404_is_asked_about_on_the_other_host(monkeypatch):
+    # Reddit answers a blocked datacenter address with 404 too, so one host
+    # saying "not found" is not yet "no such subreddit".
+    result, urls = fetch_with(monkeypatch, FakeResponse(404), FakeResponse(200, FEED))
+    assert [p['id'] for p in result] == ['t3_newest', 't3_older']
+    assert len(urls) == 2
+
+
+def test_a_404_from_both_hosts_does_not_claim_a_typo(monkeypatch):
+    error, urls = fetch_with(monkeypatch, FakeResponse(404), FakeResponse(404))
     assert isinstance(error, reddit.FeedError)
     assert not isinstance(error, reddit.RateLimited)
-    assert len(urls) == 1
+    assert len(urls) == 2
+    text = str(error)
+    assert 'misspelled' in text and 'blocked' in text
+
+
+def test_a_403_from_both_hosts_stands_the_watch_down(monkeypatch):
+    error, _ = fetch_with(monkeypatch, FakeResponse(403), FakeResponse(403))
+    assert isinstance(error, reddit.RateLimited)
+    assert 'blocking' in str(error)
 
 
 def test_a_post_on_the_author_s_own_profile_names_a_real_place():

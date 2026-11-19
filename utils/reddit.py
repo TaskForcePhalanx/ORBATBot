@@ -330,18 +330,26 @@ def parse_feed(body) -> list:
     return posts
 
 
+class _Missing(FeedError):
+    """A 404 or 403 from one host. Ambiguous on its own, so it never reaches a person.
+
+    Reddit answers a request from a hosting provider's address with 404 or 403
+    as readily as with 429, so "not found" from one host does not yet say the
+    feed is missing. `fetch_from()` asks the other host and only then words it.
+    """
+
+    def __init__(self, status: int):
+        super().__init__(f"Reddit answered {status}.")
+        self.status = status
+
+
 async def _read(session, url: str, headers: dict, kind: str, source: str) -> str:
     """One request. Raises `FeedError` for anything that isn't a feed."""
     async with session.get(url, headers=headers) as response:
         if response.status == 404:
-            raise FeedError(
-                f"Reddit has no {kind_prefix(kind)}{source} — check the spelling."
-            )
+            raise _Missing(response.status)
         if response.status == 403:
-            raise FeedError(
-                f"{kind_prefix(kind)}{source} is private or suspended, "
-                "so its feed can't be read."
-            )
+            raise _Missing(response.status)
         if response.status == 429:
             raise RateLimited(
                 "Reddit is rate-limiting this server.",
@@ -390,7 +398,7 @@ async def fetch_from(kind: str, source: str, *, timeout: int = 15) -> tuple:
         'Accept': 'application/atom+xml, application/rss+xml;q=0.9, */*;q=0.8',
     }
 
-    limited, last = None, None
+    limited, last, missing = None, None, []
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=timeout)
     ) as session:
@@ -411,17 +419,49 @@ async def fetch_from(kind: str, source: str, *, timeout: int = 15) -> tuple:
                 # about what was asked for, so the other host is worth trying —
                 # but it is not a refusal, so it doesn't stand the watch down.
                 last = e
+            except _Missing as e:
+                # 404 and 403 are what a genuinely missing or private feed
+                # says, and also what Reddit says to a datacenter address it
+                # has decided not to serve. So the other host is asked too, and
+                # the wording waits until both have answered.
+                missing.append(e.status)
             except FeedError:
-                # A 404 or a 403 is about the feed itself and says the same
-                # thing from either host; only something aimed at *us* is worth
-                # asking the other one about.
                 raise
             except aiohttp.ClientError as e:
                 last = FeedError(f"Couldn't reach Reddit: {e}")
             except TimeoutError:
                 last = FeedError("Reddit didn't answer in time.")
 
-    raise limited or last
+    if limited:
+        raise limited
+    if missing and not last:
+        raise _missing_error(kind, source, missing)
+    raise last or _missing_error(kind, source, missing)
+
+
+def _missing_error(kind: str, source: str, statuses: list) -> FeedError:
+    """What to say when every host answered 404 or 403.
+
+    It cannot be known from here whether the feed is missing or Reddit is
+    refusing this server, so the message says both and says how to tell —
+    "check the spelling" on its own sent people hunting for a typo that wasn't
+    there while Reddit was blocking the host.
+    """
+    name = f"{kind_prefix(kind)}{source}"
+    page = page_url(kind, source)
+    where = "both reddit.com hosts"
+    if 404 in statuses:
+        return FeedError(
+            f"Reddit answered \"not found\" for {name} from {where}. Either the "
+            f"name is misspelled, or Reddit is hiding the feed from this "
+            f"server's address. Open {page} in a browser: if it loads there, "
+            "the server is being blocked."
+        )
+    return RateLimited(
+        f"Reddit answered \"forbidden\" for {name} from {where}. Either it is "
+        f"private or banned, or Reddit is blocking this server's address. "
+        f"Open {page} in a browser: if it loads there, the server is being blocked."
+    )
 
 
 def render(template: str, post: dict) -> str:
