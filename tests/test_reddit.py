@@ -171,9 +171,8 @@ class FakeSession:
         self.answers = list(answers)
         self.urls = []
 
-    def get(self, url, headers=None, **kwargs):
+    def get(self, url, headers=None):
         self.urls.append(url)
-        self.kwargs = kwargs
         return self.answers.pop(0)
 
     async def __aenter__(self):
@@ -434,19 +433,3 @@ def test_the_api_is_used_only_with_both_credentials(monkeypatch):
     assert reddit.oauth_credentials() is None
     monkeypatch.setenv('REDDIT_CLIENT_SECRET', 'secret')
     assert reddit.oauth_credentials() == ('id', 'secret')
-
-
-def test_the_proxy_is_used_only_when_configured(monkeypatch):
-    monkeypatch.delenv('REDDIT_PROXY_URL', raising=False)
-    assert reddit.proxy_kwargs() == {}
-    monkeypatch.setenv('REDDIT_PROXY_URL', ' http://user:pw@proxy.example:3128 ')
-    assert reddit.proxy_kwargs() == {'proxy': 'http://user:pw@proxy.example:3128'}
-
-
-def test_a_request_goes_through_the_proxy(monkeypatch):
-    import aiohttp
-    monkeypatch.setenv('REDDIT_PROXY_URL', 'http://proxy.example:3128')
-    session = FakeSession([FakeResponse(200, FEED)])
-    monkeypatch.setattr(aiohttp, 'ClientSession', lambda **kw: session)
-    asyncio.run(reddit.fetch('user', 'Someone'))
-    assert session.kwargs == {'proxy': 'http://proxy.example:3128'}

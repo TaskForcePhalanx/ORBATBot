@@ -121,18 +121,6 @@ def user_agent() -> str:
     return (os.getenv('REDDIT_USER_AGENT') or '').strip() or DEFAULT_USER_AGENT
 
 
-def proxy_kwargs() -> dict:
-    """`{'proxy': url}` when `REDDIT_PROXY_URL` is set, else nothing.
-
-    Reddit turns away hosting providers' addresses, so the one way past it that
-    needs no approval from Reddit is to ask from another address. Only Reddit
-    requests go through it — nothing else in the bot does. HTTP(S) proxies only;
-    aiohttp does not speak SOCKS.
-    """
-    url = (os.getenv('REDDIT_PROXY_URL') or '').strip()
-    return {'proxy': url} if url else {}
-
-
 def oauth_credentials():
     """`(client id, secret)` when both are configured, else None."""
     client_id = (os.getenv('REDDIT_CLIENT_ID') or '').strip()
@@ -416,7 +404,7 @@ class _Missing(FeedError):
 
 async def _read(session, url: str, headers: dict, kind: str, source: str) -> str:
     """One request. Raises `FeedError` for anything that isn't a feed."""
-    async with session.get(url, headers=headers, **proxy_kwargs()) as response:
+    async with session.get(url, headers=headers) as response:
         if response.status == 404:
             raise _Missing(response.status)
         if response.status == 403:
@@ -451,7 +439,6 @@ async def _oauth_token(session, credentials) -> str:
         data={'grant_type': 'client_credentials'},
         auth=aiohttp.BasicAuth(*credentials),
         headers={'User-Agent': user_agent()},
-        **proxy_kwargs(),
     ) as response:
         if response.status == 429:
             raise RateLimited(
@@ -479,7 +466,7 @@ async def _fetch_oauth(session, credentials, kind: str, source: str) -> tuple:
     token = await _oauth_token(session, credentials)
     url = listing_url(kind, source)
     headers = {'User-Agent': user_agent(), 'Authorization': f"Bearer {token}"}
-    async with session.get(url, headers=headers, **proxy_kwargs()) as response:
+    async with session.get(url, headers=headers) as response:
         if response.status == 401:
             _token['value'] = None  # lapsed early; the next check gets a new one
             raise FeedError("Reddit's API token was refused; trying again next check.")
