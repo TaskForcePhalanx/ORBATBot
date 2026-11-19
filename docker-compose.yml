@@ -33,6 +33,7 @@ services:
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
+      - REDDIT_PROXY_URL=${REDDIT_PROXY_URL:-}
       # The website whose menu /stats wears. `-` not `:-`: an empty value turns it off.
       - SITE_NAV_URL=${SITE_NAV_URL-https://www.taskforcephalanx.com/}
     # The site is only reachable once the three variables above are set.
