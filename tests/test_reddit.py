@@ -396,3 +396,40 @@ def test_the_author_match_ignores_case():
 def test_a_post_with_no_author_never_matches_a_filter():
     posts = [{'id': 't3_x', 'author': ''}]
     assert reddit.by_authors(posts, ['Someone']) == []
+
+
+# -- the API listing --------------------------------------------------------
+
+LISTING = {'data': {'children': [
+    {'data': {'name': 't3_abc', 'title': ' Hello ', 'permalink': '/r/arma/comments/abc/hello/',
+              'author': 'Someone', 'subreddit': 'arma', 'created_utc': 1700000000.0, 'score': 99}},
+    {'data': {'title': 'no id'}},
+]}}
+
+
+def test_a_listing_reads_into_the_same_shape_as_the_feed():
+    posts = reddit.parse_listing(LISTING)
+    assert len(posts) == 1
+    post = posts[0]
+    assert post['id'] == 't3_abc'
+    assert post['title'] == 'Hello'
+    assert post['url'] == 'https://www.reddit.com/r/arma/comments/abc/hello/'
+    assert post['author'] == 'Someone' and post['subreddit'] == 'arma'
+    assert post['published'].tzinfo is not None
+    assert 'score' not in post
+
+
+def test_something_that_is_not_a_listing_is_not_a_feed():
+    import pytest
+    with pytest.raises(reddit.NotAFeed):
+        reddit.parse_listing({'error': 403})
+
+
+def test_the_api_is_used_only_with_both_credentials(monkeypatch):
+    monkeypatch.delenv('REDDIT_CLIENT_ID', raising=False)
+    monkeypatch.delenv('REDDIT_CLIENT_SECRET', raising=False)
+    assert reddit.oauth_credentials() is None
+    monkeypatch.setenv('REDDIT_CLIENT_ID', 'id')
+    assert reddit.oauth_credentials() is None
+    monkeypatch.setenv('REDDIT_CLIENT_SECRET', 'secret')
+    assert reddit.oauth_credentials() == ('id', 'secret')

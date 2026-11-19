@@ -57,8 +57,12 @@ Two things follow, and both are load-bearing:
 
 If a watch is refused from both hosts every time, the feed is not the way in
 from that host and the OAuth API (a script app, `oauth.reddit.com`) is — which
-is a different fetcher, not a different frequency. (Not built: it needs a
-Reddit script app's client id and secret.)
+is a different fetcher, not a different frequency. **It is built, and off by
+default**: set `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` (a "script" app from
+reddit.com/prefs/apps) and `fetch_from()` asks `oauth.reddit.com` first
+(app-only `client_credentials`, token cached in-process), falling back to the
+public feeds on a refusal aimed at us. The API's own 404/403 is final. Post ids
+keep the Atom `t3_…` form, so switching between the two re-announces nothing.
 
 `utils/reddit.py` imports **nothing but the standard library** — `aiohttp` is
 imported inside `fetch()`, the same trick `utils/sheets.py` plays with its

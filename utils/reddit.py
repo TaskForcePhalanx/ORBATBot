@@ -28,6 +28,7 @@ its own (`tests/test_reddit.py`).
 
 import os
 import re
+import time
 from datetime import datetime, timezone
 from xml.etree import ElementTree
 
@@ -88,6 +89,14 @@ FEED_HOSTS = ('https://www.reddit.com', 'https://old.reddit.com')
 DEFAULT_RETRY_AFTER = 1800
 MAX_RETRY_AFTER = 6 * 3600
 
+# The official API, for when the feeds are turned away. App-only OAuth: a
+# "script" app's client id and secret, no Reddit login. Off unless both are set.
+TOKEN_URL = 'https://www.reddit.com/api/v1/access_token'
+API_HOST = 'https://oauth.reddit.com'
+
+# The bearer token and when it lapses; one per process, refreshed a minute early.
+_token = {'value': None, 'expires': 0.0}
+
 _ATOM = '{http://www.w3.org/2005/Atom}'
 
 
@@ -110,6 +119,52 @@ class RateLimited(FeedError):
 
 def user_agent() -> str:
     return (os.getenv('REDDIT_USER_AGENT') or '').strip() or DEFAULT_USER_AGENT
+
+
+def oauth_credentials():
+    """`(client id, secret)` when both are configured, else None."""
+    client_id = (os.getenv('REDDIT_CLIENT_ID') or '').strip()
+    secret = (os.getenv('REDDIT_CLIENT_SECRET') or '').strip()
+    return (client_id, secret) if client_id and secret else None
+
+
+def listing_url(kind: str, source: str) -> str:
+    """The same posts through the API: JSON, newest first."""
+    if clean_kind(kind) == 'subreddit':
+        return f"{API_HOST}/r/{source}/new?limit=25&raw_json=1"
+    return f"{API_HOST}/user/{source}/submitted?sort=new&limit=25&raw_json=1"
+
+
+def parse_listing(data) -> list:
+    """Posts out of an API listing, as the same dicts `parse_feed()` returns.
+
+    Ids keep the Atom feed's `t3_…` form so a watch that switches between the
+    two never announces its history again. Scores and vote counts are not read.
+    """
+    try:
+        children = data['data']['children']
+    except (KeyError, TypeError):
+        raise NotAFeed("Reddit's API answered with something that isn't a listing.")
+    posts = []
+    for child in children:
+        post = (child or {}).get('data') or {}
+        name, link = post.get('name'), post.get('permalink')
+        if not name or not link:
+            continue
+        created = post.get('created_utc')
+        try:
+            published = datetime.fromtimestamp(float(created), timezone.utc)
+        except (TypeError, ValueError, OverflowError, OSError):
+            published = None
+        posts.append({
+            'id': name,
+            'title': (post.get('title') or '').strip(),
+            'url': f"https://www.reddit.com{link}",
+            'author': post.get('author') or '',
+            'subreddit': post.get('subreddit') or '',
+            'published': published,
+        })
+    return posts
 
 
 def clean_kind(raw) -> str:
@@ -330,6 +385,10 @@ def parse_feed(body) -> list:
     return posts
 
 
+class _Settled(FeedError):
+    """The API's own answer about a feed: final, so the public feeds aren't asked."""
+
+
 class _Missing(FeedError):
     """A 404 or 403 from one host. Ambiguous on its own, so it never reaches a person.
 
@@ -369,6 +428,67 @@ def _retry_after(header) -> int:
     return max(60, min(seconds, MAX_RETRY_AFTER))
 
 
+async def _oauth_token(session, credentials) -> str:
+    """A bearer token for the API, reused until a minute before it lapses."""
+    if _token['value'] and time.time() < _token['expires']:
+        return _token['value']
+    import aiohttp
+
+    async with session.post(
+        TOKEN_URL,
+        data={'grant_type': 'client_credentials'},
+        auth=aiohttp.BasicAuth(*credentials),
+        headers={'User-Agent': user_agent()},
+    ) as response:
+        if response.status == 429:
+            raise RateLimited(
+                "Reddit is rate-limiting this server.",
+                _retry_after(response.headers.get('Retry-After')),
+            )
+        if response.status in (401, 403):
+            raise FeedError(
+                "Reddit refused the REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET — "
+                "check them in the stack's variables."
+            )
+        if response.status != 200:
+            raise FeedError(f"Reddit's token endpoint answered {response.status}.")
+        body = await response.json(content_type=None)
+    token = (body or {}).get('access_token')
+    if not token:
+        raise FeedError("Reddit's token endpoint sent no token.")
+    _token['value'] = token
+    _token['expires'] = time.time() + max(60, int(body.get('expires_in') or 3600) - 60)
+    return token
+
+
+async def _fetch_oauth(session, credentials, kind: str, source: str) -> tuple:
+    """`(url, posts)` through the API. 404 here is authoritative: it is the API."""
+    token = await _oauth_token(session, credentials)
+    url = listing_url(kind, source)
+    headers = {'User-Agent': user_agent(), 'Authorization': f"Bearer {token}"}
+    async with session.get(url, headers=headers) as response:
+        if response.status == 401:
+            _token['value'] = None  # lapsed early; the next check gets a new one
+            raise FeedError("Reddit's API token was refused; trying again next check.")
+        if response.status == 404:
+            raise _Settled(
+                f"Reddit has no {kind_prefix(kind)}{source} — check the spelling."
+            )
+        if response.status == 403:
+            raise _Settled(
+                f"{kind_prefix(kind)}{source} is private or banned, "
+                "so it can't be read."
+            )
+        if response.status == 429:
+            raise RateLimited(
+                "Reddit's API is rate-limiting this bot.",
+                _retry_after(response.headers.get('Retry-After')),
+            )
+        if response.status != 200:
+            raise FeedError(f"Reddit's API answered {response.status}.")
+        return url, parse_listing(await response.json(content_type=None))
+
+
 async def fetch(kind: str, source: str, *, timeout: int = 15) -> list:
     """The posts on one feed. See `fetch_from()` for where they came from."""
     _, posts = await fetch_from(kind, source, timeout=timeout)
@@ -402,6 +522,23 @@ async def fetch_from(kind: str, source: str, *, timeout: int = 15) -> tuple:
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=timeout)
     ) as session:
+        credentials = oauth_credentials()
+        if credentials:
+            # The API first: it is what a hosting provider's address is not
+            # turned away from. If it fails for a reason about *us* the public
+            # feeds are still tried; an answer about the feed (404, 403) is final.
+            try:
+                return await _fetch_oauth(session, credentials, kind, source)
+            except RateLimited as e:
+                limited = e
+            except NotAFeed as e:
+                last = e
+            except (aiohttp.ClientError, TimeoutError) as e:
+                last = FeedError(f"Couldn't reach Reddit's API: {e}")
+            except FeedError as e:
+                if isinstance(e, _Settled):
+                    raise
+                last = e
         for host in FEED_HOSTS:
             url = feed_url(kind, source, host)
             try:
