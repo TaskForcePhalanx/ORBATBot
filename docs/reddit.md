@@ -57,7 +57,8 @@ Two things follow, and both are load-bearing:
 
 If a watch is refused from both hosts every time, the feed is not the way in
 from that host and the OAuth API (a script app, `oauth.reddit.com`) is — which
-is a different fetcher, not a different frequency.
+is a different fetcher, not a different frequency. (Not built: it needs a
+Reddit script app's client id and secret.)
 
 `utils/reddit.py` imports **nothing but the standard library** — `aiohttp` is
 imported inside `fetch()`, the same trick `utils/sheets.py` plays with its
