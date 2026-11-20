@@ -19,6 +19,7 @@ scheduled one does.
 """
 
 import logging
+import os
 import asyncio
 import time
 from datetime import datetime, timedelta, timezone
@@ -30,9 +31,19 @@ from utils import database, reddit
 
 log = logging.getLogger(__name__)
 
-# How often every watch is read. Reddit's feeds are cached for a minute or two
-# anyway, so anything shorter buys nothing and only costs rate limit.
-POLL_MINUTES = 5
+def _poll_minutes() -> int:
+    """How often every watch is read: `REDDIT_POLL_MINUTES`, default twice a day.
+
+    Reddit's feeds are cached for a minute or two, so anything under that buys
+    nothing. Floored at 5 so a typo can't turn the loop into a hammer.
+    """
+    try:
+        return max(5, int(os.getenv('REDDIT_POLL_MINUTES', '').strip()))
+    except ValueError:
+        return 720
+
+
+POLL_MINUTES = _poll_minutes()
 
 # A courtesy pause between feeds, so a guild with a handful of watches doesn't
 # hit Reddit with them all at once.

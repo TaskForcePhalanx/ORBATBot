@@ -12,7 +12,7 @@
 <p class="hint">
   Watches a Reddit user or a subreddit and announces every new post in a channel,
   with your own wording and whoever you want pinged. Checked every
-  {{ poll_minutes }} minutes.
+  {% if poll_minutes % 60 == 0 %}{{ poll_minutes // 60 }} hours{% else %}{{ poll_minutes }} minutes{% endif %}.
 </p>
 <p class="hint">
   Announce the post, don't ask for votes on it: organised upvoting is vote

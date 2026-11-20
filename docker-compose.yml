@@ -31,6 +31,7 @@ services:
       - RAILWAY_API_TOKEN=${RAILWAY_API_TOKEN:-}
       # How the bot identifies itself to Reddit when reading a watched feed.
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
+      - REDDIT_POLL_MINUTES=${REDDIT_POLL_MINUTES:-}
       # The website whose menu /stats wears. `-` not `:-`: an empty value turns it off.
       - SITE_NAV_URL=${SITE_NAV_URL-https://www.taskforcephalanx.com/}
     # The site is only reachable once the three variables above are set.
