@@ -31,3 +31,4 @@ python-docx>=1.1,<2
 # the operating system — the bot is built by Nixpacks, where cairo is not a
 # given. Imported where it is used, so a pack without traces still renders.
 resvg-py>=0.5,<0.6
+tzdata
