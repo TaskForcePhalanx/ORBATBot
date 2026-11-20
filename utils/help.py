@@ -1178,7 +1178,7 @@ _REDDIT: tuple[Topic, ...] = (
         notes=(
             '`{title}`, `{url}`, `{author}` and `{subreddit}` are filled in. '
             'Everything else is literal.',
-            'Checked every five minutes. **Check now** runs that check early '
+            'Checked twice a day, at 14:00 and 20:00 Amsterdam time. **Check now** runs a check '
             'and does announce.',
             'No Reddit account, API registration or secret is needed — it reads '
             'the public feed.',

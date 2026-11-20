@@ -2,7 +2,7 @@
 
 Moved out of web/app.py unchanged — see register().
 """
-from cogs.redditfeed import POLL_MINUTES
+from cogs.redditfeed import CHECK_HOURS, CHECK_ZONE
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from utils import database
@@ -552,7 +552,8 @@ def register(app, d):
         return render(request, 'reddit.html', {
             **context,
             'feeds': reddit_service.view_models(context['guild'], feeds),
-            'poll_minutes': POLL_MINUTES,
+            'check_hours': CHECK_HOURS,
+            'check_zone': CHECK_ZONE,
         })
 
     @app.get('/g/{guild_id}/reddit/new', response_class=HTMLResponse)

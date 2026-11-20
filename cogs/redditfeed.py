@@ -21,6 +21,8 @@ scheduled one does.
 import logging
 import asyncio
 import time
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -30,9 +32,12 @@ from utils import database, reddit
 
 log = logging.getLogger(__name__)
 
-# How often every watch is read. Reddit's feeds are cached for a minute or two
-# anyway, so anything shorter buys nothing and only costs rate limit.
-POLL_MINUTES = 5
+# When every watch is read: twice a day, in Amsterdam time (the unit's zone), so
+# the schedule follows the clock through summer time. **Check now** runs a check
+# at any other time. A restart of the bot does not add one.
+CHECK_ZONE = 'Europe/Amsterdam'
+CHECK_HOURS = (14, 20)
+CHECK_TIMES = [dtime(hour, 0, tzinfo=ZoneInfo(CHECK_ZONE)) for hour in CHECK_HOURS]
 
 # A courtesy pause between feeds, so a guild with a handful of watches doesn't
 # hit Reddit with them all at once.
@@ -326,7 +331,7 @@ class RedditFeedCog(commands.Cog):
     def cog_unload(self):
         self.poll.cancel()
 
-    @tasks.loop(minutes=POLL_MINUTES)
+    @tasks.loop(time=CHECK_TIMES)
     async def poll(self):
         """Read every enabled watch.
 
