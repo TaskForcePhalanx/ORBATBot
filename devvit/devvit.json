@@ -1,0 +1,40 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "tfp-announcer",
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.js"
+  },
+  "permissions": {
+    "http": {
+      "enable": true,
+      "domains": ["discord.com"]
+    },
+    "reddit": true
+  },
+  "triggers": {
+    "onPostSubmit": "/internal/on-post-submit"
+  },
+  "settings": {
+    "global": {
+      "discordWebhookUrl": {
+        "type": "string",
+        "label": "Discord webhook URL",
+        "defaultValue": "",
+        "isSecret": true
+      }
+    },
+    "subreddit": {
+      "authors": {
+        "type": "string",
+        "label": "Only announce posts by these users",
+        "helpText": "Comma-separated Reddit usernames, without u/. Leave empty to announce every post.",
+        "defaultValue": ""
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run build",
+    "dev": "npm run build"
+  }
+}
